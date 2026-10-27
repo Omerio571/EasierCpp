@@ -1,0 +1,18 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "windows-debug",
+      "displayName": "Windows Debug (Ninja)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+        "BUILD_TESTING": true
+      }
+    }
+  ],
+  "buildPresets": [{ "name": "windows-debug", "configurePreset": "windows-debug" }],
+  "testPresets": [{ "name": "windows-debug", "configurePreset": "windows-debug", "output": { "outputOnFailure": true } }]
+}

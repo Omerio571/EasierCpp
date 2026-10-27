@@ -1,0 +1,12 @@
+# Run the actual executable with an empty PATH, retaining installed-tool discovery.
+set(ENV{PATH} "")
+execute_process(COMMAND "${APP}" doctor RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error)
+message(STATUS "${output}")
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "Installed toolchain not discovered with empty PATH: ${result} ${error}")
+endif()
+foreach(tool IN ITEMS cmake ninja cl)
+  if(NOT output MATCHES "${tool}: Installed: Yes \\| Available in current terminal: No")
+    message(FATAL_ERROR "Installed/terminal distinction incorrect for ${tool}: ${output}")
+  endif()
+endforeach()
