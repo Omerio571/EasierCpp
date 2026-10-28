@@ -12,13 +12,14 @@ int main()
         {
             throw std::runtime_error("Rich Edit unavailable");
         }
-        // This hidden test window owns only test controls. No user app or focus is touched.
-        HWND parent = CreateWindowExW(0,
+        // Keep an unactivated host off-screen so Rich Edit computes real viewports.
+        // Only test controls are owned; no user app or keyboard focus is touched.
+        HWND parent = CreateWindowExW(WS_EX_NOACTIVATE,
             L"STATIC",
             L"CppLiveLab console test",
             WS_OVERLAPPED,
-            0,
-            0,
+            -30000,
+            -30000,
             600,
             400,
             nullptr,
@@ -29,6 +30,7 @@ int main()
         {
             throw std::runtime_error("Cannot create console test host");
         }
+        ShowWindow(parent, SW_SHOWNOACTIVATE);
         cpplivelab::ConsolePane program, system;
         program.create(parent, 101, static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
         system.create(parent, 102, static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)));
@@ -44,8 +46,8 @@ int main()
         program.append(cpplivelab::MessageKind::ProgramOutput, L"Name: ");
         require(GetWindowTextLengthW(program.window) == 6,
             "Prompt without newline was not rendered immediately");
-        system.append(cpplivelab::MessageKind::Error, L"[ERROR] example.cpp(1): error C1234\n");
         system.set_visible(false);
+        system.append(cpplivelab::MessageKind::Error, L"[ERROR] example.cpp(1): error C1234\n");
         system.append(cpplivelab::MessageKind::System, L"Background update\n");
         system.set_colors(cpplivelab::ConsoleColors{});
         require((GetWindowLongPtrW(system.window, GWL_STYLE) & WS_VISIBLE) == 0,
@@ -55,9 +57,22 @@ int main()
             system.append(cpplivelab::MessageKind::Build, L"background build line\n");
         }
         system.set_visible(true);
-        POINT latest{};
-        SendMessageW(system.window, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&latest));
-        require(latest.y > 0, "Background tab lost its follow-tail position");
+        CHARRANGE latest{};
+        SendMessageW(system.window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&latest));
+        GETTEXTLENGTHEX length_query{GTL_NUMCHARS | GTL_PRECISE, 1200};
+        const auto actual_length = SendMessageW(
+            system.window, EM_GETTEXTLENGTHEX, reinterpret_cast<WPARAM>(&length_query), 0);
+        if (latest.cpMin != actual_length)
+        {
+            throw std::runtime_error("Background tab lost its follow-tail position: caret " +
+                                     std::to_string(latest.cpMin) + " length " +
+                                     std::to_string(actual_length));
+        }
+        SCROLLINFO viewport{sizeof(SCROLLINFO), SIF_ALL};
+        GetScrollInfo(system.window, SB_VERT, &viewport);
+        require(viewport.nPos > 0 &&
+                    viewport.nPos + static_cast<int>(viewport.nPage) >= viewport.nMax - 3,
+            "Background tab caret moved but viewport did not follow the latest output");
         require(system.history.unread_error(), "Inactive system console lacked an error badge");
         require(
             GetWindowTextLengthW(program.window) == 6, "Build error leaked into Program Console");

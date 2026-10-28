@@ -1,5 +1,6 @@
 #include "cpplivelab/session.hpp"
 #include "windows_support.hpp"
+#include "child_startup.hpp"
 #include "project_paths.hpp"
 #include <array>
 #include <cwctype>
@@ -44,6 +45,7 @@ struct ConsoleSession::Impl
     std::string pending_input_text;
     bool is_input_pending = false;
     bool has_launched = false;
+    bool is_worker = false;
     int process_exit_code = 0;
 
     void prepare_input_pipe(UniqueHandle& child_stdin_read_handle);
@@ -115,6 +117,12 @@ bool ConsoleSession::running() const
     {
         return false;
     }
+    // Job accounting can reach zero slightly before the root process handle is
+    // signaled during termination. Do not expose a cached success code in that gap.
+    if (!root_exited())
+    {
+        return true;
+    }
     // A worker may exit before one of its children. Waiting only for the original
     // process could enable Build too early and try to overwrite a running executable.
     JOBOBJECT_BASIC_ACCOUNTING_INFORMATION job_accounting{};
@@ -141,6 +149,74 @@ bool ConsoleSession::output_pending() const
     return pending(impl_->output_pipe.value) || pending(impl_->error_pipe.value);
 }
 
+bool ConsoleSession::root_exited() const
+{
+    return impl_->has_launched &&
+           WaitForSingleObject(impl_->running_process_handle.value, 0) == WAIT_OBJECT_0;
+}
+
+unsigned long ConsoleSession::process_id() const
+{
+    return impl_->has_launched ? GetProcessId(impl_->running_process_handle.value) : 0;
+}
+
+std::vector<unsigned long> ConsoleSession::active_process_ids() const
+{
+    if (!impl_->has_launched)
+    {
+        return {};
+    }
+    std::vector<ULONG_PTR> storage(128);
+    auto* list = reinterpret_cast<JOBOBJECT_BASIC_PROCESS_ID_LIST*>(storage.data());
+    while (!QueryInformationJobObject(impl_->job_handle.value,
+        JobObjectBasicProcessIdList,
+        list,
+        static_cast<DWORD>(storage.size() * sizeof(ULONG_PTR)),
+        nullptr))
+    {
+        if (GetLastError() != ERROR_MORE_DATA || storage.size() > 65536)
+        {
+            throw std::runtime_error("Cannot inspect owned process tree");
+        }
+        storage.resize(storage.size() * 2);
+        list = reinterpret_cast<JOBOBJECT_BASIC_PROCESS_ID_LIST*>(storage.data());
+    }
+    std::vector<unsigned long> ids;
+    for (DWORD index = 0; index < list->NumberOfProcessIdsInList; ++index)
+    {
+        ids.push_back(static_cast<unsigned long>(list->ProcessIdList[index]));
+    }
+    return ids;
+}
+
+void ConsoleSession::finish_build()
+{
+    if (!root_exited())
+    {
+        throw std::runtime_error("Cannot finish a build whose worker is still running");
+    }
+    // The CLI returns only after CMake/Ninja finishes. Anything still in its job
+    // is a background helper, not an unfinished compiler operation. Terminate only
+    // that owned remainder; interactive program trees retain the original policy.
+    if (running())
+    {
+        TerminateJobObject(impl_->job_handle.value, 130);
+    }
+    close_input();
+}
+
+void ConsoleSession::release_completed()
+{
+    if (running() || output_pending())
+    {
+        throw std::runtime_error("Drain the owned operation before releasing its handles");
+    }
+    const auto result = exit_code();
+    close_input();
+    impl_ = std::make_unique<Impl>();
+    impl_->process_exit_code = result;
+}
+
 void ConsoleSession::start(const std::filesystem::path& executable,
     const std::vector<std::wstring>& arguments,
     const std::filesystem::path& directory)
@@ -154,6 +230,14 @@ void ConsoleSession::start_program(const std::filesystem::path& executable,
     const Environment& environment)
 {
     start_impl(executable, arguments, directory, environment, true);
+}
+
+void ConsoleSession::start_worker(const std::filesystem::path& executable,
+    const std::vector<std::wstring>& arguments,
+    const std::filesystem::path& directory)
+{
+    start_impl(executable, arguments, directory, {}, false);
+    impl_->is_worker = true;
 }
 
 void ConsoleSession::start_impl(const std::filesystem::path& executable,
@@ -198,13 +282,9 @@ void ConsoleSession::start_impl(const std::filesystem::path& executable,
     // writer could keep stdin open forever after the GUI sends End Input.
     SetHandleInformation(process_state.output_pipe.value, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(process_state.input_pipe.value, HANDLE_FLAG_INHERIT, 0);
-    STARTUPINFOW startup_information{};
-    startup_information.cb = sizeof(startup_information);
-    startup_information.dwFlags = STARTF_USESTDHANDLES;
-    startup_information.hStdInput = child_stdin_read_handle.value;
-    startup_information.hStdOutput = child_stdout_write_handle.value;
-    startup_information.hStdError =
-        separate_stderr ? child_stderr_write_handle.value : child_stdout_write_handle.value;
+    windows_support::ChildStartup startup(child_stdin_read_handle.value,
+        child_stdout_write_handle.value,
+        separate_stderr ? child_stderr_write_handle.value : child_stdout_write_handle.value);
     PROCESS_INFORMATION process_information{};
     auto process_command_line = make_command_line(executable, arguments);
 
@@ -215,10 +295,11 @@ void ConsoleSession::start_impl(const std::filesystem::path& executable,
             nullptr,
             nullptr,
             TRUE,
-            CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+            CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT |
+                EXTENDED_STARTUPINFO_PRESENT,
             environment.empty() ? nullptr : const_cast<wchar_t*>(environment.data()),
             directory.c_str(),
-            &startup_information,
+            &startup.information.StartupInfo,
             &process_information))
     {
         throw std::runtime_error(
@@ -247,6 +328,10 @@ void ConsoleSession::start_impl(const std::filesystem::path& executable,
 
 std::vector<ProcessOutput> ConsoleSession::poll_output()
 {
+    if (impl_->is_worker && root_exited())
+    {
+        finish_build();
+    }
     if (impl_->is_input_pending)
     {
         DWORD bytes_written = 0;
@@ -370,6 +455,14 @@ void ConsoleSession::stop()
 
 int ConsoleSession::exit_code() const
 {
+    if (root_exited())
+    {
+        DWORD result = 1;
+        if (GetExitCodeProcess(impl_->running_process_handle.value, &result))
+        {
+            return static_cast<int>(result);
+        }
+    }
     return impl_->process_exit_code;
 }
 

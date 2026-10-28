@@ -1,3 +1,181 @@
+# Latest automated reliability retest — October 28, 2026
+
+Final executed command:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Doctor
+```
+
+**Exit 0. All 28 tests passed; 0 failed; total CTest time 373.93 seconds.**
+The final invocation verified the built binaries (`ninja: no work to do`). An earlier
+28-test run passed in 210.23 seconds, before the additional diagnostic-classification
+regression was added and fixed. The 373.93-second run includes that final fix.
+
+## Failures found, fixed, and retested
+
+1. **Completed CLI builds waiting on telemetry helpers.** The first full run failed
+   reliability_queue, reliability_freshness, stage4_auto_build and
+   maintenance_unicode_project after 60-second operation timeouts. Captured logs
+   showed successful compilation/linking, and the Unicode program even printed its
+   expected result. Process inspection identified MSVC's background `vctip.exe`.
+   CLI/build sessions now explicitly use `start_worker`: root exit plus drained output
+   ends the worker and removes only remaining processes in its owned job. Interactive
+   program sessions keep their original full-tree policy. No timeout was raised to
+   hide this failure. The seven affected/related tests passed in 125.29 seconds.
+2. **Run after End Input kept stdin disabled.** A new hidden-controller test failed
+   with `Fast Run after End Input kept stdin disabled from the previous process`.
+   Every program launch now resets the input-closed flag. Retested with real stdin.
+3. **Stop left Run disabled.** The next controller run exposed
+   `Completed Stop left Run disabled until another Build`. Completion now clears
+   operation-local cancellation state. Run becomes available without reopening.
+4. **Minimize corrupted control geometry.** The controller test reproduced
+   `Minimizing applied a zero-size layout and corrupted input/control geometry`.
+   Zero/minimized sizes now preserve the last layout. Control moves and rounded
+   regions finish before a single full redraw, with sibling clipping and no stale
+   native edit edge. Eighty resize cycles verify non-overlap, rounded-region geometry
+   and bounded GDI resources. Actual visual appearance remains a manual check.
+5. **Compiler errors colored as deferred warnings.** A new diagnostic test failed
+   when a real MSVC fatal error quoted `Executable is running or not writable`.
+   Classification now recognizes the controller's explicit deferred prefix rather
+   than guessing from message substrings. The console-model and real queue/error/
+   cancellation tests passed together in 25.62 seconds after the fix.
+
+Clear Program also now provides a neutral input-availability status while the running
+process waits. The controller test verifies that clearing keeps the same process,
+enabled Send, working input, and independent build/program histories.
+
+## Final coverage
+
+| Test group | Executed coverage | Final result |
+| --- | --- | --- |
+| reliability_gui_flow | Real controller in a hidden, test-owned native window; repeated Run without rebuild; EOF/restart; clear/input; Stop/restart; 80 resizes; rounded regions/GDI bounds; real Debug and Release build/run; shutdown | Passed, 23.72 s |
+| reliability_inheritance | Unrelated event/pipe handles excluded from children; foreign writers cannot hold EOF | Passed |
+| reliability_lifecycle | Twenty helper/termination cycles, explicit worker completion, setup capture with helper-held stdout | Passed |
+| reliability_queue | Real cancellation with queued edits, preserved working executable, successful subsequent build, 1,000 coalesced scheduler requests, true error versus Deferred | Passed |
+| reliability_freshness | Actual Ninja dry-runs, external header dependency, source/header changes, deleted/modified executable, independent configurations, failed/changed observations, unattached source and CMake glob fallback | Passed |
+| Original seven Stage 4 tests | Native console, watcher, scheduler, real automatic-build integration, console model, separated channels, appearance/contrast/preferences/DPI calculations | All passed |
+| Original sixteen Stage 1–3/maintenance regressions | Tool discovery, empty PATH, CLI behavior, single/multi-file builds, Debug/Release, input/EOF, safety locks, process trees, cached settings/presets, Unicode, argument/handle/output/path regressions | All passed |
+
+No original assertion or regression was removed. CLI launches in the integration
+tests now declare the worker contract; direct interactive/orphan process-tree tests
+remain unchanged and passed. The GUI-controller host uses an isolated test registry
+key and temporary calculator, not the user's project or preferences. Its window is
+not shown and it does not inject desktop input. Enter-key behavior, actual themes,
+Windows minimize/maximize visuals and physical mixed-DPI displays remain manual.
+
+Additional executed checks:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\format.ps1 -Check
+.\build\debug\cpplivelab.exe --version
+.\build\debug\cpplivelab.exe doctor
+git diff --check
+git ls-files -ci --exclude-standard
+git diff --cached --name-only
+```
+
+- clang-format 19.1.5 verified **37** maintained C++ files.
+- Version remains `CppLiveLab 0.1.0`; ordinary-terminal doctor returned 0, finding
+  installed CMake/Ninja/MSVC/Clang while reporting current-terminal availability No.
+  GCC remains absent and optional. No persistent PATH changes were made.
+- Git whitespace and generated-file ignore checks passed. Required new sources are
+  not ignored. Nothing was staged, committed or pushed during this pass.
+- Checksum comparison found **21 existing external user-project files unchanged**.
+
+Manual handoff: [STAGE4_REPAIR_MANUAL_TESTS.md](STAGE4_REPAIR_MANUAL_TESTS.md).
+Current code/files/limits: [STAGE4_REVIEW.md](STAGE4_REVIEW.md).
+Structured/friendly diagnostics, the Simple/Detailed log presentation and further
+requested Light palette distinction are still unfinished from the earlier request.
+Passing these tests does not claim those missing features are implemented or approve
+Stage 4. No Stage 5 work was performed.
+
+---
+
+# Earlier Stage 4 completion — executed October 28, 2026
+
+Final command, started from ordinary PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Doctor
+```
+
+Result: **exit 0; 23/23 CTest tests passed; 0 failures; 145.56 seconds.**
+The manager and native GUI were built with MSVC/Ninja before this final run. The
+last invocation reported `ninja: no work to do` against those verified binaries.
+An earlier complete run also passed 23/23 in 170.01 seconds; a subsequent real-GUI
+viewport check prompted the final correction and another full run.
+
+| Tests executed | Coverage | Final result |
+| --- | --- | --- |
+| stage4_console_view | Real Rich Edit prompts, hidden-tab visibility, caret and actual viewport follow, selection, scroll preservation, separate Clear, color, bounded history, recoloring | Passed |
+| stage4_watcher | Real Windows notifications; sources/headers/CMake; add/delete/rename; generated/duplicate suppression; project switch; cancellation/handles; atomic save; Unicode filename; locked-file retry | Passed (57 checks) |
+| stage4_scheduler | Debounce, disabled mode, busy build, deferred executable, coalescing and cancellation | Passed (15 checks) |
+| stage4_auto_build | Real Debug/Release compilation, compile-error recovery, retained successful executable, input-waiting program preservation, source/config saves, rapid saves during a real build and one follow-up | Passed |
+| stage4_console_model | Independent histories, unread/error flags, classification and bounds | Passed (11 checks) |
+| stage4_channels | Real interactive stdin with separate stdout/stderr, no stream leakage, exit code | Passed (8 checks) |
+| stage4_appearance | Dark/Light contrast, Follow Windows resolution, isolated preference round-trip, DPI math | Passed (21 checks) |
+| Original 16 tests | doctor_unit; maintenance_paths/output/handles/arguments/unicode_project; stage3_session/tree/projects; stage2_integration; doctor_without_path; cli_version/help/unknown/extra/doctor | All passed |
+
+Stage 2 integration executed its original 36 checks. Stage 3 session/tree/projects
+executed 13/5/20 checks. No previous regression was removed or disabled.
+
+Failures discovered and addressed:
+
+- A hidden Rich Edit could become visible on WM_SETREDRAW(TRUE); hidden tabs now
+  retain their visibility during output/theme updates (fixed earlier in Stage 4).
+- The background-follow test initially compared incompatible CRLF/caret lengths.
+  It now queries Rich Edit character counts. Empty histories explicitly follow tail.
+- A real window check then found that moving the caret did not always move the
+  viewport after hidden/redraw-suspended updates. Explicit bottom scrolling after
+  show/redraw now fixes this. The test uses an unactivated off-screen host and
+  verifies the actual scrollbar position, not just the caret.
+- The added locked-file test initially used a nonexistent UniqueHandle constructor;
+  corrected to the existing reset/ownership API before the final successful build.
+
+Actual GUI checks used only a fresh temporary calculator, not existing demos:
+
+- A source save triggered Automatic Debug build and Build Successful.
+- A CMake save reconfigured and emitted 40 status lines; opening the background
+  Build & System tab showed its latest success at the bottom.
+- Build output stayed out of Program Console; inactive tabs indicated new messages.
+- Enter submitted name/number input; Send submitted the final number. The running
+  multiplication executable printed `Hello, Ada! Sum: 9.375` after addition had been
+  saved. The running process stayed intact, showed Build Deferred, then automatically
+  built the pending edit on exit without launching another program.
+- Stop terminated an input-waiting owned calculator; its deferred build then succeeded.
+- Auto Build OFF prevented a real source save from rebuilding (executable timestamp
+  unchanged after two seconds); manual Build still completed successfully while off.
+- Light and Dark themes retained output, and maximize/restore remained usable.
+  Light/Auto Build ON preferences were restored on launch from the earlier session.
+
+Additional commands executed:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\format.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\format.ps1 -Check
+.\build\debug\cpplivelab.exe --version
+.\build\debug\cpplivelab.exe doctor
+git diff --check
+git ls-files -ci --exclude-standard
+git diff --cached --name-only
+```
+
+clang-format 19.1.5 verified all 32 maintained C++ files. Version remained
+`CppLiveLab 0.1.0`. Ordinary-terminal doctor found installed CMake, Ninja, MSVC and
+Clang even though each reported Available in current terminal: No. GCC was absent
+and optional. No persistent PATH change was made. Git whitespace validation passed,
+no tracked ignored artifacts were found, and nothing was staged/committed/pushed
+during this completion pass. Hashes for all 12 existing external user-project source
+and configuration files matched before/after testing.
+
+Still awaiting user acceptance: the full A–G manual walkthrough, VS editing/debugging
+workflow on the user's chosen project, physical mixed-DPI displays and actual Windows
+app-color changes. These are not claimed as executed. Console cross-pipe ordering,
+history limits, large-tree/network watcher limits and unsupported future features
+are documented in STAGE4_REVIEW.md. No Stage 5 work was performed.
+
+---
+
 # Stage 1 discovery fix — executed results
 
 Executed October 27, 2026 on Windows x64.

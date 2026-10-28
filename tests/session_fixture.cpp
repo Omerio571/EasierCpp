@@ -4,9 +4,21 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include "cpplivelab/process.hpp"
 
 int wmain(int argc, wchar_t** argv)
 {
+    if (argc == 3 && std::wstring(argv[1]) == L"signal-handle")
+    {
+        const auto handle = reinterpret_cast<HANDLE>(std::stoull(argv[2]));
+        return SetEvent(handle) ? 0 : 1;
+    }
+    if (argc == 3 && std::wstring(argv[1]) == L"capture-environment")
+    {
+        const auto environment = cpplivelab::developer_environment(argv[2]);
+        std::cout << (environment.empty() ? "EMPTY" : "ENVREADY") << std::flush;
+        return environment.empty() ? 1 : 0;
+    }
     // Exercise actual Windows argv reconstruction, including cases a shell-style
     // quoting shortcut would corrupt. This is used by the maintenance regressions.
     if (argc >= 2 && std::wstring(argv[1]) == L"arguments")
@@ -37,6 +49,10 @@ int wmain(int argc, wchar_t** argv)
         return 2;
     }
     const std::wstring fixture_mode(argv[1]);
+    if (fixture_mode == L"silent-hold")
+    {
+        Sleep(INFINITE);
+    }
     if (fixture_mode == L"hold")
     {
         std::cout << "HOLD " << GetCurrentProcessId() << '\n' << std::flush;

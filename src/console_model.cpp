@@ -110,8 +110,9 @@ MessageKind classify_build_line(std::wstring_view line)
     {
         character = static_cast<wchar_t>(std::towlower(character));
     }
-    if (lowered.find(L"already building or running") != lowered.npos ||
-        lowered.find(L"executable is running or not writable") != lowered.npos)
+    // Only the controller's explicit deferred result is a scheduling warning.
+    // A compiler can quote those words inside a genuine error diagnostic.
+    if (lowered.starts_with(L"cpplivelab build deferred:"))
     {
         return MessageKind::Warning;
     }

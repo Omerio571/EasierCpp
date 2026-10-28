@@ -82,15 +82,20 @@ folder directly. It does not generate a solution or change project settings.
 Visual Studio's [Open Folder workflow](https://devblogs.microsoft.com/cppblog/bring-your-c-codebase-to-visual-studio-with-open-folder/)
 supports this direct `devenv.exe <folder>` launch.
 
-Choose Debug or Release, then **Build** or **Run**. Run builds first, then shows program
-output in **Program Console**. Type into the input field and press **Send** or Enter
+Choose Debug or Release, then **Build** or **Run**. GUI Run reuses a successful build
+only after checking the selected project/configuration/executable, source fingerprints,
+build artifacts and a Ninja dependency dry-run. Unknown or changed inputs build first;
+observations are never trusted across restarts. Program output appears in
+**Program Console**. Type into the input field and press **Send** or Enter
 for each line. **End Input** closes stdin. For custom executable names, set the
 Executable field relative to the chosen build directory, such as `src/myprogram.exe`.
 
 **Stop** terminates only the operation's owned Windows Job Object (the CLI, compiler,
 program and descendants). It is a forced stop, so the program does not get a cleanup
-callback. Build, Run and project selection stay disabled until that process tree has
-exited. Closing the window while busy also stops its owned processes. Visual Studio
+callback. Build and project selection stay disabled until that process tree has
+exited; Run can queue behind a build. A completed build worker releases owned
+background tool helpers rather than waiting indefinitely for them. Closing the
+window while busy also stops its owned processes. Visual Studio
 is launched separately and is never included in that job.
 
 CppLiveLab holds a per-project/configuration build lock through program execution,
@@ -198,6 +203,11 @@ No custom code editor, library integration, hot reloading, checkpoints, or state
 restoration is implemented.
 
 ## Automatic builds, consoles, and appearance
+
+The current automated reliability retest and manual handoff are documented in
+[STAGE4_REPAIR_MANUAL_TESTS.md](STAGE4_REPAIR_MANUAL_TESTS.md). The earlier requested
+Simple/Detailed diagnostic presentation and additional Light palette improvements
+remain open; passing automated tests is not approval of those unfinished requests.
 
 Open a project, enable **Auto Build: ON**, edit in Visual Studio, and save. The default
 debounce is 400 ms; the field accepts 100–5000 ms and applies when focus leaves it.

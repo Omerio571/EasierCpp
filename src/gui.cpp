@@ -7,6 +7,7 @@
 #include "output_decoder.hpp"
 #include "auto_build.hpp"
 #include "build_lease.hpp"
+#include "build_freshness.hpp"
 #include "console_view.hpp"
 #include "ui_theme.hpp"
 #include <future>
@@ -113,16 +114,37 @@ public:
     {
         Idle,
         Building,
+        Checking,
         PreparingProgram,
         Running
     };
     Phase phase = Phase::Idle;
     bool automatic_operation = false;
+    unsigned long long build_sequence = 0;
+    std::wstring build_id;
+    ULONGLONG last_build_activity = 0;
+    bool stall_reported = false;
+    bool build_root_observed = false;
     std::wstring pending_build_line;
     std::wstring build_diagnostics;
     std::unique_ptr<cpplivelab::BuildLease> program_lease;
-    std::future<cpplivelab::Environment> environment_future;
+
+    struct PreparedTools
+    {
+        cpplivelab::Environment environment;
+        fs::path ninja;
+    };
+
+    std::future<PreparedTools> environment_future;
     cpplivelab::Environment program_environment;
+    fs::path ninja_executable;
+    cpplivelab::BuildFreshness freshness;
+    cpplivelab::BuildIdentity building_identity;
+    cpplivelab::SourceFingerprints building_sources;
+    bool building_sources_known = false;
+    bool run_requested = false;
+    bool probe_pending = false;
+    std::string probe_output;
     bool environment_ready = false;
     bool error_line_start = true;
     fs::path active_project_directory;
@@ -208,9 +230,11 @@ public:
         }
     }
 
+    std::wstring preference_store = L"Software\\CppLiveLab";
+
     void persist_preferences()
     {
-        if (!cpplivelab::save_preferences(preferences))
+        if (!cpplivelab::save_preferences(preferences, preference_store))
         {
             log(cpplivelab::MessageKind::Warning,
                 L"Preferences could not be saved; the current selection still applies.");
@@ -282,19 +306,18 @@ public:
         {
             style |= CBS_OWNERDRAWFIXED | CBS_HASSTRINGS;
         }
-        HWND child_window_handle =
-            CreateWindowExW(window_class == std::wstring(L"EDIT") ? WS_EX_CLIENTEDGE : 0,
-                window_class,
-                label,
-                WS_CHILD | WS_VISIBLE | style,
-                0,
-                0,
-                0,
-                0,
-                window_handle,
-                reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
-                GetModuleHandleW(nullptr),
-                nullptr);
+        HWND child_window_handle = CreateWindowExW(0,
+            window_class,
+            label,
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | style,
+            0,
+            0,
+            0,
+            0,
+            window_handle,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
+            GetModuleHandleW(nullptr),
+            nullptr);
         SendMessageW(
             child_window_handle, WM_SETFONT, reinterpret_cast<WPARAM>(interface_font), TRUE);
         return child_window_handle;
@@ -378,7 +401,7 @@ public:
                 cpplivelab::scale_pixels(y, dpi),
                 cpplivelab::scale_pixels(w, dpi),
                 cpplivelab::scale_pixels(h, dpi),
-                TRUE);
+                FALSE);
         };
         position_control(201, 16, 12, 300, 20);
         position_control(FolderInput, 16, 36, width - 270, 28);
@@ -409,7 +432,12 @@ public:
         position_control(SendButton, width - 198, height - 60, 76, 30);
         position_control(EndInputButton, width - 110, height - 60, 94, 30);
         appearance.round_controls();
-        InvalidateRect(window_handle, nullptr, TRUE);
+        // Paint once after every control has its new bounds and rounded region.
+        // Immediate MoveWindow redraws can otherwise paint through stale regions.
+        RedrawWindow(window_handle,
+            nullptr,
+            nullptr,
+            RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
     }
 
     void update_console_badges()
@@ -455,6 +483,11 @@ public:
 
     void append_build_output(const std::wstring& text, bool flush = false)
     {
+        if (!text.empty())
+        {
+            last_build_activity = GetTickCount64();
+            stall_reported = false;
+        }
         pending_build_line += text;
         build_diagnostics += text;
         if (build_diagnostics.size() > 32000)
@@ -496,6 +529,9 @@ public:
         {
             EnableWindow(find_control(control_id), selected && !operation_in_progress);
         }
+        EnableWindow(find_control(RunButton),
+            selected && !stop_requested &&
+                (!operation_in_progress || phase == Phase::Building || phase == Phase::Checking));
         EnableWindow(find_control(StopButton), operation_in_progress && !stop_requested);
         for (int control_id : {ProgramInput, SendButton, EndInputButton})
         {
@@ -574,6 +610,16 @@ public:
         return active_project_directory / L".cpplivelab" / (L"build-" + selected_configuration());
     }
 
+    cpplivelab::BuildIdentity current_identity() const
+    {
+        const fs::path selected = read_control_text(find_control(ExecutableInput));
+        const auto executable = selected.empty() ? fs::path(L"app.exe") : selected;
+        return {active_project_directory,
+            selected_configuration(),
+            fs::weakly_canonical(
+                executable.is_absolute() ? executable : build_directory() / executable)};
+    }
+
     void request_environment()
     {
         if (!environment_ready && !environment_future.valid())
@@ -585,9 +631,20 @@ public:
                 {
                     const auto tools =
                         cpplivelab::discover_toolchain(cpplivelab::system_discovery_inputs());
-                    return tools.developer_command.empty()
-                               ? cpplivelab::Environment{}
-                               : cpplivelab::developer_environment(tools.developer_command);
+                    PreparedTools prepared;
+                    for (const auto& tool : tools.tools)
+                    {
+                        if (tool.name == "ninja")
+                        {
+                            prepared.ninja = tool.installed_path;
+                        }
+                    }
+                    if (!tools.developer_command.empty())
+                    {
+                        prepared.environment =
+                            cpplivelab::developer_environment(tools.developer_command);
+                    }
+                    return prepared;
                 });
         }
     }
@@ -597,6 +654,37 @@ public:
         if (operation_in_progress || active_project_directory.empty())
         {
             return;
+        }
+        if (run)
+        {
+            run_requested = true;
+            request_environment();
+            select_console(true);
+            bool can_reuse = false;
+            try
+            {
+                can_reuse = freshness.can_probe(current_identity());
+            }
+            catch (const std::exception&)
+            {
+                freshness.invalidate(current_identity());
+            }
+            if (can_reuse)
+            {
+                operation_in_progress = true;
+                should_run_program = true;
+                program_started = false;
+                stop_requested = false;
+                probe_pending = true;
+                phase = Phase::PreparingProgram;
+                SetWindowTextW(find_control(StatusLabel), L"Checking build dependencies");
+                refresh();
+                return;
+            }
+        }
+        else if (!automatic)
+        {
+            run_requested = false;
         }
         const auto cli = application_directory() / L"cpplivelab.exe";
         if (!fs::is_regular_file(cli))
@@ -615,19 +703,40 @@ public:
         {
             arguments.push_back(L"--incremental");
         }
+        building_identity = current_identity();
+        building_sources_known = false;
+        try
+        {
+            building_sources = freshness.begin(building_identity);
+            building_sources_known = true;
+        }
+        catch (const std::exception& error)
+        {
+            freshness.invalidate(building_identity);
+            log(cpplivelab::MessageKind::Warning,
+                L"Freshness cannot be recorded: " + decode_console_text(error.what()));
+        }
         if (run)
         {
             request_environment();
             select_console(true);
         }
         log(cpplivelab::MessageKind::Build,
-            std::wstring(automatic ? L"Automatic " : L"Manual ") + selected_configuration() +
-                L" build started");
-        session.start(cli, arguments, active_project_directory);
+            (build_id = L"Build #" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+                        std::to_wstring(++build_sequence)) +
+                L": " + std::wstring(automatic ? L"Automatic " : L"Manual ") +
+                selected_configuration() + L" build started");
+        session.start_worker(cli, arguments, active_project_directory);
+        log(cpplivelab::MessageKind::System,
+            build_id + L": worker PID " + std::to_wstring(session.process_id()));
+        last_build_activity = GetTickCount64();
+        stall_reported = false;
+        build_root_observed = false;
         auto_build.begin_build();
         automatic_operation = automatic;
         operation_in_progress = true;
-        should_run_program = run;
+        should_run_program = run_requested;
+        probe_pending = false;
         program_started = false;
         input_closed = false;
         stop_requested = false;
@@ -641,10 +750,15 @@ public:
 
     void finish_operation(const std::wstring& status)
     {
+        if (!session.running() && !session.output_pending())
+        {
+            session.release_completed();
+        }
         program_lease.reset();
         phase = Phase::Idle;
         program_started = false;
         operation_in_progress = false;
+        stop_requested = false;
         SetWindowTextW(find_control(StatusLabel), status.c_str());
         refresh();
     }
@@ -659,8 +773,33 @@ public:
             {
                 return;
             }
-            program_environment = environment_future.get();
+            auto prepared = environment_future.get();
+            program_environment = std::move(prepared.environment);
+            ninja_executable = std::move(prepared.ninja);
             environment_ready = true;
+        }
+        if (!freshness.can_probe(current_identity()))
+        {
+            finish_operation(L"Build Pending - inputs changed");
+            start(true, false, true);
+            return;
+        }
+        if (probe_pending)
+        {
+            if (!fs::is_regular_file(ninja_executable))
+            {
+                freshness.invalidate(current_identity());
+                finish_operation(L"Build Pending - dependency check unavailable");
+                start(true, false, true);
+                return;
+            }
+            session.start_program(
+                ninja_executable, {L"-n"}, build_directory(), program_environment);
+            phase = Phase::Checking;
+            probe_output.clear();
+            SetWindowTextW(find_control(StatusLabel), L"Checking build dependencies");
+            refresh();
+            return;
         }
         const auto configured = read_control_text(find_control(ExecutableInput));
         const fs::path selected = configured.empty() ? L"app.exe" : configured;
@@ -676,6 +815,8 @@ public:
         error_decoder.reset();
         error_line_start = true;
         program_started = true;
+        input_closed = false;
+        run_requested = false;
         phase = Phase::Running;
         log(cpplivelab::MessageKind::System, L"Program started: " + executable.wstring());
         SetWindowTextW(find_control(StatusLabel), L"Running - input below");
@@ -706,21 +847,111 @@ public:
     void tick()
     {
         poll_watcher();
+        if (phase == Phase::Idle && run_requested && !auto_build.pending() && !close_requested)
+        {
+            start(true);
+        }
+        if (phase == Phase::Checking)
+        {
+            const auto bytes = session.poll();
+            if (probe_output.size() < 131072)
+            {
+                probe_output += bytes;
+            }
+            if (session.root_exited())
+            {
+                session.finish_build();
+            }
+            if (!session.running() && !session.output_pending())
+            {
+                const auto result = session.exit_code();
+                session.release_completed();
+                if (stop_requested)
+                {
+                    run_requested = false;
+                    auto_build.cancel();
+                    log(cpplivelab::MessageKind::Warning,
+                        L"Run dependency check cancelled by user.");
+                    finish_operation(L"Build Cancelled");
+                }
+                else if (cpplivelab::ninja_reports_current(probe_output, result) &&
+                         freshness.can_probe(current_identity()))
+                {
+                    log(cpplivelab::MessageKind::System,
+                        L"Build is up to date - starting application.");
+                    probe_pending = false;
+                    phase = Phase::PreparingProgram;
+                }
+                else
+                {
+                    freshness.invalidate(current_identity());
+                    finish_operation(L"Build Pending - dependency changes");
+                    start(true, false, true);
+                }
+            }
+        }
         if (phase == Phase::Building)
         {
             append_build_output(output_decoder.append(session.poll()));
+            if (session.root_exited() && !build_root_observed)
+            {
+                build_root_observed = true;
+                std::wstring helpers;
+                for (const auto id : session.active_process_ids())
+                {
+                    helpers += L" " + std::to_wstring(id);
+                }
+                log(cpplivelab::MessageKind::System,
+                    build_id + L": worker exited " + std::to_wstring(session.exit_code()) +
+                        (helpers.empty() ? L"; draining output"
+                                         : L"; closing owned helper PIDs:" + helpers));
+                session.finish_build();
+            }
+            if (!build_root_observed && !stall_reported &&
+                GetTickCount64() - last_build_activity > 30000)
+            {
+                stall_reported = true;
+                std::wstring processes;
+                for (const auto id : session.active_process_ids())
+                {
+                    processes += L" " + std::to_wstring(id);
+                }
+                log(cpplivelab::MessageKind::Warning,
+                    build_id + L": no output for 30 seconds; owned PIDs:" + processes +
+                        L". Compilation may still be working. Stop is available; no automatic "
+                        L"timeout kill.");
+            }
             if (!session.running() && !session.output_pending())
             {
                 append_build_output(output_decoder.append(session.poll(), true), true);
                 const int result = session.exit_code();
-                const bool blocked =
-                    build_diagnostics.find(L"already building or running") != std::wstring::npos ||
-                    build_diagnostics.find(L"Executable is running or not writable") !=
-                        std::wstring::npos;
+                const bool blocked = result == cpplivelab::build_deferred_exit_code;
                 if (stop_requested)
                 {
-                    log(cpplivelab::MessageKind::Warning, L"Build stopped by user");
-                    finish_operation(L"Stopped");
+                    run_requested = false;
+                    auto_build.cancel();
+                    if (auto_build.enabled())
+                    {
+                        try
+                        {
+                            watcher.start(active_project_directory);
+                        }
+                        catch (const std::exception& error)
+                        {
+                            watcher.stop();
+                            auto_build.enable(false);
+                            preferences.auto_build = false;
+                            persist_preferences();
+                            SetWindowTextW(find_control(AutoBuildButton), L"Auto Build: OFF");
+                            log(cpplivelab::MessageKind::Warning,
+                                L"Watcher could not restart after cancellation: " +
+                                    decode_console_text(error.what()));
+                        }
+                    }
+                    log(cpplivelab::MessageKind::Warning,
+                        build_id + L": Build cancelled by user. Pending automatic work cancelled; "
+                                   L"save again or Build to resume.");
+                    finish_operation(L"Build Cancelled");
                 }
                 else if (blocked)
                 {
@@ -728,23 +959,70 @@ public:
                     {
                         auto_build.defer(GetTickCount64());
                     }
+                    else
+                    {
+                        run_requested = false;
+                    }
                     log(cpplivelab::MessageKind::Warning,
-                        L"Build Deferred - active executable/configuration preserved");
+                        build_id + L": Build Deferred - active executable/configuration preserved");
                     finish_operation(L"Build Deferred");
                 }
                 else if (result != 0)
                 {
+                    run_requested = false;
                     log(cpplivelab::MessageKind::Error,
-                        L"Build Failed (exit " + std::to_wstring(result) + L")");
+                        build_id + L": Build Failed (exit " + std::to_wstring(result) + L")");
                     finish_operation(L"Build Failed");
                 }
                 else
                 {
-                    log(cpplivelab::MessageKind::Success, L"Build Successful (exit 0)");
+                    log(cpplivelab::MessageKind::Success,
+                        build_id + L": Build Successful (exit 0)");
+                    bool recorded = false;
+                    try
+                    {
+                        recorded = building_sources_known &&
+                                   freshness.succeeded(building_identity, building_sources);
+                    }
+                    catch (const std::exception& error)
+                    {
+                        log(cpplivelab::MessageKind::Warning,
+                            L"Build completed; freshness not verified: " +
+                                decode_console_text(error.what()));
+                    }
                     if (should_run_program)
                     {
-                        phase = Phase::PreparingProgram;
-                        SetWindowTextW(find_control(StatusLabel), L"Preparing program");
+                        if (!fs::is_regular_file(current_identity().executable))
+                        {
+                            run_requested = false;
+                            log(cpplivelab::MessageKind::Error,
+                                L"Build completed but selected executable is missing. Check "
+                                L"Executable and configuration.");
+                            finish_operation(L"Executable missing after build");
+                        }
+                        else if (auto_build.pending())
+                        {
+                            finish_operation(
+                                L"Build Pending - Run waits for latest source changes");
+                        }
+                        else if (!recorded && building_sources_known)
+                        {
+                            finish_operation(L"Build Pending - sources changed during build");
+                            start(true, false, true);
+                        }
+                        else if (!recorded)
+                        {
+                            run_requested = false;
+                            log(cpplivelab::MessageKind::Error,
+                                L"Run blocked because source freshness could not be verified. Fix "
+                                L"file access and Run again.");
+                            finish_operation(L"Run blocked - source access");
+                        }
+                        else
+                        {
+                            phase = Phase::PreparingProgram;
+                            SetWindowTextW(find_control(StatusLabel), L"Preparing program");
+                        }
                     }
                     else
                     {
@@ -781,6 +1059,7 @@ public:
         {
             if (stop_requested)
             {
+                run_requested = false;
                 finish_operation(L"Stopped");
             }
             else
@@ -791,6 +1070,7 @@ public:
                 }
                 catch (const std::exception& error)
                 {
+                    run_requested = false;
                     log(cpplivelab::MessageKind::Error, decode_console_text(error.what()));
                     finish_operation(L"Program launch failed");
                 }
@@ -812,6 +1092,7 @@ public:
             return;
         }
         stop_requested = true;
+        run_requested = false;
         if (phase != Phase::Running)
         {
             auto_build.cancel();
@@ -887,6 +1168,10 @@ public:
         {
             return;
         }
+        if (stop_requested && phase == Phase::Building)
+        {
+            return;
+        }
         const auto now = GetTickCount64();
         bool notified = false;
         try
@@ -907,7 +1192,6 @@ public:
         if (notified)
         {
             auto_build.notify(now);
-            set_auto_status(L"Changes Detected");
         }
         if (auto_build.settled(now))
         {
@@ -931,11 +1215,20 @@ public:
                     return change.affects_cmake;
                 });
             auto_build.confirm(!changes.empty(), configuration_changed);
+            if (!changes.empty())
+            {
+                log(cpplivelab::MessageKind::System, L"Source changes confirmed after debounce");
+                if (!operation_in_progress)
+                {
+                    set_auto_status(L"Changes Detected");
+                }
+            }
         }
         if (auto_build.pending() && operation_in_progress)
         {
-            set_auto_status(
-                program_started ? L"Build Deferred - running program preserved" : L"Build Queued");
+            set_auto_status(program_started
+                                ? L"Build Deferred - running program preserved"
+                                : build_id + L": Building; one follow-up Build Pending");
         }
         if (auto_build.ready(now, operation_in_progress, true))
         {
@@ -945,7 +1238,19 @@ public:
                     : L"Debug";
             const auto directory = active_project_directory / L".cpplivelab" /
                                    (L"build-" + std::wstring(configuration));
-            if (!cpplivelab::build_outputs_available(directory))
+            bool available = false;
+            try
+            {
+                available = cpplivelab::build_outputs_available(directory);
+            }
+            catch (const std::exception& error)
+            {
+                auto_build.cancel();
+                log(cpplivelab::MessageKind::Error, decode_console_text(error.what()));
+                SetWindowTextW(find_control(StatusLabel), L"Build Failed - output access error");
+                return;
+            }
+            if (!available)
             {
                 auto_build.defer(now);
                 set_auto_status(L"Build Deferred - configuration is busy or not writable");
@@ -953,8 +1258,19 @@ public:
             else
             {
                 const bool incremental = !auto_build.needs_reconfigure();
-                start(false, true, incremental);
-                set_auto_status(L"Building (Auto)");
+                try
+                {
+                    start(false, true, incremental);
+                    set_auto_status(L"Building (Auto)");
+                }
+                catch (const std::exception& error)
+                {
+                    auto_build.cancel();
+                    run_requested = false;
+                    log(cpplivelab::MessageKind::Error, decode_console_text(error.what()));
+                    SetWindowTextW(
+                        find_control(StatusLabel), L"Build Failed - worker could not start");
+                }
             }
         }
     }
@@ -976,6 +1292,11 @@ public:
         if (control_id == ClearProgram)
         {
             program_console.clear();
+            if (program_started && phase == Phase::Running && !input_closed)
+            {
+                SetWindowTextW(find_control(StatusLabel),
+                    L"Program running - input remains available (display cleared)");
+            }
             update_console_badges();
             return;
         }
@@ -1012,6 +1333,17 @@ public:
             session.close_input();
             input_closed = true;
             refresh();
+            return;
+        }
+        if (control_id == RunButton && operation_in_progress &&
+            (phase == Phase::Building || phase == Phase::Checking) && !stop_requested)
+        {
+            run_requested = true;
+            should_run_program = true;
+            request_environment();
+            select_console(true);
+            log(cpplivelab::MessageKind::System,
+                L"Run Pending - waiting for the current build and latest source changes.");
             return;
         }
         if (operation_in_progress)
@@ -1068,7 +1400,12 @@ LRESULT CALLBACK window_procedure(HWND window_handle, UINT message, WPARAM wpara
                 application->create();
                 return 0;
             case WM_SIZE:
-                application->layout(LOWORD(lparam), HIWORD(lparam));
+                // Minimize supplies a zero client size, not a usable layout. Keep
+                // the last geometry/regions until Windows sends the restored size.
+                if (wparam != SIZE_MINIMIZED && LOWORD(lparam) != 0 && HIWORD(lparam) != 0)
+                {
+                    application->layout(LOWORD(lparam), HIWORD(lparam));
+                }
                 return 0;
             case WM_GETMINMAXINFO:
                 reinterpret_cast<MINMAXINFO*>(lparam)->ptMinTrackSize = {
@@ -1211,6 +1548,7 @@ LRESULT CALLBACK window_procedure(HWND window_handle, UINT message, WPARAM wpara
 }
 } // namespace
 
+#ifndef CPPLIVELAB_GUI_TEST
 int WINAPI wWinMain(HINSTANCE application_instance, HINSTANCE, PWSTR, int initial_show_state)
 {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -1295,3 +1633,4 @@ int WINAPI wWinMain(HINSTANCE application_instance, HINSTANCE, PWSTR, int initia
     }
     return static_cast<int>(message.wParam);
 }
+#endif

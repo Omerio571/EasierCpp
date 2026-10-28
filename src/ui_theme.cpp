@@ -132,7 +132,7 @@ void UiTheme::round_controls()
                     diameter,
                     diameter);
                 // Windows owns a region after successful SetWindowRgn.
-                if (!SetWindowRgn(child, region, TRUE))
+                if (!SetWindowRgn(child, region, FALSE))
                 {
                     DeleteObject(region);
                 }

@@ -19,7 +19,7 @@ new sibling project. No commit or push is part of these steps.
    .\build\debug\cpplivelab-gui.exe
    ```
 
-   Expected: all 23 CTest tests pass; version is `CppLiveLab 0.1.0`; doctor finds the
+   Expected: all 28 CTest tests pass; version is `CppLiveLab 0.1.0`; doctor finds the
    installed toolchain without requiring a developer shell. A new calculator is
    created outside the manager. If Stage4Acceptance already exists, choose a new
    name rather than overwriting it.
@@ -64,7 +64,7 @@ new sibling project. No commit or push is part of these steps.
    400 ms if possible). Expected: rapid saves combine into one build. If another
    save lands during compilation, one follow-up build may occur; builds never
    overlap. Saving identical content does not request another build.
-3. Add a harmless comment to `include/calculator.hpp` and save. Expected: an
+3. Add a harmless comment to `src/calculator.hpp` and save. Expected: an
    automatic build. Add a comment to CMakeLists.txt and save. Expected: CMake
    configuration and a successful build; your other settings remain intact.
 4. Edit/create a `notes.txt` file, or a harmless temporary file inside `.vs`,
@@ -90,8 +90,7 @@ new sibling project. No commit or push is part of these steps.
 2. Run again and click **End Input** at the name prompt. Expected: stdin closes and
    the calculator exits rather than leaving Send enabled indefinitely.
 3. To test stderr, temporarily add `std::cerr << "Stage4 stderr test\n";` inside
-   main, save, wait
-   for success, and Run. Expected: red `[stderr] Stage4 stderr test` in Program
+   main, save, wait for success, and Run. Expected: red `[stderr] Stage4 stderr test` in Program
    Console. It is distinct from the neutral stdout. Stop, then remove that line.
 4. Build with Program Console selected. Expected: a `(new)` indicator appears on
    Build & System; the selected tab/focus do not change. Switch tabs to read it.
@@ -165,7 +164,22 @@ new sibling project. No commit or push is part of these steps.
    git status --short
    ```
 
-   Expected: 23/23 tests, formatter passes, no whitespace errors. Review source/docs
+   Expected: 28/28 tests, formatter passes, no whitespace errors. Review source/docs
    changes only; generated artifacts are ignored. Do not commit/push until your
    acceptance testing is complete. Report the failed test letter, exact action,
    status and copied diagnostics if anything differs. Stage 5 awaits your approval.
+
+## If saving seems to do nothing
+
+1. Confirm the GUI displays the correct **active project** name/path. Pasting a
+   folder is not enough: click **Open Project**. Verify Visual Studio is editing a
+   file under that same project, not an older calculator copy.
+2. Confirm **Auto Build: ON**, then make a real content edit and save. Enabling Auto
+   Build establishes a baseline; unchanged-content saves intentionally do not build.
+3. Check **Build & System** and the status. **Build Deferred** means the old program
+   is still running or its output is locked. Finish or Stop that program; the queued
+   build will then run. It will never automatically restart the application.
+4. Check that the edited file is a source/header/CMake file outside generated folders.
+   Unsaved editor text and ignored build/.vs/.git/.cpplivelab files do not trigger builds.
+5. If the watcher reports a filesystem error, correct the reported path/access problem,
+   then turn Auto Build on again. Copy the exact diagnostics if it still fails.

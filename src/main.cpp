@@ -1,5 +1,6 @@
 #include "cpplivelab/doctor.hpp"
 #include "cpplivelab/projects.hpp"
+#include "build_lease.hpp"
 #include <iostream>
 #include <string_view>
 #include <stdexcept>
@@ -83,6 +84,11 @@ int wmain(int argc, wchar_t** argv)
         }
         std::cerr << "Invalid arguments. Use cpplivelab --help.\n";
         return 2;
+    }
+    catch (const cpplivelab::BuildDeferredError& error)
+    {
+        std::cerr << "CppLiveLab build deferred: " << error.what() << '\n';
+        return cpplivelab::build_deferred_exit_code;
     }
     catch (const std::invalid_argument& error)
     {

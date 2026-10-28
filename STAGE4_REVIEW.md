@@ -1,5 +1,12 @@
 # Stage 4 review
 
+The latest reliability retest adds explicit tool-worker completion, intelligent Run
+observations, hidden-controller coverage, input/Stop restart fixes and minimize-layout
+protection. See [STAGE4_REPAIR_MANUAL_TESTS.md](STAGE4_REPAIR_MANUAL_TESTS.md) for current
+manual checks. Structured diagnostic summaries/Simple-Detailed presentation and the
+additional requested Light palette distinction remain unfinished; this is not a
+claim that every item in the later Stage 4 bug-fix request has been delivered.
+
 Stage 4 extends the existing native Win32 application. It does not migrate frameworks
 or create a code editor. CMake, Ninja, tool discovery, child-only MSVC initialization,
 CLI commands, VS2022 folder opening and process-tree ownership remain in use.
@@ -47,7 +54,8 @@ request configuration; source changes reuse the cache and invoke Ninja increment
 Ignored output trees cannot cause build loops. Reserved generated folder names are
 intentionally excluded even if someone puts hand-written sources there.
 
-GUI Run builds first, then launches the selected executable directly with the captured
+GUI Run probes the last observed successful build before deciding whether it needs
+another incremental build, then launches the selected executable with the captured
 developer environment and separate output pipes. The program owns the same exclusive
 build lease used by CLI runs. Automatic builds defer while it or another configuration
 operation holds the lock, and retry after exit/Stop. Existing executable-use checks also
@@ -96,3 +104,57 @@ No system-wide PATH, IDE project configuration, execution state or checkpoint is
 
 Follow `STAGE4_MANUAL_TESTS.md` for acceptance. Executed results are in `TEST_RESULTS.md`.
 Stop here for user testing and explicit approval before starting another stage.
+
+## Reliability implementation and automated coverage
+
+- `src/child_startup.hpp` restricts inherited standard handles and captures setup
+  output through root exit rather than waiting for helper-held pipe EOF.
+- `ConsoleSession::start_worker` gives CLI/build workers an explicit root-completion
+  policy. Once the root exits, polling removes only helpers in its owned job. Native
+  program sessions still retain their complete process tree until exit/Stop. The
+  original orphan-process regression is preserved. Job accounting alone cannot
+  expose completion before the root handle signals.
+- `src/build_freshness.hpp/.cpp` keeps independent in-memory observations by project,
+  configuration and executable. Source fingerprints plus artifact metadata permit a
+  Ninja dry-run probe; only an unambiguous no-work result skips compilation. Missing
+  executables, dependency changes, failures, cancellations, restarts and ambiguous
+  glob checks conservatively build. No fresh flag is persisted.
+- Deferred builds use an explicit CLI result (75), not matching compiler message
+  text. Genuine errors quoting old lock wording now retain Error severity.
+- Build IDs, worker PIDs, exits and cancellation are logged. Thirty seconds without
+  output warns and leaves Stop available; it does not kill legitimate long compiles.
+  Stop during a build discards pending automatic/Run requests and establishes a new
+  watcher baseline. Edits stay on disk; a later save or explicit build resumes work.
+- Each launched program resets stdin availability. Completion resets cancellation
+  state so Stop cannot leave Run disabled. Clearing Program shows a neutral input-
+  availability status without guessing arbitrary stdout to be a formal prompt.
+- Minimized/zero-size WM_SIZE events preserve the previous layout. Moves and rounded
+  regions are applied before a single full redraw; child sibling clipping prevents
+  cross-control painting, and edit fields no longer retain a stale native edge.
+- `tests/reliability_tests.cpp` covers inheritance/EOF, helper lifecycle, repeated
+  cancellation, real builds, coalescing, diagnostic collisions and dependency probes.
+- `tests/gui_flow_tests.cpp` compiles the real controller/window procedure into an
+  unactivated hidden host. It checks repeated Run, EOF/Stop restart, clear/input,
+  80 resize cycles, rounded-region geometry, GDI bounds, separate Debug/Release builds
+  and execution, and shutdown. A private registry key isolates any test preferences.
+  This is automated state/geometry coverage, not a visual desktop walkthrough.
+
+The earlier 23-test completion results below are historical. Current registration
+contains 28 tests, including the original 16 Stage 1–3 regressions and all seven
+original Stage 4 tests. No existing assertions were removed; CLI session launches
+in integration tests now use the explicit worker policy instead of treating vendor
+telemetry helpers as part of the user's interactive application.
+
+## Completion pass — October 28, 2026
+
+Fixed empty-console follow state and explicit viewport scrolling after showing a
+background tab or appending with redraw suspended. A real Rich Edit viewport test
+now runs in an unactivated off-screen test host, checks the bottom scroll position,
+and distinguishes caret character positions from Win32 CRLF text lengths. Hidden
+tab visibility, selected text and reading an earlier scroll position remain tested.
+
+Expanded watcher tests cover atomic editor replacement, Unicode filenames and
+retrying after a temporary exclusive editor lock. All 23 automated tests passed in
+the final run, including the original 16 regressions. No existing user-project source
+or configuration files were changed. See the dated results section for exact commands,
+timing, GUI checks and remaining manual display/OS checks.

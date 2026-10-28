@@ -33,6 +33,11 @@ public:
     void start(const std::filesystem::path& executable,
         const std::vector<std::wstring>& arguments,
         const std::filesystem::path& directory);
+    // A CLI/tool worker's root exit is authoritative. Polling drains its output
+    // and removes owned background helpers; interactive programs use start/start_program.
+    void start_worker(const std::filesystem::path& executable,
+        const std::vector<std::wstring>& arguments,
+        const std::filesystem::path& directory);
     // The GUI's program phase uses independent stdout/stderr pipes. Build workers
     // and the original start/poll API retain their approved merged-stream behavior.
     void start_program(const std::filesystem::path& executable,
@@ -47,6 +52,13 @@ public:
     // running includes descendants even if the original child has already exited.
     bool running() const;
     bool output_pending() const;
+    // Build workers have an authoritative root exit, unlike interactive program
+    // trees. Background tool helpers must not keep a completed build in Building.
+    bool root_exited() const;
+    unsigned long process_id() const;
+    std::vector<unsigned long> active_process_ids() const;
+    void finish_build();
+    void release_completed();
 
     // Accept one UTF-8 line using an asynchronous write. False means input is busy,
     // unavailable or too long; the caller may retain the line and retry after polling.

@@ -5,6 +5,10 @@ namespace cpplivelab
 {
 bool ConsolePane::reading_tail() const
 {
+    if (GetWindowTextLengthW(window) == 0)
+    {
+        return true;
+    }
     CHARRANGE selection{};
     SendMessageW(window, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
     SCROLLINFO information{sizeof(SCROLLINFO), SIF_ALL};
@@ -24,6 +28,9 @@ void ConsolePane::set_visible(bool visible)
     {
         SendMessageW(window, EM_SETSEL, -1, -1);
         SendMessageW(window, EM_SCROLLCARET, 0, 0);
+        // Rich Edit can postpone caret scrolling while hidden or redraw is disabled.
+        // Scroll the viewport explicitly after showing; this never changes focus.
+        SendMessageW(window, WM_VSCROLL, SB_BOTTOM, 0);
     }
 }
 
@@ -32,8 +39,8 @@ void ConsolePane::create(HWND parent, int id, HFONT font)
     window = CreateWindowExW(0,
         MSFTEDIT_CLASS,
         L"",
-        WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_READONLY | ES_MULTILINE | ES_AUTOVSCROLL |
-            WS_VSCROLL,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPSIBLINGS | ES_READONLY | ES_MULTILINE |
+            ES_AUTOVSCROLL | WS_VSCROLL,
         0,
         0,
         0,
@@ -121,6 +128,10 @@ void ConsolePane::append(MessageKind kind, std::wstring_view text)
     if (visible)
     {
         SendMessageW(window, WM_SETREDRAW, TRUE, 0);
+        if (follow_output)
+        {
+            SendMessageW(window, WM_VSCROLL, SB_BOTTOM, 0);
+        }
     }
     InvalidateRect(window, nullptr, FALSE);
 }

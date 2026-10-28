@@ -141,6 +141,13 @@ std::map<fs::path, std::uint64_t> ProjectWatcher::snapshot() const
     return files;
 }
 
+std::map<fs::path, std::uint64_t> ProjectWatcher::source_fingerprints(const fs::path& project)
+{
+    ProjectWatcher reader;
+    reader.project_ = fs::weakly_canonical(project);
+    return reader.snapshot();
+}
+
 ProjectWatcher::~ProjectWatcher()
 {
     stop();

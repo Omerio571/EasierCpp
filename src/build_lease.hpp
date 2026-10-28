@@ -7,6 +7,14 @@
 
 namespace cpplivelab
 {
+inline constexpr int build_deferred_exit_code = 75;
+
+class BuildDeferredError : public std::runtime_error
+{
+public:
+    using std::runtime_error::runtime_error;
+};
+
 // The same lock is used by CLI builds and the GUI's separately launched program.
 // Holding it until the program tree exits preserves Stage 3's cross-instance safety.
 class BuildLease
@@ -24,7 +32,13 @@ public:
             nullptr));
         if (lock_.value == INVALID_HANDLE_VALUE)
         {
-            throw std::runtime_error(
+            const auto error = GetLastError();
+            if (error != ERROR_SHARING_VIOLATION && error != ERROR_LOCK_VIOLATION)
+            {
+                throw std::runtime_error(
+                    "Cannot write build lock (Windows error " + std::to_string(error) + ")");
+            }
+            throw BuildDeferredError(
                 "This configuration is already building or running in CppLiveLab. Stop it first.");
         }
     }
@@ -52,9 +66,15 @@ inline void ensure_executables_stopped(const std::filesystem::path& directory)
             nullptr));
         if (executable_write_handle.value == INVALID_HANDLE_VALUE)
         {
-            throw std::runtime_error(
+            const auto error = GetLastError();
+            const auto message =
                 "Executable is running or not writable: " + path_support::path_utf8(entry.path()) +
-                ". Stop it before building.");
+                ". Stop it before building.";
+            if (error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION)
+            {
+                throw BuildDeferredError(message);
+            }
+            throw std::runtime_error(message + " Windows error " + std::to_string(error));
         }
     }
 }
@@ -66,7 +86,11 @@ inline bool build_outputs_available(const std::filesystem::path& directory)
     std::error_code error;
     if (!std::filesystem::exists(directory, error))
     {
-        return !error;
+        if (error)
+        {
+            throw std::runtime_error("Cannot inspect build output directory: " + error.message());
+        }
+        return true;
     }
 
     try
@@ -75,7 +99,7 @@ inline bool build_outputs_available(const std::filesystem::path& directory)
         ensure_executables_stopped(directory);
         return true;
     }
-    catch (const std::exception&)
+    catch (const BuildDeferredError&)
     {
         return false;
     }

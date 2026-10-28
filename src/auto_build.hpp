@@ -30,6 +30,8 @@ public:
     std::vector<SourceChange> consume_changes();
     static bool relevant(const std::filesystem::path& relative_path);
     static bool ignored_directory(const std::filesystem::path& component);
+    static std::map<std::filesystem::path, std::uint64_t> source_fingerprints(
+        const std::filesystem::path& project);
 
 private:
     windows_support::UniqueHandle directory_handle_;

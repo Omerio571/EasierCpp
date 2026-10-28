@@ -202,7 +202,7 @@ void test_unicode_project(const fs::path& cli_executable)
         "Unicode project could not be selected");
 
     cpplivelab::ConsoleSession session;
-    session.start(cli_executable, {L"run", project_directory.wstring()}, project_directory);
+    session.start_worker(cli_executable, {L"run", project_directory.wstring()}, project_directory);
     const auto captured_output = wait_for_session(session);
     require_condition(session.exit_code() == 0, "Unicode project build/run failed");
     require_condition(captured_output.find("Hello from C++20!") != std::string::npos,

@@ -223,12 +223,12 @@ void test_project_builds(const fs::path& cli_executable, const fs::path& test_di
     write(project_directory / "CMakeUserPresets.json", presets);
     write(project_directory / "CMakeSettings.json", "{\"configurations\": []}\n");
     cpplivelab::ConsoleSession session, second_session;
-    session.start(cli_executable, {L"run", project_directory.wstring()}, project_directory);
+    session.start_worker(cli_executable, {L"run", project_directory.wstring()}, project_directory);
     std::string captured_output;
     wait_for_output(session, captured_output, "Your name: ");
     const auto program = project_directory / ".cpplivelab/build-Debug/app.exe";
     const auto original_time = fs::last_write_time(program);
-    second_session.start(
+    second_session.start_worker(
         cli_executable, {L"build", project_directory.wstring()}, project_directory);
     auto denied = wait_for_exit(second_session);
     check(second_session.exit_code() != 0 &&
@@ -240,7 +240,7 @@ void test_project_builds(const fs::path& cli_executable, const fs::path& test_di
     session.start(program, {}, project_directory);
     captured_output.clear();
     wait_for_output(session, captured_output, "Your name: ");
-    second_session.start(
+    second_session.start_worker(
         cli_executable, {L"build", project_directory.wstring()}, project_directory);
     denied = wait_for_exit(second_session);
     check(second_session.exit_code() != 0 &&
@@ -255,7 +255,7 @@ void test_project_builds(const fs::path& cli_executable, const fs::path& test_di
     check(at != cache.npos, "C++20 cache entry missing");
     cache.replace(at, entry.size(), "CMAKE_CXX_STANDARD:UNINITIALIZED=23");
     write(cache_path, cache + "\nSTAGE3_KEEP:STRING=original\n");
-    session.start(cli_executable, {L"run", project_directory.wstring()}, project_directory);
+    session.start_worker(cli_executable, {L"run", project_directory.wstring()}, project_directory);
     captured_output.clear();
     wait_for_output(session, captured_output, "Your name: ");
     check(session.send_line("Grace Hopper"), "Calculator name send failed");

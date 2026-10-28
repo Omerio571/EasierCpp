@@ -139,6 +139,34 @@ void test_watcher()
     require(observe(watcher, 250).empty(), "Old project was still watched");
     write_file(second / "main.cpp", "new project changed\n");
     require(observe(watcher).size() == 1, "New active project was not watched");
+    write_file(second / "main.cpp.tmp", "atomic editor replacement\n");
+    require(MoveFileExW((second / "main.cpp.tmp").c_str(),
+                (second / "main.cpp").c_str(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0,
+        "Atomic editor save fixture failed");
+    const auto atomic_change = observe(watcher);
+    require(atomic_change.size() == 1 && atomic_change.front().relative_path == L"main.cpp",
+        "Atomic editor save did not produce one source change");
+    write_file(second / L"\u8a08\u7b97.hpp", "// Unicode header\n");
+    require(observe(watcher).size() == 1, "Unicode source filename was not detected");
+
+    write_file(second / "main.cpp", "save while editor holds the file\n");
+    cpplivelab::windows_support::UniqueHandle editor_lock;
+    editor_lock.reset(CreateFileW(
+        (second / "main.cpp").c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr));
+    require(editor_lock.value != INVALID_HANDLE_VALUE, "Editor lock fixture failed");
+    bool retry_required = false;
+    try
+    {
+        observe(watcher);
+    }
+    catch (const std::exception&)
+    {
+        retry_required = true;
+    }
+    require(retry_required, "A locked source was not retained for retry");
+    editor_lock.reset();
+    require(watcher.consume_changes().size() == 1, "Retry lost the saved source change");
     watcher.stop();
     write_file(second / "main.cpp", "after stop\n");
     require(!watcher.poll(), "Stopped watcher still notified");
@@ -213,6 +241,15 @@ void test_console_model()
     require(cpplivelab::classify_build_line(L"example.cpp(12): error C2143: missing token") ==
                 MessageKind::Error,
         "Compiler error not classified");
+    require(
+        cpplivelab::classify_build_line(
+            L"example.cpp(7): fatal error C1189: #error Executable is running or not writable") ==
+            MessageKind::Error,
+        "Compiler error text was mistaken for a deferred-build warning");
+    require(cpplivelab::classify_build_line(
+                L"CppLiveLab build deferred: This configuration is already building or running") ==
+                MessageKind::Warning,
+        "Explicit deferred-build result lost its warning classification");
     require(cpplivelab::classify_build_line(L"example.cpp(12): warning C4101: unused") ==
                 MessageKind::Warning,
         "Compiler warning not classified");
@@ -389,7 +426,7 @@ void test_auto_build(const fs::path& cli)
     cpplivelab::ConsoleSession build;
     const auto build_current = [&](const wchar_t* configuration)
     {
-        build.start(
+        build.start_worker(
             cli, {L"build", root.wstring(), L"--config", configuration, L"--incremental"}, root);
         return finish(build);
     };
@@ -415,7 +452,7 @@ void test_auto_build(const fs::path& cli)
         "Auto Release build failed");
 
     cpplivelab::ConsoleSession program_session;
-    program_session.start(cli, {L"run", root.wstring()}, root);
+    program_session.start_worker(cli, {L"run", root.wstring()}, root);
     std::string program_output;
     const auto started = GetTickCount64();
     while (program_output.find("Your name: ") == std::string::npos)
@@ -458,7 +495,7 @@ void test_auto_build(const fs::path& cli)
     const auto configuration_changes = observe(watcher);
     require(configuration_changes.size() == 1 && configuration_changes.front().affects_cmake,
         "Real CMake save did not request configuration");
-    build.start(cli, {L"build", root.wstring()}, root);
+    build.start_worker(cli, {L"build", root.wstring()}, root);
     output.clear();
     const auto build_started = GetTickCount64();
     while (output.find("Stage4Delay") == std::string::npos)

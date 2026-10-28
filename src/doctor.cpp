@@ -1,4 +1,5 @@
 #include "cpplivelab/doctor.hpp"
+#include "child_startup.hpp"
 #include "project_paths.hpp"
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -73,12 +74,8 @@ std::vector<fs::path> visual_studios(
         return {};
     }
     SetHandleInformation(output_read_handle, HANDLE_FLAG_INHERIT, 0);
-    STARTUPINFOW startup_information{};
-    startup_information.cb = sizeof(startup_information);
-    startup_information.dwFlags = STARTF_USESTDHANDLES;
-    startup_information.hStdOutput = output_write_handle;
-    startup_information.hStdError = output_write_handle;
-    startup_information.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    windows_support::ChildStartup startup(
+        GetStdHandle(STD_INPUT_HANDLE), output_write_handle, output_write_handle);
     PROCESS_INFORMATION process_information{};
     std::wstring command_line_arguments =
         L"\"" + vswhere_executable.wstring() +
@@ -93,11 +90,12 @@ std::vector<fs::path> visual_studios(
         nullptr,
         nullptr,
         TRUE,
-        CREATE_NO_WINDOW,
+        CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
         nullptr,
         nullptr,
-        &startup_information,
+        &startup.information.StartupInfo,
         &process_information);
+    startup.release_handles();
     // Only vswhere keeps the write end now. Otherwise ReadFile would never see EOF
     // after vswhere exits because our own write handle would keep the pipe alive.
     CloseHandle(output_write_handle);
@@ -106,18 +104,8 @@ std::vector<fs::path> visual_studios(
         CloseHandle(output_read_handle);
         return {};
     }
-    std::string output;
-    std::array<char, 4096> read_buffer{};
-    DWORD bytes_read = 0;
-    while (ReadFile(output_read_handle,
-               read_buffer.data(),
-               static_cast<DWORD>(read_buffer.size()),
-               &bytes_read,
-               nullptr) &&
-           bytes_read)
-    {
-        output.append(read_buffer.data(), bytes_read);
-    }
+    const auto output =
+        windows_support::capture_root_output(process_information.hProcess, output_read_handle);
     CloseHandle(output_read_handle);
     WaitForSingleObject(process_information.hProcess, INFINITE);
     DWORD exit_code = 1;
