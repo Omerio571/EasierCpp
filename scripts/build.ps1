@@ -1,4 +1,4 @@
-param([switch]$Doctor)
+param([switch]$Doctor, [string]$TestFilter)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
@@ -21,7 +21,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed.' }
     & cmake --build --preset windows-debug
     if ($LASTEXITCODE -ne 0) { throw 'Build failed.' }
-    & ctest --preset windows-debug
+    $testArguments = @('--preset', 'windows-debug')
+    if ($TestFilter) { $testArguments += @('-R', $TestFilter) }
+    & ctest @testArguments
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
     if ($Doctor) {
         & ./build/debug/cpplivelab.exe doctor

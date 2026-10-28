@@ -12,7 +12,8 @@ int wmain(int argc, wchar_t** argv)
         {
             std::cout << "CppLiveLab\nUsage: cpplivelab [--help | --version | doctor]\n"
                          "  cpplivelab create <folder> [--demo calculator]\n"
-                         "  cpplivelab build <file.cpp|project-folder> [--config Debug|Release]\n"
+                         "  cpplivelab build <file.cpp|project-folder> [--config Debug|Release] "
+                         "[--incremental]\n"
                          "  cpplivelab run <file.cpp|project-folder> [--config Debug|Release] "
                          "[--exe relative-path]\n"
                          "Run builds first, then launches with console input/output. Default "
@@ -42,13 +43,21 @@ int wmain(int argc, wchar_t** argv)
             std::string configuration = "Debug";
             std::filesystem::path executable;
             bool has_config = false, has_exe = false;
-            for (int i = 3; i < argc; i += 2)
+            bool incremental = false;
+            for (int i = 3; i < argc;)
             {
+                const std::wstring_view option(argv[i]);
+                if (option == L"--incremental" && command == L"build" && !incremental)
+                {
+                    incremental = true;
+                    ++i;
+                    continue;
+                }
                 if (i + 1 >= argc)
                 {
                     throw std::invalid_argument("Option requires a value.");
                 }
-                const std::wstring_view option(argv[i]), value(argv[i + 1]);
+                const std::wstring_view value(argv[i + 1]);
                 if (option == L"--config" && !has_config)
                 {
                     if (value != L"Debug" && value != L"Release")
@@ -67,8 +76,10 @@ int wmain(int argc, wchar_t** argv)
                 {
                     throw std::invalid_argument("Unknown or duplicate option.");
                 }
+                i += 2;
             }
-            return cpplivelab::build_project(argv[2], configuration, command == L"run", executable);
+            return cpplivelab::build_project(
+                argv[2], configuration, command == L"run", executable, incremental);
         }
         std::cerr << "Invalid arguments. Use cpplivelab --help.\n";
         return 2;

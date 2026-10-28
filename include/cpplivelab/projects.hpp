@@ -15,4 +15,13 @@ int build_project(const std::filesystem::path& input,
     const std::string& configuration,
     bool run,
     const std::filesystem::path& executable = {});
+
+// Auto Build can skip an explicit configure for ordinary source edits. Ninja still
+// regenerates CMake when its tracked configuration inputs require it. The approved
+// four-argument API above retains its existing configure-before-build behavior.
+int build_project(const std::filesystem::path& input,
+    const std::string& configuration,
+    bool run,
+    const std::filesystem::path& executable,
+    bool incremental);
 } // namespace cpplivelab

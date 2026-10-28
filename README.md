@@ -1,16 +1,17 @@
-# CppLiveLab — Stage 3
+# CppLiveLab — Stage 4
 
 A standalone Windows C++20 development manager, with a small native graphical interface.
 Stage 1 provides version/help and toolchain discovery. Stage 2 adds project creation,
 single-file and multi-file CMake builds, and console execution with interactive input.
 Stage 3 makes CppLiveLab the main application, with Visual Studio 2022 used for editing
-and debugging. The CLI remains available with the same commands and version.
+and debugging. Stage 4 adds optional automatic compilation, two console tabs, and
+Dark, Light, and Follow Windows appearance. The CLI retains its commands and version.
 
 ## Maintenance conventions
 
 The post-Stage 3 maintenance pass adds a readable Allman C++20 style, permanent
 development instructions in [AGENTS.md](AGENTS.md), and a concise [coding guide](CODING_STYLE.md).
-It does not implement Stage 4. Apply or verify the formatter from ordinary PowerShell:
+Apply or verify the formatter from ordinary PowerShell:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\format.ps1
@@ -82,7 +83,7 @@ Visual Studio's [Open Folder workflow](https://devblogs.microsoft.com/cppblog/br
 supports this direct `devenv.exe <folder>` launch.
 
 Choose Debug or Release, then **Build** or **Run**. Run builds first, then shows program
-output in the same output pane. Type into the input field and press **Send** or Enter
+output in **Program Console**. Type into the input field and press **Send** or Enter
 for each line. **End Input** closes stdin. For custom executable names, set the
 Executable field relative to the chosen build directory, such as `src/myprogram.exe`.
 
@@ -191,7 +192,44 @@ Source paths containing semicolons or newlines are unsupported by the single-fil
 Concurrent builds of the same project/configuration are refused. GUI input is line-based,
 with a 1,000-character field limit; output is plain text with bounded history, not a
 terminal emulator. Full-screen terminal applications and ANSI cursor control are unsupported.
-There is no program-argument forwarding, project history, or persistent GUI state.
+There is no program-argument forwarding, project history, or persistent execution state.
 The GUI opens CMake project folders; single-source files remain supported by the CLI.
-No custom code editor, library integration, file watching, hot reloading, checkpoints,
-or state restoration is implemented.
+No custom code editor, library integration, hot reloading, checkpoints, or state
+restoration is implemented.
+
+## Automatic builds, consoles, and appearance
+
+Open a project, enable **Auto Build: ON**, edit in Visual Studio, and save. The default
+debounce is 400 ms; the field accepts 100–5000 ms and applies when focus leaves it.
+Turning Auto Build on establishes a fresh baseline; it does not build immediately or
+retroactively build changes made while off. Manual Build and Run remain available.
+Only the active project is watched. Source saves use incremental compilation;
+CMake changes request configuration. Builds never restart the application.
+
+The watcher uses overlapped `ReadDirectoryChangesW` with one event, no watcher thread,
+and nonblocking event checks on the existing GUI timer. Content fingerprints suppress
+duplicate saves. Directory changes/notification overflow reconcile a snapshot. Rapid
+saves coalesce; changes during a build leave one pending follow-up. Generated folders
+(`.git`, `.vs`, `.cpplivelab`, `build`, `out`, `CMakeFiles`, common build prefixes and
+custom directories containing CMakeCache.txt) are excluded. A running program keeps
+its build lease: changes show **Build Deferred**, then build after exit or Stop.
+Watchers cancel and release their Windows handles on project switch and close.
+
+**Program Console** contains stdout, red `[stderr]` output, and input echoes. Ordinary
+stdout stays neutral. **Build & System** contains full compiler diagnostics and
+labelled build/system/success/warning/error messages. Inactive tabs show `(new)` or
+`(!)` without changing focus. Each tab has its own Clear button, selection/copy and
+scroll position. Output follows only when already at the bottom without a selection.
+Each history retains at most 400,000 characters/3,000 entries, discarding oldest
+entries first. Separate pipes preserve each stream's order, but simultaneous stdout
+and stderr cannot have a guaranteed combined order. Program buffering still applies;
+programs should flush prompts normally (`std::cin` does so for tied `std::cout`).
+
+**Appearance** offers Dark, Light, and Follow Windows, with rounded native controls,
+themed console colors and per-monitor DPI handling. Follow Windows updates when the
+OS broadcasts a theme change. Only Theme, Auto Build and debounce are persisted as
+DWORD preferences under `HKCU\Software\CppLiveLab`; no project or execution state is
+restored. Native scrollbar/title-bar details may vary with Windows version.
+
+See [STAGE4_MANUAL_TESTS.md](STAGE4_MANUAL_TESTS.md) for numbered acceptance tests and
+[STAGE4_REVIEW.md](STAGE4_REVIEW.md) for files, implementation decisions and limitations.

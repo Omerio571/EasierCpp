@@ -6,9 +6,13 @@ add_library(cpplivelab_core
   src/process.cpp
   src/projects.cpp
   src/session.cpp
+  src/auto_build.cpp
+  src/console_model.cpp
+  src/appearance.cpp
   src/output_decoder.cpp)
 target_compile_definitions(cpplivelab_core PRIVATE CPPLIVELAB_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(cpplivelab_core PUBLIC include)
+target_link_libraries(cpplivelab_core PUBLIC advapi32)
 target_compile_features(cpplivelab_core PUBLIC cxx_std_20)
 set_target_properties(cpplivelab_core PROPERTIES CXX_EXTENSIONS OFF)
 if(MSVC)
@@ -19,13 +23,23 @@ endif()
 add_executable(cpplivelab src/main.cpp)
 target_link_libraries(cpplivelab PRIVATE cpplivelab_core)
 target_compile_definitions(cpplivelab PRIVATE CPPLIVELAB_VERSION="${PROJECT_VERSION}")
-add_executable(cpplivelab-gui WIN32 src/gui.cpp)
+add_executable(cpplivelab-gui WIN32 src/gui.cpp src/console_view.cpp src/ui_theme.cpp)
 target_compile_definitions(cpplivelab-gui PRIVATE UNICODE _UNICODE)
-target_link_libraries(cpplivelab-gui PRIVATE cpplivelab_core user32 gdi32 shell32 ole32 uuid)
+target_link_libraries(cpplivelab-gui PRIVATE cpplivelab_core user32 gdi32 shell32 ole32 uuid comctl32 uxtheme dwmapi)
 add_dependencies(cpplivelab-gui cpplivelab)
 
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(console_view_tests tests/console_view_tests.cpp src/console_view.cpp)
+  target_compile_definitions(console_view_tests PRIVATE UNICODE _UNICODE)
+  target_link_libraries(console_view_tests PRIVATE cpplivelab_core user32 gdi32)
+  add_test(NAME stage4_console_view COMMAND console_view_tests)
+  add_executable(stage4_tests tests/stage4_tests.cpp)
+  target_link_libraries(stage4_tests PRIVATE cpplivelab_core)
+  foreach(case IN ITEMS watcher scheduler auto_build console_model channels appearance)
+    add_test(NAME stage4_${case} COMMAND stage4_tests ${case} $<TARGET_FILE:cpplivelab>)
+    set_tests_properties(stage4_${case} PROPERTIES TIMEOUT 180)
+  endforeach()
   add_executable(doctor_tests tests/doctor_tests.cpp)
   target_link_libraries(doctor_tests PRIVATE cpplivelab_core)
   add_test(NAME doctor_unit COMMAND doctor_tests)

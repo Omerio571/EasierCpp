@@ -34,6 +34,7 @@ struct ConsoleSession::Impl
 
     // Parent-side endpoints: read captured output and write the program's stdin.
     UniqueHandle output_pipe;
+    UniqueHandle error_pipe;
     UniqueHandle input_pipe;
 
     // OVERLAPPED describes a write Windows may finish later. Its event and backing
@@ -131,16 +132,35 @@ bool ConsoleSession::running() const
 
 bool ConsoleSession::output_pending() const
 {
-    DWORD available_bytes = 0;
-    return impl_->output_pipe.value &&
-           PeekNamedPipe(
-               impl_->output_pipe.value, nullptr, 0, nullptr, &available_bytes, nullptr) &&
-           available_bytes != 0;
+    const auto pending = [](HANDLE pipe)
+    {
+        DWORD available = 0;
+        return pipe && PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr) &&
+               available != 0;
+    };
+    return pending(impl_->output_pipe.value) || pending(impl_->error_pipe.value);
 }
 
 void ConsoleSession::start(const std::filesystem::path& executable,
     const std::vector<std::wstring>& arguments,
     const std::filesystem::path& directory)
+{
+    start_impl(executable, arguments, directory, {}, false);
+}
+
+void ConsoleSession::start_program(const std::filesystem::path& executable,
+    const std::vector<std::wstring>& arguments,
+    const std::filesystem::path& directory,
+    const Environment& environment)
+{
+    start_impl(executable, arguments, directory, environment, true);
+}
+
+void ConsoleSession::start_impl(const std::filesystem::path& executable,
+    const std::vector<std::wstring>& arguments,
+    const std::filesystem::path& directory,
+    const Environment& environment,
+    bool separate_stderr)
 {
     if (running())
     {
@@ -161,12 +181,17 @@ void ConsoleSession::start(const std::filesystem::path& executable,
     {
         throw std::runtime_error("Cannot create process-tree safety job");
     }
-    UniqueHandle child_stdout_write_handle, child_stdin_read_handle;
+    UniqueHandle child_stdout_write_handle, child_stderr_write_handle, child_stdin_read_handle;
 
     // stdout and stderr share one anonymous pipe, preserving their arrival order.
     // These child-side handles are local: after CreateProcess inherits them, the
     // parent must close its copies so pipe EOF can be detected correctly.
     create_output_pipe(process_state.output_pipe, child_stdout_write_handle, 65536);
+    if (separate_stderr)
+    {
+        create_output_pipe(process_state.error_pipe, child_stderr_write_handle, 65536);
+        SetHandleInformation(process_state.error_pipe.value, HANDLE_FLAG_INHERIT, 0);
+    }
     process_state.prepare_input_pipe(child_stdin_read_handle);
 
     // Only child endpoints should be inherited. An inherited copy of the parent's
@@ -178,7 +203,8 @@ void ConsoleSession::start(const std::filesystem::path& executable,
     startup_information.dwFlags = STARTF_USESTDHANDLES;
     startup_information.hStdInput = child_stdin_read_handle.value;
     startup_information.hStdOutput = child_stdout_write_handle.value;
-    startup_information.hStdError = child_stdout_write_handle.value;
+    startup_information.hStdError =
+        separate_stderr ? child_stderr_write_handle.value : child_stdout_write_handle.value;
     PROCESS_INFORMATION process_information{};
     auto process_command_line = make_command_line(executable, arguments);
 
@@ -189,8 +215,8 @@ void ConsoleSession::start(const std::filesystem::path& executable,
             nullptr,
             nullptr,
             TRUE,
-            CREATE_NO_WINDOW | CREATE_SUSPENDED,
-            nullptr,
+            CREATE_NO_WINDOW | CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT,
+            environment.empty() ? nullptr : const_cast<wchar_t*>(environment.data()),
             directory.c_str(),
             &startup_information,
             &process_information))
@@ -219,10 +245,8 @@ void ConsoleSession::start(const std::filesystem::path& executable,
     }
 }
 
-std::string ConsoleSession::poll()
+std::vector<ProcessOutput> ConsoleSession::poll_output()
 {
-    // A successful poll (or a completed error) releases the write buffer for reuse.
-    // ERROR_IO_INCOMPLETE is normal: the GUI returns to its message loop and retries.
     if (impl_->is_input_pending)
     {
         DWORD bytes_written = 0;
@@ -234,35 +258,60 @@ std::string ConsoleSession::poll()
             impl_->pending_input_text.clear();
         }
     }
-    // Peek first: a direct blocking ReadFile could freeze the GUI at a std::cin prompt.
-    // Cap work per tick so very chatty programs cannot monopolize the UI thread.
-    std::string captured_output;
-    std::array<char, 8192> read_buffer{};
-    DWORD available_bytes = 0, bytes_read = 0;
-    while (
-        captured_output.size() < 65536 && impl_->output_pipe.value &&
-        PeekNamedPipe(impl_->output_pipe.value, nullptr, 0, nullptr, &available_bytes, nullptr) &&
-        available_bytes)
+
+    std::vector<ProcessOutput> chunks;
+    std::array<char, 4096> buffer{};
+    size_t total_bytes = 0;
+    bool read_something = true;
+    while (read_something && total_bytes < 65536)
     {
-        if (!ReadFile(impl_->output_pipe.value,
-                read_buffer.data(),
-                (std::min)(available_bytes, static_cast<DWORD>(read_buffer.size())),
-                &bytes_read,
-                nullptr))
+        read_something = false;
+        // Fairly alternate pipes. Windows does not supply a global ordering across
+        // independent stdout/stderr pipes; each stream's byte ordering is preserved.
+        for (const auto stream : {OutputStream::StandardOutput, OutputStream::StandardError})
         {
-            break;
+            const auto pipe = stream == OutputStream::StandardOutput ? impl_->output_pipe.value
+                                                                     : impl_->error_pipe.value;
+            DWORD available = 0;
+            if (!pipe || !PeekNamedPipe(pipe, nullptr, 0, nullptr, &available, nullptr) ||
+                !available)
+            {
+                continue;
+            }
+            DWORD bytes_read = 0;
+            if (ReadFile(pipe,
+                    buffer.data(),
+                    (std::min)(available, static_cast<DWORD>(buffer.size())),
+                    &bytes_read,
+                    nullptr) &&
+                bytes_read)
+            {
+                chunks.push_back({stream, std::string(buffer.data(), bytes_read)});
+                total_bytes += bytes_read;
+                read_something = true;
+            }
         }
-        captured_output.append(read_buffer.data(), bytes_read);
     }
+
     if (impl_->has_launched && !running())
     {
-        DWORD process_exit_code = 1;
-        if (GetExitCodeProcess(impl_->running_process_handle.value, &process_exit_code))
+        DWORD exit_code = 1;
+        if (GetExitCodeProcess(impl_->running_process_handle.value, &exit_code))
         {
-            impl_->process_exit_code = static_cast<int>(process_exit_code);
+            impl_->process_exit_code = static_cast<int>(exit_code);
         }
     }
-    return captured_output;
+    return chunks;
+}
+
+std::string ConsoleSession::poll()
+{
+    std::string merged_output;
+    for (const auto& chunk : poll_output())
+    {
+        merged_output += chunk.bytes;
+    }
+    return merged_output;
 }
 
 bool ConsoleSession::send_line(const std::string& input_line)

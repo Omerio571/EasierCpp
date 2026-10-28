@@ -1,6 +1,7 @@
 #include "cpplivelab/projects.hpp"
 #include "project_templates.hpp"
 #include "project_paths.hpp"
+#include "build_lease.hpp"
 #include "cpplivelab/doctor.hpp"
 #include "cpplivelab/process.hpp"
 #define WIN32_LEAN_AND_MEAN
@@ -71,69 +72,6 @@ fs::path find_tool_executable(const Toolchain& discovered_toolchain, const std::
     return {};
 }
 
-// An exclusive file handle serializes all CppLiveLab instances for this build folder.
-// Windows releases the lock even when a worker is terminated by the GUI's Stop job.
-class BuildLock
-{
-public:
-    explicit BuildLock(const fs::path& directory)
-    {
-        fs::create_directories(directory);
-        // A sharing mode of zero prevents another process from opening the same lock.
-        // OPEN_ALWAYS keeps an existing lock file's contents; ownership is the open
-        // handle, not the mere existence of the file on disk.
-        lock_handle_ = CreateFileW((directory / L"cpplivelab.lock").c_str(),
-            GENERIC_READ | GENERIC_WRITE,
-            0,
-            nullptr,
-            OPEN_ALWAYS,
-            FILE_ATTRIBUTE_NORMAL,
-            nullptr);
-        if (lock_handle_ == INVALID_HANDLE_VALUE)
-        {
-            throw std::runtime_error(
-                "This configuration is already building or running in CppLiveLab. Stop it first.");
-        }
-    }
-
-    ~BuildLock()
-    {
-        CloseHandle(lock_handle_);
-    }
-
-    BuildLock(const BuildLock&) = delete;
-    BuildLock& operator=(const BuildLock&) = delete;
-
-private:
-    HANDLE lock_handle_;
-};
-
-void ensure_executables_stopped(const fs::path& directory)
-{
-    // Another application (for example Visual Studio) can launch an executable
-    // without taking our lock. Probe write access before invoking the linker.
-    for (const auto& entry : fs::recursive_directory_iterator(directory))
-    {
-        if (!entry.is_regular_file() || entry.path().extension() != L".exe")
-        {
-            continue;
-        }
-        const auto executable_write_handle = CreateFileW(entry.path().c_str(),
-            GENERIC_WRITE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            nullptr,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
-            nullptr);
-        if (executable_write_handle == INVALID_HANDLE_VALUE)
-        {
-            throw std::runtime_error(
-                "Executable is running or not writable: " + path_support::path_utf8(entry.path()) +
-                ". Stop it before building.");
-        }
-        CloseHandle(executable_write_handle);
-    }
-}
 } // namespace
 
 void create_project(const fs::path& folder, bool calculator)
@@ -172,6 +110,15 @@ int build_project(const fs::path& input,
     const std::string& configuration,
     bool should_run,
     const fs::path& executable)
+{
+    return build_project(input, configuration, should_run, executable, false);
+}
+
+int build_project(const fs::path& input,
+    const std::string& configuration,
+    bool should_run,
+    const fs::path& executable,
+    bool incremental)
 {
     if (configuration != "Debug" && configuration != "Release")
     {
@@ -222,7 +169,7 @@ int build_project(const fs::path& input,
             cmake_source_directory / ".cpplivelab" / ("build-" + configuration);
     }
     // Keep this owner in scope through Run, not just through the build commands.
-    const BuildLock lock(
+    const BuildLease lock(
         build_output_directory); // Held through execution, released even on failure/Stop.
     ensure_executables_stopped(build_output_directory);
     // Use discovered absolute paths. Initializing MSVC also supplies SDK binaries,
@@ -278,12 +225,16 @@ int build_project(const fs::path& input,
     }
     // Configuration generates Ninja's build files; the separate build step compiles
     // and links. Preserve each tool's diagnostics and stop immediately on failure.
-    int exit_code = run_process(
-        cmake_executable, configure_arguments, cmake_source_directory, child_environment);
-    if (exit_code != 0)
+    int exit_code = 0;
+    if (!incremental || !fs::is_regular_file(build_output_directory / L"CMakeCache.txt"))
     {
-        std::cerr << "Configuration failed (exit " << exit_code << ").\n";
-        return exit_code;
+        exit_code = run_process(
+            cmake_executable, configure_arguments, cmake_source_directory, child_environment);
+        if (exit_code != 0)
+        {
+            std::cerr << "Configuration failed (exit " << exit_code << ").\n";
+            return exit_code;
+        }
     }
     exit_code = run_process(cmake_executable,
         {L"--build", build_output_directory.wstring()},

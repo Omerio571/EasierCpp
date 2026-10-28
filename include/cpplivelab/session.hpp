@@ -3,9 +3,22 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "cpplivelab/process.hpp"
 
 namespace cpplivelab
 {
+enum class OutputStream
+{
+    StandardOutput,
+    StandardError
+};
+
+struct ProcessOutput
+{
+    OutputStream stream;
+    std::string bytes;
+};
+
 // GUI-owned process tree. No detached reader threads or shell commands.
 // Methods are called on the UI thread; poll drains output without waiting.
 class ConsoleSession
@@ -20,6 +33,13 @@ public:
     void start(const std::filesystem::path& executable,
         const std::vector<std::wstring>& arguments,
         const std::filesystem::path& directory);
+    // The GUI's program phase uses independent stdout/stderr pipes. Build workers
+    // and the original start/poll API retain their approved merged-stream behavior.
+    void start_program(const std::filesystem::path& executable,
+        const std::vector<std::wstring>& arguments,
+        const std::filesystem::path& directory,
+        const Environment& environment);
+    std::vector<ProcessOutput> poll_output();
     // Drain a bounded amount of available output without waiting for more bytes.
     // Call again on a later UI timer tick to keep the message loop responsive.
     std::string poll();
@@ -39,6 +59,11 @@ public:
     int exit_code() const;
 
 private:
+    void start_impl(const std::filesystem::path& executable,
+        const std::vector<std::wstring>& arguments,
+        const std::filesystem::path& directory,
+        const Environment& environment,
+        bool separate_stderr);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
