@@ -1,23 +1,86 @@
 #include "cpplivelab/doctor.hpp"
+#include "cpplivelab/projects.hpp"
 #include <iostream>
 #include <string_view>
+#include <stdexcept>
 
-int main(int argc, char** argv) {
-    if (argc == 1 || (argc == 2 && std::string_view(argv[1]) == "--help")) {
-        std::cout << "CppLiveLab\nUsage: cpplivelab [--help | --version | doctor]\n";
-        return 0;
-    }
-    if (argc == 2) {
-        const std::string_view command(argv[1]);
-        if (command == "--version") {
+int wmain(int argc, wchar_t** argv)
+{
+    try
+    {
+        if (argc == 1 || (argc == 2 && std::wstring_view(argv[1]) == L"--help"))
+        {
+            std::cout << "CppLiveLab\nUsage: cpplivelab [--help | --version | doctor]\n"
+                         "  cpplivelab create <folder> [--demo calculator]\n"
+                         "  cpplivelab build <file.cpp|project-folder> [--config Debug|Release]\n"
+                         "  cpplivelab run <file.cpp|project-folder> [--config Debug|Release] "
+                         "[--exe relative-path]\n"
+                         "Run builds first, then launches with console input/output. Default "
+                         "config: Debug.\n";
+            return 0;
+        }
+        const std::wstring_view command(argv[1]);
+        if (argc == 2 && command == L"--version")
+        {
             std::cout << "CppLiveLab " << CPPLIVELAB_VERSION << '\n';
             return 0;
         }
-        if (command == "doctor") {
-            return cpplivelab::run_doctor(std::cout,
-                cpplivelab::discover_toolchain(cpplivelab::system_discovery_inputs()));
+        if (argc == 2 && command == L"doctor")
+        {
+            return cpplivelab::run_doctor(
+                std::cout, cpplivelab::discover_toolchain(cpplivelab::system_discovery_inputs()));
         }
+        if (command == L"create" &&
+            (argc == 3 || (argc == 5 && std::wstring_view(argv[3]) == L"--demo" &&
+                              std::wstring_view(argv[4]) == L"calculator")))
+        {
+            cpplivelab::create_project(argv[2], argc == 5);
+            return 0;
+        }
+        if ((command == L"build" || command == L"run") && argc >= 3)
+        {
+            std::string configuration = "Debug";
+            std::filesystem::path executable;
+            bool has_config = false, has_exe = false;
+            for (int i = 3; i < argc; i += 2)
+            {
+                if (i + 1 >= argc)
+                {
+                    throw std::invalid_argument("Option requires a value.");
+                }
+                const std::wstring_view option(argv[i]), value(argv[i + 1]);
+                if (option == L"--config" && !has_config)
+                {
+                    if (value != L"Debug" && value != L"Release")
+                    {
+                        throw std::invalid_argument("Configuration must be Debug or Release.");
+                    }
+                    configuration = value == L"Debug" ? "Debug" : "Release";
+                    has_config = true;
+                }
+                else if (option == L"--exe" && command == L"run" && !has_exe)
+                {
+                    executable = argv[i + 1];
+                    has_exe = true;
+                }
+                else
+                {
+                    throw std::invalid_argument("Unknown or duplicate option.");
+                }
+            }
+            return cpplivelab::build_project(argv[2], configuration, command == L"run", executable);
+        }
+        std::cerr << "Invalid arguments. Use cpplivelab --help.\n";
+        return 2;
     }
-    std::cerr << "Invalid arguments. Use cpplivelab --help.\n";
-    return 2;
+    catch (const std::invalid_argument& error)
+    {
+        std::cerr << "Invalid arguments: " << error.what() << '\n';
+        return 2;
+    }
+    catch (const std::exception& error)
+    {
+        std::cerr << "CppLiveLab error: " << error.what() << '\n';
+        return 1;
+    }
 }

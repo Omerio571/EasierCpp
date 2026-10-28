@@ -1,2 +1,36 @@
-/build/
+# Visual Studio's temporary database files may be locked while the IDE is open.
+# A directory-only rule applies at every depth; no duplicate **/.vs/ rule is needed.
+.vs/
+
+# Manager and user-project build artifacts, never the source/configuration files.
+build/
+out/
+cmake-build-*/
+.cpplivelab/
+
+# Generated CMake and Ninja files.
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+cmake_install.cmake
+CTestTestfile.cmake
+build.ninja
+.ninja_deps
+.ninja_log
 /CMakeUserPresets.json
+
+# Compiled outputs and debugging symbols.
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+
+# Visual Studio user-specific settings.
+*.user
+*.suo
+
+# Keep CMakeLists.txt, CMakePresets.json, source, tests and .vscode settings tracked.

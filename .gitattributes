@@ -1,0 +1,13 @@
+# Normalize text in Git; make source/formatter output predictable on Windows.
+* text=auto
+.gitattributes text eol=lf
+.gitignore text eol=lf
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.h text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+.clang-format text eol=lf
+*.ps1 text eol=crlf
