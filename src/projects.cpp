@@ -84,12 +84,13 @@ void create_project(const fs::path& folder, bool calculator)
             "Destination must be a new or empty folder; existing files are never overwritten.");
     }
     fs::create_directories(root / "src");
-    const std::string target_definition =
-        calculator ? "add_executable(app src/main.cpp src/calculator.cpp)\n"
-                   : "add_executable(app src/main.cpp)\n";
-
-    write_text_file(
-        root / "CMakeLists.txt", std::string(project_templates::cmake_header) + target_definition);
+    std::vector<std::string> sources{"src/main.cpp"};
+    if (calculator)
+    {
+        sources.push_back("src/calculator.cpp");
+    }
+    write_text_file(root / "CMakeLists.txt",
+        project_templates::cmake_project(path_support::path_utf8(root.filename()), sources));
     write_text_file(root / ".gitignore", "/.cpplivelab/\n/build/\n");
 
     if (calculator)
@@ -144,12 +145,8 @@ int build_project(const fs::path& input,
         cmake_source_directory = selected_input_path.parent_path() / ".cpplivelab" /
                                  selected_input_path.filename() / "source";
         fs::create_directories(cmake_source_directory);
-        const std::string wrapper =
-            "cmake_minimum_required(VERSION 3.20)\nproject(SingleFile LANGUAGES CXX)\n"
-            "set(CMAKE_CXX_STANDARD 20)\nset(CMAKE_CXX_STANDARD_REQUIRED "
-            "ON)\nset(CMAKE_CXX_EXTENSIONS OFF)\n"
-            "add_executable(app \"" +
-            escape_cmake_path(selected_input_path) + "\")\n";
+        const auto wrapper = project_templates::cmake_project(
+            "SingleFile", {escape_cmake_path(selected_input_path)});
         std::ifstream existing_wrapper(cmake_source_directory / "CMakeLists.txt", std::ios::binary);
         const std::string previous_wrapper_text(
             (std::istreambuf_iterator<char>(existing_wrapper)), {});

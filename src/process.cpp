@@ -4,11 +4,78 @@
 #include <algorithm>
 #include <array>
 #include <stdexcept>
+#include <fstream>
+#include "project_paths.hpp"
 
 namespace cpplivelab
 {
 using windows_support::make_command_line;
 using windows_support::quote_argument;
+
+Environment prepend_environment_paths(
+    Environment environment, const std::vector<std::filesystem::path>& paths)
+{
+    if (paths.empty())
+    {
+        return environment;
+    }
+    if (environment.empty())
+    {
+        const auto inherited = GetEnvironmentStringsW();
+        if (!inherited)
+        {
+            throw std::runtime_error("Cannot read the child environment.");
+        }
+        const auto* end = inherited;
+        while (*end)
+        {
+            end += std::wcslen(end) + 1;
+        }
+        environment.assign(static_cast<const wchar_t*>(inherited), end + 1);
+        FreeEnvironmentStringsW(inherited);
+    }
+    std::wstring prefix;
+    for (const auto& path : paths)
+    {
+        prefix += path.wstring() + L";";
+    }
+    Environment result;
+    bool found_path = false;
+    for (const wchar_t* entry = environment.data(); *entry; entry += std::wcslen(entry) + 1)
+    {
+        std::wstring value(entry);
+        if (_wcsnicmp(entry, L"PATH=", 5) == 0)
+        {
+            value = L"PATH=" + prefix + value.substr(5);
+            found_path = true;
+        }
+        result.insert(result.end(), value.begin(), value.end());
+        result.push_back(L'\0');
+    }
+    if (!found_path)
+    {
+        const auto value = L"PATH=" + prefix;
+        result.insert(result.end(), value.begin(), value.end());
+        result.push_back(L'\0');
+    }
+    result.push_back(L'\0');
+    return result;
+}
+
+Environment runtime_environment(
+    Environment environment, const std::filesystem::path& build_directory)
+{
+    std::ifstream input(build_directory / L"runtime-paths.txt");
+    std::vector<std::filesystem::path> paths;
+    for (std::string line; std::getline(input, line);)
+    {
+        if (!line.empty())
+        {
+            paths.push_back(path_support::from_utf8(line));
+        }
+    }
+    return prepend_environment_paths(std::move(environment), paths);
+}
 
 int run_process(const std::filesystem::path& executable,
     const std::vector<std::wstring>& arguments,

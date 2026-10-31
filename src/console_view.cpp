@@ -56,6 +56,7 @@ void ConsolePane::create(HWND parent, int id, HFONT font)
     SendMessageW(window, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     SendMessageW(window, EM_EXLIMITTEXT, 0, 500000);
     SendMessageW(window, EM_SETUNDOLIMIT, 0, 0);
+    SendMessageW(window, EM_SETEVENTMASK, 0, ENM_MOUSEEVENTS | ENM_KEYEVENTS);
     PARAFORMAT2 paragraph{};
     paragraph.cbSize = sizeof(paragraph);
     paragraph.dwMask = PFM_SPACEAFTER;
@@ -141,6 +142,16 @@ void ConsolePane::clear()
     history.clear();
     follow_tail_ = true;
     SetWindowTextW(window, L"");
+}
+
+void ConsolePane::clear_preserving_unfinished_stdout()
+{
+    const std::wstring unfinished(history.unfinished_stdout_line());
+    clear();
+    if (!unfinished.empty())
+    {
+        append(MessageKind::ProgramOutput, unfinished);
+    }
 }
 
 void ConsolePane::set_colors(const ConsoleColors& colors)

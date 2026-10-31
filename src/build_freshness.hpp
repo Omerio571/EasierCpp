@@ -12,6 +12,9 @@ struct BuildIdentity
     std::filesystem::path project;
     std::wstring configuration;
     std::filesystem::path executable;
+    // Legacy CLI observations keep their existing path; imported GUI projects
+    // supply the manager-owned external directory explicitly.
+    std::filesystem::path output_directory;
     auto operator<=>(const BuildIdentity&) const = default;
     std::filesystem::path directory() const;
 };

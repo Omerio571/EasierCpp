@@ -18,6 +18,7 @@ public:
     void create(HWND parent, int id, HFONT font);
     void append(MessageKind kind, std::wstring_view text);
     void clear();
+    void clear_preserving_unfinished_stdout();
     void set_colors(const ConsoleColors& colors);
     void set_visible(bool visible);
 

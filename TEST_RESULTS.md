@@ -1,4 +1,236 @@
-# Latest automated reliability retest — October 28, 2026
+# Stage 5 UI visual/functional audit � October 29, 2026
+
+Actual final normal-build runs after all UI fixes:
+
+- Quick: **27/27 passed**, zero failures, **12.30 seconds**.
+- Full: **38/38 passed**, zero failures, **227.24 seconds**, Doctor passed.
+- Full includes `stage5_ui_audit`: actual production modal forms, three themes,
+  logical 100/125/150% DPI, repeated resize/Advanced, visible bounds, action
+  reachability, GDI limits, progress cancellation and owner-focus restoration.
+- New Quick `stage5_ui_layout` covers welcome/system-output and workspace geometry.
+- `stage5_ui_forms` includes real rendering pixel tests, long help/action captions,
+  literal ampersands and opaque read-only edit scrolling/repaint.
+- Manual computer-use verified calculator name/2.5/3.75 -> sum 6.25, exit 0;
+  menus, live theme switching, Advanced/help/Browse, known-library selection,
+  real passive GitHub discovery/version UI and cancellation were exercised.
+- 37 native captures were reviewed via ten labelled sheets. Final rounded edit
+  and read-only version fixtures were inspected separately in both palettes.
+- Formatting: **57 C++ files verified**; Git whitespace/status checked.
+- Protected core/palettes **8/8 hashes unchanged**. FarmGame **24/24 unchanged**.
+- Full physical mixed-monitor DPI, every tooltip/approval state, graphical-game
+  runtime and every maximize/restore permutation are NOT claimed visually passed.
+
+See [UI_AUDIT_REPORT.md](UI_AUDIT_REPORT.md) for the 26-surface audit table, ten
+fix categories and evidence limits, and [UI_AUDIT_MANUAL_TESTS.md](UI_AUDIT_MANUAL_TESTS.md)
+for acceptance. No Stage 6, commit or push.
+
+---
+
+# Stage 5 consolidated verification � October 29, 2026
+
+Final requested commands were actually executed after fixes:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Quick -Jobs 4
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Full -Jobs 4 -Doctor
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\format.ps1 -Check
+git diff --check
+git status --short
+```
+
+- **Quick 26/26 passed; zero failures; 3.73 seconds CTest real time.**
+- **Full 36/36 passed; zero failures; 121.87 seconds CTest real time. Doctor passed.**
+- **Formatting: 56 maintained C++ files verified, clang-format 19.1.5.**
+- Git whitespace check passed. Existing Stage 4/5 uncommitted work was preserved;
+  generated logs, dependency archives and isolated builds remain ignored. No commit/push.
+- The production runner command/session driver executed REAL Quick (26/26, exit 0,
+  5.28 seconds CTest / 41.672 seconds overall) and Full (36/36, Doctor, exit 0,
+  146.98 seconds CTest / 160.172 seconds overall) in build/integrated-tests.
+- Actual native controller tested output streaming, overlap rejection and cancelling
+  a test worker while preserving a live interactive program PID. Standalone controller
+  retesting also passed after adding its fixture's missing PowerShell execution-policy
+  argument. That fixture had inherited Bypass under the build script but lacked it
+  outside CTest; the actual application runner already supplied it correctly.
+- Offline API fixtures passed: actual releases/tags parsing, prerelease exclusion,
+  exact commit, older version, invalid URL/version, rate-limit and network errors.
+- Actual raylib 5.5 discovery/download/configure/target discovery/build/link passed,
+  exact commit c1ab645ca298a2801097931d1079b10ff7eb9df8. Consumer exit/build 0;
+  this did not open a graphics window or modify FarmGame.
+- Native off-screen forms were exercised and captured. Inspected Dark/Light welcome,
+  workspace and expanded settings renders. Repeated Advanced toggles/DPI geometry,
+  unique actions, help and GDI counts passed. Real desktop/mixed-monitor acceptance
+  remains manual; captures are not a claim that all desktop interactions passed.
+- Protected scheduler/process/freshness/palette files: **8/8 original SHA256 matches**.
+  FarmGame: **24/24 original files match, still 24 files total**, no configure/build/edit.
+- Initial failures were corrected and retested: old Open button absence assertion was
+  replaced with welcome-only visibility checks; the offline fixture's script-scope
+  tracking was fixed. No regression or accessibility check was disabled.
+
+Evidence logs (ignored build output): build/consolidated-final-quick.log,
+build/consolidated-final-full.log, build/integrated-runner-quick.log,
+build/integrated-runner-full.log, build/github-real-raylib/verification.log.
+Native renders: build/consolidated-ui-snapshots/.
+
+See [implementation report](STAGE5_CONSOLIDATED_REPORT.md) for files, actual library
+support, root cause and limitations; use the [A�X acceptance guide](STAGE5_CONSOLIDATED_MANUAL_TESTS.md)
+for your manual testing. Stage 5 is awaiting manual approval. No Stage 6/7 work.
+
+---
+
+# Stage 5 UI refinement verification — October 28, 2026
+
+Actual final commands after MSVC/CMake/Ninja compilation:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Quick -Jobs 4
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Full -Jobs 4 -Doctor
+```
+
+- **Quick: 25/25 passed, zero failures, 3.26 seconds CTest real time.**
+- **Full: 35/35 passed, zero failures, 110.98 seconds CTest real time. Doctor passed.**
+- All earlier Stage 1–5 regressions retain Full coverage. New `stage5_ui_forms`
+  covers shared palettes, growing independent library rows, duplicate rejection,
+  Browse/help presence, advanced editor controls, inline validation, recent actions
+  and high-DPI scrolling. GUI regression covers navigation organization/routing,
+  one execution per Build command, persistent debounce after watcher restart,
+  780/940/1400-width layouts and all existing interactive lifecycle assertions.
+- The library integration test creates a REAL project selecting fmt AND JSON for
+  Modern C++, configures/downloads/compiles/links/runs it and checks JSON answer 42
+  in fmt output. Existing fmt-only/empty/multi-file builds remain tested. Duplicate
+  library IDs are rejected before creation. Existing-project previews remain read-only.
+- Optional direct native-form/controller runs also passed and rendered test-owned
+  Dark/Light PNGs under build/ui-snapshots. Those snapshots were visually inspected,
+  finding/correcting target-label overlap and missing shared form input-border paint.
+  A removed debounce widget read was corrected to use the shared preference and
+  explicitly regression-tested. Snapshot/COM include and accessibility GUID link
+  errors were fixed before successful final compilation/testing.
+- Formatting applied and checked: 51 maintained C++ files, clang-format 19.1.5.
+  Git whitespace/ignore/index checks passed. No automatic commit or push.
+- Protected code/palette hashes: 8/8 unchanged. FarmGame: 24/24 file hashes and
+  file count unchanged; no configure/build/run against the original project.
+- Complete detailed final logs: build/ui-refinement-quick-details.log and
+  build/ui-refinement-full-details.log. Setup/build time is additional to CTest time.
+- UI_DESIGN_GUIDELINES.md exists; AGENTS.md requires it for future UI work.
+
+Current full manual acceptance: STAGE5_UI_MANUAL_TESTS.md. Implementation, file list
+and limitations: STAGE5_UI_REPORT.md. Stage 5 has NOT received manual approval; real
+mixed-monitor, picker, screen-reader, editor and FarmGame build/run acceptance remain
+manual. No Stage 6/7 functionality was added.
+
+The following sections record earlier implementation and verification.
+
+# Stage 5 final verification — October 28, 2026
+
+Actual final commands after MSVC/CMake/Ninja compilation:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Quick -Jobs 4
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Full -Jobs 4 -Doctor
+```
+
+- **Quick: 24/24 passed, zero failures, 3.38 seconds CTest real time.**
+- **Full: 34/34 passed, zero failures, 103.36 seconds CTest real time.**
+- Doctor passed. Setup and manager compilation time are additional to CTest time.
+- All 30 approved Stage 4 tests remain, including Stage 1–3 regressions. Four new
+  Stage 5 registrations cover unit/protection/editor behavior, actual custom-layout
+  builds/targets/assets/configurations, presets/generators without developer PATH,
+  and real pinned fmt plus empty/multi-file template compilation and execution.
+- GUI regression preserves interactive input, Clear/state, Run/EOF/Stop/restart,
+  independent configurations, rounded controls/layout and shutdown; adds pending
+  project switching, active-build switch refusal, settings restoration and dropdown
+  sizing after native layout. Targeted final GUI test passed in 21.64 seconds before
+  the final complete suite; it also passed in the final Full run (30.22 seconds).
+- Fixed/retested: trailing-dot normalization bypass in new-project validation,
+  discovered tool PATH for preset child processes, case-sensitive preset cache
+  isolation, and the native dropdown layout/test initialization. An intermediate
+  environment-copy compile error was resolved before successful final compilation.
+  A negative download fixture retains actual failure/protection checks with bounded
+  download timing instead of FetchContent's unnecessary repeated retry backoff.
+- Formatting applied/validated: 49 maintained C++ files, clang-format 19.1.5.
+  `git diff --check` passed; generated logs/archive are ignored; no staged changes,
+  automatic commit or push. Existing unrelated uncommitted work is preserved.
+- FarmGame was inspected read-only: 24 file hashes and file count unchanged. No
+  original FarmGame configure/build/run was performed. It requires explicit
+  configure-write authorization before real-project manual acceptance.
+
+Detailed final logs: `build/stage5-quick-final-details.log` and
+`build/stage5-full-final-details.log`. See STAGE5_REPORT.md for exact scope, file list,
+tested versus unverified integrations, and STAGE5_MANUAL_TESTS.md for A–H acceptance.
+
+The following sections record earlier Stage 4 verification.
+
+# Customized palette verification — October 28, 2026
+
+The customized colors exposed one obsolete literal RGB assertion and four genuine
+contrast failures. Only the four failing colors were adjusted; accessible customized
+colors were retained. See THEME_ACCESSIBILITY.md for all original/final RGB values,
+backgrounds, contrast ratios, exact assertion changes and manual checks.
+
+Actual executed commands:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Quick -Jobs 4
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Full -Jobs 4 -Doctor
+```
+
+- Targeted theme regressions: **2/2 passed in 1.21 seconds** after rebuilding.
+- Requested Quick: **23/23 passed in 3.51 seconds**.
+- Requested Full: **30/30 passed in 71.79 seconds**; doctor passed.
+- Durations are CTest real time. Manager setup/build time is additional.
+- Direct appearance retest passed 36 checks, printing every contrast to six decimals.
+  An initial supplemental sandbox invocation could not save its test registry key;
+  repeating with build/test permissions passed. No accessibility threshold was lowered.
+- Rich Edit verifies actual selected-palette RGB, explicit color flags, stderr/stdout,
+  and retained-text recoloring in both directions. Contrast remains at least 4.5:1;
+  semantic identity and minimum 30-degree hue separation remain checked.
+- clang-format 19.1.5 applied/validated 39 maintained files; Git whitespace checks
+  passed. Generated test logs are ignored. No automatic commit or push.
+
+The following section records the prior refinement pass, before color customization.
+
+# Final Stage 4 refinements — October 28, 2026
+
+Executed from ordinary PowerShell after rebuilding the C++ changes with MSVC,
+CMake and Ninja:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Quick -Timing
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Full -Jobs 2 -Timing -Doctor
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Full -Jobs 1 -Timing -Doctor
+```
+
+- Final Quick: **23/23 passed**, zero failures, CTest real time **8.09 seconds**.
+- Full with two workers: **30/30 passed**, zero failures, CTest real time
+  **125.28 seconds**. All original 28 regressions remain, plus `stage4_prompts`
+  and `test_selection`. Detailed parent log contains all 30 passing test records.
+- Final Full with the default one worker: **30/30 passed**, zero failures, CTest
+  real time **221.40 seconds**. Two workers saved 96.12 seconds (43%) in this pair
+  of runs; machine load can change these timings. Both modes execute the same tests.
+- Targeted native console/controller tests cover prompt preservation and input/state
+  after Clear. Palette tests cover Dark/Light contrast, semantic hue distinction,
+  both Follow Windows resolutions and actual Rich Edit text colors. Existing queue,
+  lifecycle, cancellation, freshness, Debug/Release and Stage 1–3 integrations ran.
+- The opt-in performance probe completed successfully; its measured findings,
+  methodology and qualifications are in STAGE4_FINAL_REFINEMENTS.md. No timing
+  benchmark was substituted for a regression test.
+- A test-tooling bug found during verification was fixed: nested CTest metadata
+  listing originally overwrote the parent test log. It now lists the actual generated
+  registrations from a private temporary directory. Final Quick and Full logs retain
+  all 23/30 records respectively. One metadata query also replaces three listings.
+- Direct `--version` returned `CppLiveLab 0.1.0`. Direct doctor from an ordinary
+  terminal found CMake, Ninja, MSVC and Clang installed while correctly reporting
+  them unavailable on that terminal's PATH. GCC absence is not a failure.
+- Formatting check passed for 38 maintained C++ files using clang-format 19.1.5.
+  `git diff --check` passed; generated binaries/timing data are ignored, new source
+  and test files are not ignored, and the Git index contains no staged changes.
+  Protected-source hashes (11), existing user-project hashes (27), and the rounded
+  UI renderer were unchanged. No commit or push was performed.
+
+See TESTING.md for exact test selections and STAGE4_FINAL_REFINEMENTS.md for the
+file list, remaining limitations and numbered manual checks. Manual visual tests
+are left for the user. The following results describe the earlier reliability pass.
+
+# Earlier automated reliability retest — October 28, 2026
 
 Final executed command:
 
@@ -460,3 +692,34 @@ unrelated processes were left intact. No commit or push was created.
 The complete GUI walkthrough was not repeated during this maintenance pass;
 independent maintenance manual testing is intentionally the next approval gate.
 See MAINTENANCE_MANUAL_TESTS.md, MAINTENANCE_REVIEW.md and GIT_CHECKPOINT.md.
+
+
+## 2026-10-29: Stage 5 unified architecture and reliability
+
+Executed the requested unfiltered commands:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Quick -Jobs 4
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMode Full -Jobs 4 -Doctor
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\format.ps1 -Check
+git diff --check
+git status --short
+```
+
+Quick: 28/28 passed (8.87 s). Full: 41/41 passed (289.07 s), Doctor success.
+Final rebuild/Quick after whitespace/test-output formatting: 28/28 passed (9.13 s).
+Formatting verified 60 maintained C++ files. Additional targeted long-path/preset/
+Raylib tests passed 2/2 (144.06 s). Debug/Release generated console runs also passed
+with an explicitly empty PATH. Real Raylib 6.2 generated projects opened and closed
+visible windows in Debug/Release, built incrementally without changes, rebuilt edits,
+reported actual source diagnostics and repaired successfully; legacy full-SHA/CXX-only
+configuration built without rewriting its CMake.
+
+Earlier failed runs exposed and led to fixes for the preserved Stage 2 C++20
+declaration, fixture PID reuse/long-path cleanup, and long MSBuild/archive paths.
+The final unfiltered pass supersedes those failed runs. One executable link attempt
+failed transiently and succeeded on retry without deleting files or closing editors.
+
+FarmGame: 24 protected file hashes unchanged. Original MyCppProject CMake hash
+unchanged. No personal project edits, commit or push. Full details and limitations:
+STAGE5_UNIFIED_REPORT.md. Numbered acceptance: STAGE5_UNIFIED_MANUAL_TESTS.md.

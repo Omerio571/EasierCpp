@@ -2,7 +2,9 @@
 #include "../src/build_lease.hpp"
 #include "../src/console_model.hpp"
 #include "../src/appearance.hpp"
+#include "theme_test_support.hpp"
 #include <cmath>
+#include <array>
 #include "cpplivelab/projects.hpp"
 #include "cpplivelab/session.hpp"
 
@@ -15,7 +17,7 @@ namespace
 namespace fs = std::filesystem;
 int checks = 0;
 
-void require(bool condition, const char* description)
+void require(bool condition, const std::string& description)
 {
     if (!condition)
     {
@@ -222,6 +224,46 @@ void test_scheduler()
     require(!scheduler.pending(), "Project switch did not cancel old work");
 }
 
+void test_prompts()
+{
+    using cpplivelab::MessageKind;
+    cpplivelab::ConsoleHistory history;
+    history.append(MessageKind::ProgramOutput, L"Earlier output\nAnother completed line\nNa");
+    history.append(MessageKind::ProgramOutput, L"me");
+    history.append(MessageKind::ProgramOutput, L": ");
+    require(history.unfinished_stdout_line() == L"Name: ", "Split stdout prompt was not retained");
+    history.append(MessageKind::Input, L"> Ada\n");
+    require(history.unfinished_stdout_line().empty(), "Input echo retained an answered prompt");
+    history.append(MessageKind::ProgramOutput, L"Second number: ");
+    require(history.unfinished_stdout_line() == L"Second number: ",
+        "Next unfinished stdout line was lost");
+    history.clear();
+    require(history.unfinished_stdout_line().empty(), "Full clear retained old stream state");
+    history.append(MessageKind::ProgramOutput, L"Finished\r");
+    history.append(MessageKind::ProgramOutput, L"\n");
+    require(
+        history.unfinished_stdout_line().empty(), "Split CRLF was mistaken for an unfinished line");
+    history.append(MessageKind::ProgramOutput, L"\u540d\u524d: ");
+    require(history.unfinished_stdout_line() == L"\u540d\u524d: ", "Unicode stdout line changed");
+    history.append(MessageKind::ProgramError, L"stderr without newline");
+    require(history.unfinished_stdout_line().empty(), "Mixed stdout/stderr line was guessed");
+    history.append(MessageKind::ProgramError, L"\n");
+    history.append(MessageKind::ProgramOutput, L"New stdout: ");
+    require(history.unfinished_stdout_line() == L"New stdout: ",
+        "Newline did not reset stream ambiguity");
+    history.append(MessageKind::ProgramOutput, L"\b");
+    require(history.unfinished_stdout_line().empty(),
+        "Backspace editing was reconstructed as a prompt");
+    history.append(MessageKind::ProgramOutput, L"\nName: \x1b[0m");
+    require(history.unfinished_stdout_line().empty(), "ANSI editing was reconstructed as a prompt");
+    cpplivelab::ConsoleHistory bounded(16, 2);
+    bounded.append(MessageKind::ProgramOutput, std::wstring(40, L'x'));
+    require(
+        bounded.unfinished_stdout_line().empty(), "Truncated long line was treated as complete");
+    bounded.append(MessageKind::ProgramOutput, L"\nName: ");
+    require(bounded.unfinished_stdout_line() == L"Name: ", "Bounded line tracking did not recover");
+}
+
 void test_console_model()
 {
     using cpplivelab::MessageKind;
@@ -329,39 +371,120 @@ void test_channels(const fs::path& cli)
 void test_appearance()
 {
     using cpplivelab::ThemeChoice;
-    const auto luminance = [](COLORREF color)
-    {
-        const auto linear = [](BYTE channel)
-        {
-            const double value = channel / 255.0;
-            return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
-        };
-        return 0.2126 * linear(GetRValue(color)) + 0.7152 * linear(GetGValue(color)) +
-               0.0722 * linear(GetBValue(color));
-    };
+    require(
+        std::abs(theme_test::contrast_ratio(RGB(0, 0, 0), RGB(255, 255, 255)) - 21) < 0.000001 &&
+            theme_test::contrast_ratio(RGB(100, 100, 100), RGB(100, 100, 100)) == 1,
+        "WCAG contrast calculation failed black/white or equal-color reference values");
+    std::string contrast_failures;
     for (const auto choice : {ThemeChoice::Dark, ThemeChoice::Light})
     {
         const auto palette = cpplivelab::theme_palette(choice);
-        require(palette.dark == (choice == ThemeChoice::Dark), "Explicit theme resolution failed");
         for (const auto kind : {cpplivelab::MessageKind::ProgramOutput,
                  cpplivelab::MessageKind::System,
                  cpplivelab::MessageKind::Success,
                  cpplivelab::MessageKind::Warning,
                  cpplivelab::MessageKind::Error})
         {
-            const double text = luminance(cpplivelab::message_color(palette.console, kind));
-            const double background = luminance(palette.console.background);
-            const double contrast =
-                ((std::max)(text, background) + 0.05) / ((std::min)(text, background) + 0.05);
-            require(contrast >= 4.5, "Console text lacks readable contrast in a theme");
+            const auto description =
+                theme_test::contrast_description(choice, kind, palette.console);
+            std::cout << description << '\n';
+            // Compare the unrounded value; printed rounding must never admit a failure.
+            if (theme_test::contrast_ratio(cpplivelab::message_color(palette.console, kind),
+                    palette.console.background) < 4.5)
+            {
+                contrast_failures += "\n" + description;
+            }
         }
+    }
+    require(contrast_failures.empty(), "Console contrast failures:" + contrast_failures);
+    for (const auto choice : {ThemeChoice::Dark, ThemeChoice::Light})
+    {
+        const auto palette = cpplivelab::theme_palette(choice);
+        require(palette.dark == (choice == ThemeChoice::Dark), "Explicit theme resolution failed");
         require(cpplivelab::message_color(palette.console,
                     cpplivelab::MessageKind::ProgramOutput) == palette.console.neutral,
             "Theme made stdout success-colored");
+        const auto colors = std::array<COLORREF, 4>{palette.console.error,
+            palette.console.success,
+            palette.console.information,
+            palette.console.warning};
+        const auto kinds = std::array{cpplivelab::MessageKind::Error,
+            cpplivelab::MessageKind::Success,
+            cpplivelab::MessageKind::System,
+            cpplivelab::MessageKind::Warning};
+        const auto identity = [&](size_t index, bool valid, const char* reason)
+        {
+            require(valid,
+                theme_test::context(choice, kinds[index]) + " " + theme_test::rgb(colors[index]) +
+                    ": " + reason);
+        };
+        identity(0,
+            GetRValue(colors[0]) > GetGValue(colors[0]) + 30 &&
+                GetRValue(colors[0]) > GetBValue(colors[0]) + 30,
+            "red must exceed green and blue by more than 30");
+        identity(1,
+            GetGValue(colors[1]) > GetRValue(colors[1]) + 30 &&
+                GetGValue(colors[1]) > GetBValue(colors[1]) + 30,
+            "green must exceed red and blue by more than 30");
+        identity(2,
+            GetBValue(colors[2]) > GetRValue(colors[2]) + 30 &&
+                GetBValue(colors[2]) > GetGValue(colors[2]) + 30,
+            "blue must exceed red and green by more than 30");
+        identity(3,
+            GetRValue(colors[3]) > GetGValue(colors[3]) + 20 &&
+                GetGValue(colors[3]) > GetBValue(colors[3]) + 40,
+            "orange requires red > green + 20 and green > blue + 40");
+        for (size_t first = 0; first < colors.size(); ++first)
+        {
+            for (size_t second = first + 1; second < colors.size(); ++second)
+            {
+                const auto hue = [](COLORREF color)
+                {
+                    const double red = GetRValue(color), green = GetGValue(color),
+                                 blue = GetBValue(color);
+                    const double high = (std::max)({red, green, blue});
+                    const double low = (std::min)({red, green, blue});
+                    const double range = high - low;
+                    const double sector = high == red     ? (green - blue) / range
+                                          : high == green ? (blue - red) / range + 2
+                                                          : (red - green) / range + 4;
+                    return std::fmod(sector * 60 + 360, 360);
+                };
+                // Hue separation expresses color identity; a raw RGB-distance
+                // cutoff can reject distinct dark red/orange colors arbitrarily.
+                const auto difference = std::abs(hue(colors[first]) - hue(colors[second]));
+                const double separation = (std::min)(difference, 360 - difference);
+                require(separation >= 30,
+                    theme_test::context(choice, kinds[first]) + " " +
+                        theme_test::rgb(colors[first]) + " and " +
+                        theme_test::semantic_name(kinds[second]) + " " +
+                        theme_test::rgb(colors[second]) + ": hue separation " +
+                        theme_test::decimal(separation) + " degrees (minimum 30)");
+            }
+        }
     }
     require(cpplivelab::theme_palette(ThemeChoice::FollowWindows).dark ==
                 cpplivelab::windows_uses_dark_theme(),
         "Follow Windows did not resolve the current OS preference");
+    const auto followed = cpplivelab::theme_palette(ThemeChoice::FollowWindows);
+    const auto explicit_palette = cpplivelab::theme_palette(
+        cpplivelab::windows_uses_dark_theme() ? ThemeChoice::Dark : ThemeChoice::Light);
+    require(followed.console.error == explicit_palette.console.error &&
+                followed.console.success == explicit_palette.console.success &&
+                followed.console.information == explicit_palette.console.information &&
+                followed.console.warning == explicit_palette.console.warning,
+        "Follow Windows selected a mixed semantic palette");
+    for (bool dark : {false, true})
+    {
+        const auto resolved = cpplivelab::theme_palette(ThemeChoice::FollowWindows, dark);
+        const auto explicit_theme =
+            cpplivelab::theme_palette(dark ? ThemeChoice::Dark : ThemeChoice::Light);
+        require(resolved.dark == dark && resolved.console.error == explicit_theme.console.error &&
+                    resolved.console.success == explicit_theme.console.success &&
+                    resolved.console.information == explicit_theme.console.information &&
+                    resolved.console.warning == explicit_theme.console.warning,
+            "Follow Windows transition used the wrong semantic palette");
+    }
     require(cpplivelab::scale_pixels(100, 96) == 100 && cpplivelab::scale_pixels(100, 144) == 150 &&
                 cpplivelab::scale_pixels(100, 192) == 200,
         "DPI scaling incorrect");
@@ -554,6 +677,10 @@ int wmain(int argc, wchar_t** argv)
         else if (test_case == L"console_model")
         {
             test_console_model();
+        }
+        else if (test_case == L"prompts")
+        {
+            test_prompts();
         }
         else if (test_case == L"channels")
         {

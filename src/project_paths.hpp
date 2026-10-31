@@ -3,9 +3,15 @@
 #include <cwctype>
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace cpplivelab::path_support
 {
+inline std::filesystem::path from_utf8(std::string_view text)
+{
+    return std::filesystem::path(std::u8string(text.begin(), text.end()));
+}
+
 // Callers resolve existing path components with weakly_canonical first. Comparing
 // complete components avoids treating a sibling such as "CppLiveLab-UserProjects"
 // as a child of "CppLiveLab". Different drive/UNC roots are simply outside the tree.

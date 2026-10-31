@@ -26,6 +26,25 @@ void rounded_rectangle(HDC dc, RECT rectangle, int diameter, COLORREF fill, COLO
     DeleteObject(pen);
     DeleteObject(brush);
 }
+
+void input_outline(HWND window, HDC dc, UINT dpi, COLORREF color)
+{
+    RECT rectangle{};
+    GetWindowRect(window, &rectangle);
+    const auto pen = CreatePen(PS_SOLID, 1, color);
+    const auto old_pen = SelectObject(dc, pen);
+    const auto old_brush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
+    RoundRect(dc,
+        0,
+        0,
+        rectangle.right - rectangle.left,
+        rectangle.bottom - rectangle.top,
+        scale_pixels(16, dpi),
+        scale_pixels(16, dpi));
+    SelectObject(dc, old_brush);
+    SelectObject(dc, old_pen);
+    DeleteObject(pen);
+}
 } // namespace
 
 UiTheme::~UiTheme()
@@ -147,7 +166,7 @@ void UiTheme::paint_panels(HDC dc)
     for (HWND child = GetWindow(parent_, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT))
     {
         const auto name = class_name(child);
-        if (!IsWindowVisible(child) || (name != L"Edit" && name != L"RICHEDIT50W"))
+        if (!IsWindowVisible(child) || name != L"RICHEDIT50W")
         {
             continue;
         }
@@ -165,11 +184,59 @@ void UiTheme::paint_panels(HDC dc)
 
 bool UiTheme::draw_item(const DRAWITEMSTRUCT& item)
 {
+    if (item.CtlType == ODT_MENU)
+    {
+        // Popup menu DCs do not inherit the font assigned to our native buttons.
+        // Use that same UI font, then restore the borrowed DC before returning.
+        const auto font =
+            reinterpret_cast<HFONT>(SendMessageW(GetWindow(parent_, GW_CHILD), WM_GETFONT, 0, 0));
+        const auto previous_font = font ? SelectObject(item.hDC, font) : nullptr;
+        const bool selected = (item.itemState & ODS_SELECTED) != 0;
+        const auto brush = CreateSolidBrush(selected ? palette.accent : palette.panel);
+        FillRect(item.hDC, &item.rcItem, brush);
+        DeleteObject(brush);
+        SetBkMode(item.hDC, TRANSPARENT);
+        SetTextColor(item.hDC,
+            item.itemState & ODS_DISABLED ? palette.disabled
+            : selected                    ? palette.accent_text
+                                          : palette.text);
+        auto rectangle = item.rcItem;
+        InflateRect(&rectangle, -scale_pixels(12, dpi_), 0);
+        DrawTextW(item.hDC,
+            reinterpret_cast<const wchar_t*>(item.itemData),
+            -1,
+            &rectangle,
+            DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+        if (previous_font)
+        {
+            SelectObject(item.hDC, previous_font);
+        }
+        return true;
+    }
     if (item.CtlType != ODT_BUTTON && item.CtlType != ODT_COMBOBOX)
     {
         return false;
     }
     const bool enabled = (item.itemState & ODS_DISABLED) == 0;
+    if (item.CtlType == ODT_BUTTON && item.CtlID >= 4000 && item.CtlID < 5000)
+    {
+        FillRect(item.hDC, &item.rcItem, background_);
+        auto glyph = item.rcItem;
+        InflateRect(&glyph, -scale_pixels(4, dpi_), -scale_pixels(4, dpi_));
+        rounded_rectangle(item.hDC,
+            glyph,
+            scale_pixels(14, dpi_),
+            hovered_ == item.hwndItem ? palette.hover : palette.background,
+            palette.border);
+        SetBkMode(item.hDC, TRANSPARENT);
+        SetTextColor(item.hDC, enabled ? palette.text : palette.disabled);
+        DrawTextW(item.hDC, L"i", 1, &glyph, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        if (item.itemState & ODS_FOCUS)
+        {
+            DrawFocusRect(item.hDC, &item.rcItem);
+        }
+        return true;
+    }
     const bool active = active_buttons_.contains(item.hwndItem);
     COLORREF background = palette.button;
     if (item.CtlType == ODT_COMBOBOX)
@@ -215,12 +282,13 @@ bool UiTheme::draw_item(const DRAWITEMSTRUCT& item)
             GetWindowTextW(item.hwndItem, caption.data(), static_cast<int>(caption.size())));
     }
     auto rectangle = item.rcItem;
-    InflateRect(&rectangle, -scale_pixels(8, dpi_), -2);
+    InflateRect(&rectangle, -scale_pixels(item.CtlType == ODT_COMBOBOX ? 10 : 8, dpi_), -2);
     DrawTextW(item.hDC,
         caption.c_str(),
         -1,
         &rectangle,
-        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        (item.CtlType == ODT_COMBOBOX ? DT_LEFT : DT_CENTER) | DT_VCENTER | DT_SINGLELINE |
+            DT_END_ELLIPSIS | DT_NOPREFIX);
     if (item.itemState & ODS_FOCUS)
     {
         InflateRect(&rectangle, -2, -2);
@@ -318,6 +386,24 @@ LRESULT CALLBACK UiTheme::subclass(
         theme.draw_combo(window, dc);
         EndPaint(window, &paint);
         return 0;
+    }
+    else if ((message == WM_PAINT || message == WM_PRINT || message == WM_PRINTCLIENT) &&
+             class_name(window) == L"Edit")
+    {
+        const auto result = DefSubclassProc(window, message, wparam, lparam);
+        // Parent painting is clipped by WS_CLIPCHILDREN at the rounded edit's
+        // edges. Outline inside the native window after it paints its own text;
+        // a hollow brush preserves selection, caret and scrolling content.
+        const auto dc = message != WM_PAINT ? reinterpret_cast<HDC>(wparam) : GetWindowDC(window);
+        input_outline(window,
+            dc,
+            theme.dpi_,
+            GetFocus() == window ? theme.palette.accent : theme.palette.border);
+        if (message == WM_PAINT)
+        {
+            ReleaseDC(window, dc);
+        }
+        return result;
     }
     else if (message == WM_NCDESTROY)
     {

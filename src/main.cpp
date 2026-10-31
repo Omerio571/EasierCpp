@@ -1,6 +1,7 @@
 #include "cpplivelab/doctor.hpp"
 #include "cpplivelab/projects.hpp"
 #include "build_lease.hpp"
+#include "workspace_cli.hpp"
 #include <iostream>
 #include <string_view>
 #include <stdexcept>
@@ -11,20 +12,32 @@ int wmain(int argc, wchar_t** argv)
     {
         if (argc == 1 || (argc == 2 && std::wstring_view(argv[1]) == L"--help"))
         {
-            std::cout << "CppLiveLab\nUsage: cpplivelab [--help | --version | doctor]\n"
-                         "  cpplivelab create <folder> [--demo calculator]\n"
-                         "  cpplivelab build <file.cpp|project-folder> [--config Debug|Release] "
-                         "[--incremental]\n"
-                         "  cpplivelab run <file.cpp|project-folder> [--config Debug|Release] "
-                         "[--exe relative-path]\n"
-                         "Run builds first, then launches with console input/output. Default "
-                         "config: Debug.\n";
+            std::cout
+                << "Cpp — Make Your Life Easier\nUsage: cpplivelab [--help | --version | doctor]\n"
+                   "  cpplivelab create <folder> [--demo calculator]\n"
+                   "  cpplivelab build <file.cpp|project-folder> [--config Debug|Release] "
+                   "[--incremental]\n"
+                   "  cpplivelab run <file.cpp|project-folder> [--config Debug|Release] "
+                   "[--exe relative-path]\n"
+                   "Run builds first, then launches with console input/output. Default "
+                   "config: Debug.\n"
+                   "Stage 5 isolated workflows:\n"
+                   "  inspect <folder> | targets <folder> | edit <folder>\n"
+                   "  new <folder> [--template empty|multi] [--library fmt,nlohmann_json]\n"
+                   "  manage-build|manage-run <folder> [--config Debug|Release]\n"
+                   "  manage-rebuild <folder> --approve-recovery [--config Debug|Release]\n"
+                   "    [--preset name|-] [--target name] [--working-dir folder]\n"
+                   "    [--vcpkg root] [--allow-configure-writes] [--incremental]\n";
             return 0;
         }
         const std::wstring_view command(argv[1]);
+        if (const auto result = workspace_command(argc, argv))
+        {
+            return *result;
+        }
         if (argc == 2 && command == L"--version")
         {
-            std::cout << "CppLiveLab " << CPPLIVELAB_VERSION << '\n';
+            std::cout << "Cpp " << CPPLIVELAB_VERSION << '\n';
             return 0;
         }
         if (argc == 2 && command == L"doctor")

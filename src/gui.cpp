@@ -6,10 +6,20 @@
 #include "cpplivelab/session.hpp"
 #include "output_decoder.hpp"
 #include "auto_build.hpp"
+#include "application_windows.hpp"
 #include "build_lease.hpp"
 #include "build_freshness.hpp"
 #include "console_view.hpp"
 #include "ui_theme.hpp"
+#include "cpplivelab/workspace.hpp"
+#include "project_dialogs.hpp"
+#include "tool_workflows.hpp"
+#include "library_workflow.hpp"
+#include "build_diagnostics.hpp"
+#include "restart.hpp"
+#include "library_manager.hpp"
+#include <fstream>
+#include <sstream>
 #include <future>
 #include <chrono>
 #include <algorithm>
@@ -49,7 +59,35 @@ enum ControlId
     SystemOutputPane = 120,
     ClearProgram = 121,
     ClearSystem = 122,
-    AppearanceSelector = 123
+    AppearanceSelector = 123,
+    NewProjectMenu = 124,
+    RecentProjectsMenu = 125,
+    ProjectSettingsMenu = 126,
+    EditorSettingsMenu = 127,
+    ProjectPathLabel = 128,
+    CopyProjectPath = 129,
+    AppearanceMenu = 130,
+    BuildPreferencesMenu = 131,
+    ManageLibrariesMenu = 132,
+    DoctorMenu = 133,
+    DetailedDoctorMenu = 134,
+    TestRunnerMenu = 135,
+    CancelTestsMenu = 136,
+    ReviewErrorsMenu = 137,
+    RecoverBuildMenu = 138,
+    NavigationProject = 140,
+    NavigationBuild = 141,
+    NavigationTools = 142,
+    NavigationSettings = 143,
+    RestartButton = 144,
+    ProgramRestartButton = 145,
+    AddLibraryButton = 146,
+    LibrarySummary = 147,
+    AutoRunButton = 148,
+    WelcomeTitle = 150,
+    WelcomeNote = 151,
+    WelcomeRecent = 152,
+    OpenWelcomeRecent = 153
 };
 
 std::wstring read_control_text(HWND control)
@@ -110,6 +148,13 @@ public:
     cpplivelab::ConsolePane program_console;
     cpplivelab::ConsolePane system_console;
     bool program_tab_active = true;
+    bool welcome_output = false;
+    cpplivelab::ConsoleSession test_session;
+    cpplivelab::ConsoleOutputDecoder test_decoder;
+    bool tests_active = false;
+    bool tests_cancelled = false;
+    ULONGLONG tests_started = 0;
+    std::vector<fs::path> welcome_recents;
     enum class Phase
     {
         Idle,
@@ -148,6 +193,9 @@ public:
     bool environment_ready = false;
     bool error_line_start = true;
     fs::path active_project_directory;
+    bool configure_writes = false;
+    bool configure_writes_authorized = false;
+    bool project_dialog_open = false;
     cpplivelab::ProjectWatcher watcher;
     cpplivelab::AutoBuildScheduler auto_build;
     std::wstring auto_status;
@@ -159,6 +207,23 @@ public:
     bool input_closed = false;
     bool stop_requested = false;
     bool close_requested = false;
+    cpplivelab::AutoRunPreferences auto_run_preferences;
+    cpplivelab::ConsoleSession replacement_build;
+    cpplivelab::ProjectOptions replacement_options;
+    cpplivelab::SourceFingerprints replacement_sources;
+    bool replacement_building = false;
+    bool replacement_ready = false;
+    bool replacement_stopping = false;
+    bool graceful_stop_pending = false;
+    bool launch_latest = false;
+    ULONGLONG shutdown_started = 0;
+    ULONGLONG restore_started = 0;
+    std::vector<cpplivelab::ApplicationWindow> previous_windows;
+    std::vector<HWND> restored_windows;
+    bool restart_pending = false;
+    bool restart_confirmation = false;
+    std::wstring restart_instance_name;
+    std::unique_ptr<cpplivelab::RestartLaunch> restart_launch;
 
     // The worker's "Running:" marker may arrive in several pipe reads. Keep a
     // short tail so it can be recognized before enabling program input.
@@ -243,7 +308,7 @@ public:
 
     void apply_appearance()
     {
-        if (applying_appearance || !find_control(AppearanceSelector))
+        if (applying_appearance)
         {
             return;
         }
@@ -253,38 +318,193 @@ public:
         system_console.set_colors(appearance.palette.console);
         appearance.active_button(find_control(ProgramTab), program_tab_active);
         appearance.active_button(find_control(SystemTab), !program_tab_active);
-        appearance.active_button(find_control(AutoBuildButton), auto_build.enabled());
+        appearance.active_button(find_control(AutoBuildButton), preferences.auto_build);
+        appearance.active_button(find_control(AutoRunButton), auto_run_preferences.enabled);
         applying_appearance = false;
     }
 
-    void change_appearance()
+    void apply_appearance_choice(cpplivelab::ThemeChoice choice)
     {
-        const auto choice = SendMessageW(find_control(AppearanceSelector), CB_GETCURSEL, 0, 0);
-        if (choice < 0 || choice > 2)
-        {
-            return;
-        }
-        preferences.theme = static_cast<cpplivelab::ThemeChoice>(choice);
+        preferences.theme = choice;
         persist_preferences();
         apply_appearance();
     }
 
-    void update_debounce()
+    void apply_build_preferences(DWORD debounce)
     {
-        try
+        if (debounce < 100 || debounce > 5000)
         {
-            const auto value = std::stoul(read_control_text(find_control(DebounceInput)));
-            preferences.debounce_ms = static_cast<DWORD>((std::clamp)(value, 100UL, 5000UL));
+            throw std::runtime_error("Debounce must be 100-5000 ms.");
         }
-        catch (const std::exception&)
-        {
-            log(cpplivelab::MessageKind::Warning,
-                L"Debounce must be 100-5000 ms; the previous value is retained.");
-        }
-        SetWindowTextW(
-            find_control(DebounceInput), std::to_wstring(preferences.debounce_ms).c_str());
-        auto_build.set_debounce(preferences.debounce_ms);
+        preferences.debounce_ms = debounce;
+        auto_build.set_debounce(debounce);
         persist_preferences();
+    }
+
+    std::vector<std::pair<std::wstring, int>> navigation_actions(int section) const
+    {
+        if (section == NavigationProject)
+        {
+            return {{L"New Project...", NewProjectMenu},
+                {L"Open Existing Project...", BrowseButton},
+                {L"Recent Projects...", RecentProjectsMenu},
+                {L"Project Settings...", ProjectSettingsMenu},
+                {L"Manage Libraries...", ManageLibrariesMenu},
+                {L"Copy Project Path", CopyProjectPath}};
+        }
+        if (section == NavigationTools)
+        {
+            return {{L"Open Preferred Editor", EditProjectButton},
+                {L"Review Build Errors...", ReviewErrorsMenu},
+                {L"Clean && Rebuild (Fresh Directory)...", RecoverBuildMenu},
+                {L"Toolchain Diagnostics", DoctorMenu},
+                {L"Detailed Toolchain Diagnostics", DetailedDoctorMenu},
+                {L"Run Cpp Tests...", TestRunnerMenu},
+                {L"Cancel Running Tests", CancelTestsMenu},
+                {L"Restart Cpp Manager...", RestartButton}};
+        }
+        return {{L"Appearance...", AppearanceMenu},
+            {L"Preferred Editor...", EditorSettingsMenu},
+            {L"Build Preferences...", BuildPreferencesMenu}};
+    }
+
+    void show_navigation(int section)
+    {
+        const auto actions = navigation_actions(section);
+        const auto menu = CreatePopupMenu();
+        for (const auto& action : actions)
+        {
+            bool enabled = action.second != CancelTestsMenu || tests_active;
+            if (action.second == BuildButton || action.second == RunButton ||
+                action.second == StopButton || action.second == EditProjectButton)
+            {
+                enabled = IsWindowEnabled(find_control(action.second)) != FALSE;
+            }
+            else if (action.second == CopyProjectPath)
+            {
+                enabled = !active_project_directory.empty();
+            }
+            else if (section == NavigationProject || action.second == EditorSettingsMenu)
+            {
+                enabled = !operation_in_progress;
+            }
+            AppendMenuW(menu,
+                MF_OWNERDRAW | (enabled ? MF_ENABLED : MF_GRAYED),
+                action.second,
+                reinterpret_cast<LPCWSTR>(action.first.c_str()));
+        }
+        RECT anchor{};
+        GetWindowRect(find_control(section), &anchor);
+        const int selected = TrackPopupMenuEx(menu,
+            TPM_RETURNCMD | TPM_NONOTIFY |
+                (section == NavigationSettings ? TPM_RIGHTALIGN : TPM_LEFTALIGN),
+            section == NavigationSettings ? anchor.right : anchor.left,
+            anchor.bottom,
+            window_handle,
+            nullptr);
+        DestroyMenu(menu);
+        // RETURNCMD + NONOTIFY prevents a second WM_COMMAND dispatch.
+        if (selected)
+        {
+            command(selected);
+        }
+    }
+
+    void copy_project_path()
+    {
+        if (active_project_directory.empty() || !OpenClipboard(window_handle))
+        {
+            return;
+        }
+        const auto value = active_project_directory.wstring();
+        const auto allocation = GlobalAlloc(GMEM_MOVEABLE, (value.size() + 1) * sizeof(wchar_t));
+        if (allocation)
+        {
+            if (auto destination = static_cast<wchar_t*>(GlobalLock(allocation)))
+            {
+                std::copy(value.c_str(), value.c_str() + value.size() + 1, destination);
+                GlobalUnlock(allocation);
+                EmptyClipboard();
+                if (!SetClipboardData(CF_UNICODETEXT, allocation))
+                {
+                    GlobalFree(allocation);
+                }
+            }
+            else
+            {
+                GlobalFree(allocation);
+            }
+        }
+        CloseClipboard();
+    }
+
+    void appearance_dialog()
+    {
+        const std::vector<std::wstring> choices{L"Dark", L"Light", L"Follow Windows"};
+        std::vector<cpplivelab::FormField> fields{
+            {L"Appearance", choices[static_cast<size_t>(preferences.theme)], choices}};
+        cpplivelab::FormOptions options;
+        options.theme = preferences.theme;
+        options.appearance_field = 0;
+        options.note = L"Uses your existing customized palette. Changes apply to all Cpp "
+                       L"windows after OK.";
+        if (show_project_form(L"Appearance", fields, options))
+        {
+            apply_appearance_choice(static_cast<cpplivelab::ThemeChoice>(
+                std::find(choices.begin(), choices.end(), fields[0].value) - choices.begin()));
+        }
+    }
+
+    void build_preferences_dialog()
+    {
+        std::vector<cpplivelab::FormField> fields{
+            {L"Auto Run debounce (milliseconds)", std::to_wstring(preferences.debounce_ms)},
+            {L"Restore program windows",
+                auto_run_preferences.restore_windows ? L"Yes" : L"No",
+                {L"Yes", L"No"}},
+            {L"Graceful shutdown timeout (milliseconds)",
+                std::to_wstring(auto_run_preferences.shutdown_ms)},
+            {L"Force-stop owned program after timeout",
+                auto_run_preferences.force_stop ? L"Yes" : L"No",
+                {L"No", L"Yes"}}};
+        fields[0].help = L"Wait after the last save before automatic compilation. Example: 400 ms "
+                         L"combines rapid saves. Allowed: 100-5000 ms.";
+        cpplivelab::FormOptions options;
+        options.theme = preferences.theme;
+        options.note =
+            L"Debounce is global. Window and shutdown settings belong to the open project. "
+            L"Force-stop is OFF by default. Restart sends WM_CLOSE and console EOF first.";
+        options.validate = [](const auto& values) -> std::wstring
+        {
+            try
+            {
+                size_t used = 0;
+                const auto value = std::stoul(values[0].value, &used);
+                size_t timeout_used = 0;
+                const auto timeout = std::stoul(values[2].value, &timeout_used);
+                if (used == values[0].value.size() && value >= 100 && value <= 5000 &&
+                    timeout_used == values[2].value.size() && timeout >= 100 && timeout <= 30000)
+                {
+                    return L"";
+                }
+            }
+            catch (...)
+            {
+            }
+            return L"Debounce must be 100–5000 ms; shutdown timeout must be 100–30000 ms.";
+        };
+        if (show_project_form(L"Build Preferences", fields, options))
+        {
+            apply_build_preferences(static_cast<DWORD>(std::stoul(fields[0].value)));
+            auto_run_preferences.restore_windows = fields[1].value == L"Yes";
+            auto_run_preferences.shutdown_ms = std::stoul(fields[2].value);
+            auto_run_preferences.force_stop = fields[3].value == L"Yes";
+            if (!active_project_directory.empty())
+            {
+                cpplivelab::save_auto_run_preferences(
+                    active_project_directory, auto_run_preferences);
+            }
+        }
     }
 
     ~Application()
@@ -329,26 +549,32 @@ public:
         update_fonts();
         auto_build.enable(preferences.auto_build);
         auto_build.set_debounce(preferences.debounce_ms);
-        create_control(L"STATIC", L"Project folder", 201);
-        create_control(L"EDIT", L"", FolderInput, WS_TABSTOP | ES_AUTOHSCROLL);
-        create_control(L"BUTTON", L"Browse...", BrowseButton, WS_TABSTOP);
-        create_control(L"BUTTON", L"Open Project", OpenProjectButton, WS_TABSTOP);
+        create_control(L"BUTTON", L"Project", NavigationProject, WS_TABSTOP);
+
+        create_control(L"BUTTON", L"Tools", NavigationTools, WS_TABSTOP);
+        create_control(L"BUTTON", L"Settings", NavigationSettings, WS_TABSTOP);
+        create_control(L"BUTTON", L"Restart", ProgramRestartButton, WS_TABSTOP);
+        create_control(L"BUTTON", L"Add Library", AddLibraryButton, WS_TABSTOP);
+        create_control(L"BUTTON", L"Manage Libraries", ManageLibrariesMenu, WS_TABSTOP);
+        create_control(
+            L"STATIC", L"Libraries: none managed", LibrarySummary, SS_ENDELLIPSIS | SS_NOPREFIX);
         create_control(L"STATIC",
-            L"No active project. Choose a folder containing CMakeLists.txt.",
-            ProjectIdentityLabel);
-        create_control(L"BUTTON", L"Edit in Visual Studio 2022", EditProjectButton, WS_TABSTOP);
+            L"No active project. Use Project > New or Open Existing.",
+            ProjectIdentityLabel,
+            SS_ENDELLIPSIS | SS_NOPREFIX);
+        create_control(L"STATIC", L"", ProjectPathLabel, SS_PATHELLIPSIS | SS_NOPREFIX);
+        create_control(L"BUTTON", L"Open Editor", EditProjectButton, WS_TABSTOP);
         create_control(L"COMBOBOX", L"", ConfigurationSelector, WS_TABSTOP | CBS_DROPDOWNLIST);
-        SendMessageW(find_control(ConfigurationSelector),
-            CB_ADDSTRING,
-            0,
-            reinterpret_cast<LPARAM>(L"Debug"));
-        SendMessageW(find_control(ConfigurationSelector),
-            CB_ADDSTRING,
-            0,
-            reinterpret_cast<LPARAM>(L"Release"));
+        for (const auto* label : {L"Debug", L"Release"})
+        {
+            SendMessageW(find_control(ConfigurationSelector),
+                CB_ADDSTRING,
+                0,
+                reinterpret_cast<LPARAM>(label));
+        }
         SendMessageW(find_control(ConfigurationSelector), CB_SETCURSEL, 0, 0);
-        create_control(L"STATIC", L"Executable (relative to build folder)", 202);
-        create_control(L"EDIT", L"app.exe", ExecutableInput, WS_TABSTOP | ES_AUTOHSCROLL);
+        create_control(L"STATIC", L"Target", 202);
+        create_control(L"COMBOBOX", L"", ExecutableInput, WS_TABSTOP | CBS_DROPDOWNLIST);
         create_control(L"BUTTON", L"Build", BuildButton, WS_TABSTOP);
         create_control(L"BUTTON", L"Run", RunButton, WS_TABSTOP);
         create_control(L"BUTTON", L"Stop", StopButton, WS_TABSTOP);
@@ -365,26 +591,28 @@ public:
         create_control(L"BUTTON", L"Send", SendButton, WS_TABSTOP);
         create_control(L"BUTTON", L"End Input", EndInputButton, WS_TABSTOP);
         create_control(L"STATIC", L"Ready", StatusLabel);
-        create_control(L"STATIC", L"Appearance", 206);
-        create_control(L"COMBOBOX", L"", AppearanceSelector, WS_TABSTOP | CBS_DROPDOWNLIST);
-        for (const auto* choice : {L"Dark", L"Light", L"Follow Windows"})
+        create_control(L"BUTTON",
+            preferences.auto_build ? L"Auto Build: ON" : L"Auto Build: OFF",
+            AutoBuildButton,
+            WS_TABSTOP);
+        create_control(L"BUTTON", L"Auto Run: OFF", AutoRunButton, WS_TABSTOP);
+        create_control(L"STATIC", L"Cpp — Make Your Life Easier", WelcomeTitle);
+        create_control(L"STATIC", L"Create or open a C++ project. Recent projects:", WelcomeNote);
+        create_control(L"BUTTON", L"New Project...", NewProjectMenu, WS_TABSTOP);
+        create_control(L"BUTTON", L"Open Existing Project...", BrowseButton, WS_TABSTOP);
+        create_control(
+            L"LISTBOX", L"Recent projects", WelcomeRecent, WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY);
+        create_control(L"BUTTON", L"Open Selected Recent", OpenWelcomeRecent, WS_TABSTOP);
+        welcome_recents = cpplivelab::recent_projects();
+        for (const auto& path : welcome_recents)
         {
-            SendMessageW(find_control(AppearanceSelector),
-                CB_ADDSTRING,
+            const auto label = path.filename().wstring() + L" - " + path.wstring();
+            SendDlgItemMessageW(window_handle,
+                WelcomeRecent,
+                LB_ADDSTRING,
                 0,
-                reinterpret_cast<LPARAM>(choice));
+                reinterpret_cast<LPARAM>(label.c_str()));
         }
-        SendMessageW(find_control(AppearanceSelector),
-            CB_SETCURSEL,
-            static_cast<WPARAM>(preferences.theme),
-            0);
-        create_control(L"BUTTON", L"Auto Build: OFF", AutoBuildButton, WS_TABSTOP);
-        create_control(L"STATIC", L"Debounce (ms)", 205);
-        create_control(L"EDIT", L"400", DebounceInput, WS_TABSTOP | ES_NUMBER);
-        SetWindowTextW(
-            find_control(DebounceInput), std::to_wstring(preferences.debounce_ms).c_str());
-        SetWindowTextW(find_control(AutoBuildButton),
-            preferences.auto_build ? L"Auto Build: ON" : L"Auto Build: OFF");
         refresh();
         apply_appearance();
         SetTimer(window_handle, 1, 50, nullptr);
@@ -394,46 +622,104 @@ public:
     {
         width = MulDiv(width, 96, static_cast<int>(dpi));
         height = MulDiv(height, 96, static_cast<int>(dpi));
-        auto position_control = [&](int control_id, int x, int y, int w, int h)
+        const auto place = [&](int id, int x, int y, int w, int h)
         {
-            MoveWindow(find_control(control_id),
+            MoveWindow(find_control(id),
                 cpplivelab::scale_pixels(x, dpi),
                 cpplivelab::scale_pixels(y, dpi),
                 cpplivelab::scale_pixels(w, dpi),
                 cpplivelab::scale_pixels(h, dpi),
                 FALSE);
         };
-        position_control(201, 16, 12, 300, 20);
-        position_control(FolderInput, 16, 36, width - 270, 28);
-        position_control(BrowseButton, width - 242, 35, 96, 30);
-        position_control(OpenProjectButton, width - 136, 35, 120, 30);
-        position_control(ProjectIdentityLabel, 16, 76, width - 32, 48);
-        position_control(EditProjectButton, 16, 154, 224, 32);
-        position_control(ConfigurationSelector, 252, 154, 112, 180);
-        position_control(202, 380, 130, width - 600, 20);
-        position_control(ExecutableInput, 380, 156, width - 600, 28);
-        position_control(206, width - 200, 130, 184, 20);
-        position_control(AppearanceSelector, width - 200, 154, 184, 180);
-        position_control(BuildButton, 16, 200, 96, 32);
-        position_control(RunButton, 124, 200, 96, 32);
-        position_control(StopButton, 232, 200, 96, 32);
-        position_control(AutoBuildButton, 348, 200, 160, 32);
-        position_control(205, 524, 206, 130, 20);
-        position_control(DebounceInput, 662, 200, 80, 32);
-        position_control(StatusLabel, 16, 244, width - 32, 24);
-        position_control(ProgramTab, 16, 276, 178, 30);
-        position_control(SystemTab, 202, 276, 230, 30);
-        position_control(ClearProgram, width - 180, 276, 164, 30);
-        position_control(ClearSystem, width - 202, 276, 186, 30);
-        position_control(OutputPane, 16, 312, width - 32, height - 410);
-        position_control(SystemOutputPane, 16, 312, width - 32, height - 410);
-        position_control(204, 16, height - 86, width - 32, 20);
-        position_control(ProgramInput, 16, height - 60, width - 226, 30);
-        position_control(SendButton, width - 198, height - 60, 76, 30);
-        position_control(EndInputButton, width - 110, height - 60, 94, 30);
+        place(NavigationProject, 16, 8, 104, 36);
+        place(NavigationTools, 128, 8, 96, 36);
+        place(NavigationSettings, width - 128, 8, 112, 36);
+        place(ProgramRestartButton, 340, 128, 96, 34);
+        place(ProjectIdentityLabel, 16, 60, width - 32, 24);
+        place(ProjectPathLabel, 16, 88, width - 32, 24);
+        place(BuildButton, 16, 128, 96, 34);
+        place(RunButton, 124, 128, 96, 34);
+        place(StopButton, 232, 128, 96, 34);
+        place(EditProjectButton, 448, 128, 144, 34);
+        place(AddLibraryButton, 16, 178, 144, 34);
+        place(ManageLibrariesMenu, 172, 178, 172, 34);
+        place(LibrarySummary, 356, 184, width - 372, 24);
+        place(ConfigurationSelector, 16, 222, 120, 180);
+        place(202, 152, 228, 52, 22);
+        place(ExecutableInput, 212, 222, (std::min)(width - 580, 300), 180);
+        place(AutoBuildButton, (std::min)(width - 352, 532), 222, 160, 32);
+        place(AutoRunButton, (std::min)(width - 352, 532) + 168, 222, 160, 32);
+        place(StatusLabel, 16, 266, width - 32, 24);
+        place(ProgramTab, 16, 298, 178, 30);
+        place(SystemTab, 202, 298, 230, 30);
+        place(ClearProgram, width - 180, 298, 164, 30);
+        place(ClearSystem, width - 202, 298, 186, 30);
+        place(OutputPane, 16, 336, width - 32, height - 434);
+        place(SystemOutputPane, 16, 336, width - 32, height - 434);
+        place(204, 16, height - 86, width - 32, 20);
+        place(ProgramInput, 16, height - 60, width - 226, 30);
+        place(SendButton, width - 198, height - 60, 76, 30);
+        place(EndInputButton, width - 110, height - 60, 94, 30);
+        const bool welcome = active_project_directory.empty();
+        for (int id : {WelcomeTitle,
+                 WelcomeNote,
+                 NewProjectMenu,
+                 BrowseButton,
+                 WelcomeRecent,
+                 OpenWelcomeRecent})
+        {
+            ShowWindow(find_control(id), welcome ? SW_SHOW : SW_HIDE);
+        }
+        for (int id : std::initializer_list<int>{ProjectIdentityLabel,
+                 ProjectPathLabel,
+                 BuildButton,
+                 RunButton,
+                 StopButton,
+                 ProgramRestartButton,
+                 AddLibraryButton,
+                 ManageLibrariesMenu,
+                 LibrarySummary,
+                 EditProjectButton,
+                 ConfigurationSelector,
+                 202,
+                 ExecutableInput,
+                 AutoBuildButton,
+                 AutoRunButton,
+                 ProgramTab,
+                 SystemTab,
+                 ClearProgram,
+                 ClearSystem,
+                 OutputPane,
+                 SystemOutputPane,
+                 204,
+                 ProgramInput,
+                 SendButton,
+                 EndInputButton})
+        {
+            const bool visible =
+                !welcome || (welcome_output && (id == SystemOutputPane || id == ClearSystem));
+            ShowWindow(find_control(id), visible ? SW_SHOW : SW_HIDE);
+        }
+        if (welcome)
+        {
+            place(WelcomeTitle, 20, 66, width - 40, 28);
+            place(WelcomeNote, 20, 106, width - 40, 24);
+            place(NewProjectMenu, 20, 148, 200, 36);
+            place(BrowseButton, 232, 148, 240, 36);
+            place(WelcomeRecent, 20, 204, width - 40, welcome_output ? 72 : height - 300);
+            place(OpenWelcomeRecent, 20, welcome_output ? 284 : height - 84, 220, 34);
+            place(StatusLabel, 20, height - 36, width - 40, 24);
+            if (welcome_output)
+            {
+                place(ClearSystem, width - 220, 284, 200, 34);
+                place(SystemOutputPane, 20, 330, width - 40, (std::max)(60, height - 380));
+            }
+        }
+        else
+        {
+            select_console(program_tab_active);
+        }
         appearance.round_controls();
-        // Paint once after every control has its new bounds and rounded region.
-        // Immediate MoveWindow redraws can otherwise paint through stale regions.
         RedrawWindow(window_handle,
             nullptr,
             nullptr,
@@ -520,8 +806,9 @@ public:
         // Freeze project/build choices while a job is owned. Program input is only
         // available after successful compilation and the start of execution.
         const bool selected = !active_project_directory.empty();
-        for (int control_id :
-            {FolderInput, BrowseButton, OpenProjectButton, ConfigurationSelector, ExecutableInput})
+        appearance.active_button(find_control(AutoBuildButton), preferences.auto_build);
+        appearance.active_button(find_control(AutoRunButton), auto_run_preferences.enabled);
+        for (int control_id : {ConfigurationSelector, ExecutableInput})
         {
             EnableWindow(find_control(control_id), !operation_in_progress);
         }
@@ -529,10 +816,17 @@ public:
         {
             EnableWindow(find_control(control_id), selected && !operation_in_progress);
         }
+        EnableWindow(find_control(EditProjectButton), selected);
         EnableWindow(find_control(RunButton),
             selected && !stop_requested &&
                 (!operation_in_progress || phase == Phase::Building || phase == Phase::Checking));
         EnableWindow(find_control(StopButton), operation_in_progress && !stop_requested);
+        EnableWindow(find_control(ProgramRestartButton),
+            selected && !replacement_building && !replacement_stopping &&
+                (program_started || (!operation_in_progress &&
+                                        fs::is_regular_file(current_identity().executable))));
+        EnableWindow(find_control(AddLibraryButton), selected && !operation_in_progress);
+        EnableWindow(find_control(ManageLibrariesMenu), selected && !operation_in_progress);
         for (int control_id : {ProgramInput, SendButton, EndInputButton})
         {
             EnableWindow(find_control(control_id),
@@ -542,59 +836,76 @@ public:
 
     void open(const fs::path& folder)
     {
-        if (operation_in_progress)
+        if (operation_in_progress || replacement_building)
         {
             return;
         }
-        const auto candidate = cpplivelab::validate_gui_project(folder);
+        const auto inspection = cpplivelab::inspect_project(folder);
+        const auto candidate = inspection.root;
         watcher.stop();
         auto_build.cancel();
+        run_requested = false;
+        probe_pending = false;
+        should_run_program = false;
         active_project_directory = candidate;
-        SetWindowTextW(find_control(FolderInput), active_project_directory.c_str());
+        auto_run_preferences = cpplivelab::load_auto_run_preferences(candidate);
+        auto_build.enable(preferences.auto_build || auto_run_preferences.enabled);
+        update_automatic_controls();
+        update_library_summary();
+        configure_writes = inspection.configure_writes;
+        configure_writes_authorized = false;
+        SetWindowTextW(find_control(ProjectPathLabel), active_project_directory.c_str());
         SetWindowTextW(find_control(ProjectIdentityLabel),
-            (L"Active project: " + active_project_directory.filename().wstring() + L"\r\n" +
-                active_project_directory.wstring())
-                .c_str());
+            (L"Active project: " + active_project_directory.filename().wstring()).c_str());
         SetWindowTextW(window_handle,
-            (L"CppLiveLab - " + active_project_directory.filename().wstring()).c_str());
-        SetWindowTextW(find_control(ExecutableInput), L"app.exe");
+            (L"Cpp — Make Your Life Easier - " + active_project_directory.filename().wstring())
+                .c_str());
+        std::ifstream last_config(cpplivelab::workspace_directory(candidate) / L"last-config.txt");
+        std::string configuration;
+        last_config >> configuration;
+        SendMessageW(find_control(ConfigurationSelector),
+            CB_SETCURSEL,
+            configuration == "Release" ? 1 : 0,
+            0);
+        reload_targets();
+        RECT client{};
+        GetClientRect(window_handle, &client);
+        layout(client.right, client.bottom);
+        cpplivelab::remember_project(candidate);
         SetWindowTextW(find_control(StatusLabel), L"Ready");
         append(L"Opened: " + active_project_directory.wstring() + L"\n");
+        append(L"Read-only import; manager builds and metadata: " +
+               cpplivelab::workspace_directory(candidate).wstring() + L"\n");
+        for (const auto& asset : inspection.assets)
+        {
+            append(L"Asset directory: " + asset.wstring() + L"\n");
+        }
+        for (const auto& evidence : inspection.dependency_evidence)
+        {
+            append(L"Dependency evidence (not verified installed): " +
+                   decode_console_text(evidence) + L"\n");
+        }
+        if (inspection.presets || inspection.user_presets)
+        {
+            append(L"CMake presets detected. Select a configure preset in Project Settings before "
+                   L"Build.\n");
+        }
+        if (configure_writes)
+        {
+            log(cpplivelab::MessageKind::Warning,
+                L"CMake file-writing commands detected. Explicit authorization is required before "
+                L"configuration.");
+        }
         start_watching();
         refresh();
     }
 
     void browse()
     {
-        IFileDialog* dialog = nullptr;
-        if (FAILED(CoCreateInstance(
-                CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog))))
+        if (const auto folder = cpplivelab::browse_path(
+                window_handle, cpplivelab::BrowseKind::Folder, active_project_directory))
         {
-            throw std::runtime_error("Could not open folder picker");
-        }
-        DWORD options = 0;
-        dialog->GetOptions(&options);
-        dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
-        dialog->SetTitle(L"Open a C++ CMake project folder");
-        fs::path selected;
-        if (SUCCEEDED(dialog->Show(window_handle)))
-        {
-            IShellItem* item = nullptr;
-            if (SUCCEEDED(dialog->GetResult(&item)))
-            {
-                PWSTR path = nullptr;
-                if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)))
-                {
-                    selected = path;
-                    CoTaskMemFree(path);
-                }
-                item->Release();
-            }
-        }
-        dialog->Release();
-        if (!selected.empty())
-        {
-            open(selected);
+            open(*folder);
         }
     }
 
@@ -607,17 +918,413 @@ public:
 
     fs::path build_directory() const
     {
-        return active_project_directory / L".cpplivelab" / (L"build-" + selected_configuration());
+        return cpplivelab::managed_build_directory(
+            active_project_directory, selected_configuration(), project_options());
+    }
+
+    cpplivelab::ProjectOptions project_options() const
+    {
+        auto options =
+            cpplivelab::load_project_options(active_project_directory, selected_configuration());
+        const auto selected = read_control_text(find_control(ExecutableInput));
+        for (const auto& target : cpplivelab::executable_targets(
+                 active_project_directory, selected_configuration(), options))
+        {
+            if (target.name == selected)
+            {
+                options.target = selected;
+            }
+        }
+        options.allow_configure_writes = configure_writes_authorized;
+        return options;
+    }
+
+    void reload_targets()
+    {
+        const auto options =
+            cpplivelab::load_project_options(active_project_directory, selected_configuration());
+        const auto targets = cpplivelab::executable_targets(
+            active_project_directory, selected_configuration(), options);
+        SendMessageW(find_control(ExecutableInput), CB_RESETCONTENT, 0, 0);
+        for (size_t index = 0; index < targets.size(); ++index)
+        {
+            SendMessageW(find_control(ExecutableInput),
+                CB_ADDSTRING,
+                0,
+                reinterpret_cast<LPARAM>(targets[index].name.c_str()));
+            if (targets[index].name == options.target ||
+                (options.target.empty() && targets.size() == 1))
+            {
+                SendMessageW(find_control(ExecutableInput), CB_SETCURSEL, index, 0);
+            }
+        }
+    }
+
+    void save_selection()
+    {
+        if (active_project_directory.empty() || operation_in_progress)
+        {
+            return;
+        }
+        cpplivelab::save_project_options(
+            active_project_directory, selected_configuration(), project_options());
+    }
+
+    bool authorize_configuration()
+    {
+        if (!configure_writes || configure_writes_authorized)
+        {
+            return true;
+        }
+        std::vector<cpplivelab::FormField> fields;
+        cpplivelab::FormOptions options;
+        options.theme = preferences.theme;
+        options.note = L"This project's CMake contains file-writing commands. It may create or "
+                       L"change project files even with an isolated build folder. Review "
+                       L"CMakeLists.txt first. Authorize configuration for this session?";
+        options.accept_label = L"Authorize";
+        options.cancel_default = true;
+        if (!show_project_form(L"Project writes require permission", fields, options))
+        {
+            return false;
+        }
+        configure_writes_authorized = true;
+        return true;
+    }
+
+    bool show_project_form(const std::wstring& title,
+        std::vector<cpplivelab::FormField>& fields,
+        cpplivelab::FormOptions& options)
+    {
+        // A modal dialog pumps Windows messages. Hold automatic dispatch until
+        // its settings are accepted/cancelled so an operation cannot start halfway
+        // through changing project identity or build configuration.
+        struct DialogGuard
+        {
+            bool& flag;
+            bool previous;
+
+            ~DialogGuard()
+            {
+                flag = previous;
+            }
+        } guard{project_dialog_open, project_dialog_open};
+
+        project_dialog_open = true;
+        return cpplivelab::project_form(window_handle, title, fields, options);
+    }
+
+    bool show_project_form(const std::wstring& title, std::vector<cpplivelab::FormField>& fields)
+    {
+        cpplivelab::FormOptions options;
+        options.theme = preferences.theme;
+        return show_project_form(title, fields, options);
+    }
+
+    void new_project()
+    {
+        wchar_t documents[32768]{};
+        GetEnvironmentVariableW(L"USERPROFILE", documents, 32768);
+        std::vector<cpplivelab::FormField> fields{
+            {L"Project name (also the new folder name)", L"MyCppProject"},
+            {L"Parent folder", (fs::path(documents) / L"Documents").wstring()},
+            {L"Project template",
+                L"Empty C++ Project",
+                {L"Empty C++ Project", L"Multi-file C++ Project"}}};
+        fields[1].browse = cpplivelab::BrowseKind::Folder;
+        fields[1].help = L"A new project folder is created inside this directory. Choose an "
+                         L"existing parent; existing projects are never overwritten.";
+        fields[2].help = L"Empty: one C++20 source. Multi-file: src/ implementation and include/ "
+                         L"declaration, compiled as a standard CMake project.";
+        cpplivelab::FormOptions options;
+        options.theme = preferences.theme;
+        options.note = L"Creates a NEW folder inside the selected parent. Libraries are optional; "
+                       L"installation is verified only by a successful build.";
+        options.library_picker = true;
+        options.add_github_library = [&](HWND owner)
+        {
+            reveal_system_output();
+            return cpplivelab::github_library_dialog(owner,
+                preferences.theme,
+                application_directory() / L"cpplivelab.exe",
+                [&](const auto& text)
+                {
+                    system_console.append(cpplivelab::classify_build_line(text), text);
+                    update_console_badges();
+                });
+        };
+        options.accept_label = L"Create";
+        options.validate = [](const auto& values) -> std::wstring
+        {
+            if (values[0].value.empty() ||
+                fs::path(values[0].value).filename().wstring() != values[0].value ||
+                values[0].value.find_first_of(L"<>:\"/\\|?*;\r\n") != std::wstring::npos)
+            {
+                return L"Enter one valid new folder name, not a path.";
+            }
+            if (!fs::is_directory(values[1].value))
+            {
+                return L"Choose an existing parent folder.";
+            }
+            if (fs::exists(fs::path(values[1].value) / values[0].value))
+            {
+                return L"That project folder already exists. Choose a new name.";
+            }
+            return L"";
+        };
+        if (show_project_form(L"New Project", fields, options))
+        {
+            std::string libraries;
+            for (const auto& id : options.libraries)
+            {
+                if (!libraries.empty())
+                {
+                    libraries += ',';
+                }
+                libraries += id;
+            }
+            const auto destination = fs::path(fields[1].value) / fields[0].value;
+            cpplivelab::create_managed_project(destination,
+                fields[2].value == L"Multi-file C++ Project" ? "multi" : "empty",
+                libraries);
+            open(destination);
+        }
+    }
+
+    void recent_dialog()
+    {
+        std::vector<cpplivelab::FormField> fields;
+        cpplivelab::FormOptions options;
+        options.theme = preferences.theme;
+        options.note =
+            L"Select a project to open. Removing an entry only forgets it; no files are deleted.";
+        options.recents = cpplivelab::recent_projects();
+        options.recent_list = true;
+        options.accept_label = L"Open";
+        options.forget_recent = [](const auto& path)
+        {
+            cpplivelab::remember_project(path, true);
+        };
+        if (show_project_form(L"Recent Projects", fields, options))
+        {
+            open(options.selected_recent);
+        }
+    }
+
+    void project_settings()
+    {
+        if (active_project_directory.empty())
+        {
+            throw std::runtime_error("Open a project first.");
+        }
+        const auto original = project_options();
+        std::vector<cpplivelab::FormField> fields{
+            {L"Program working directory", original.working_directory.wstring()},
+            {L"CMake configure preset", original.preset},
+            {L"vcpkg root", original.vcpkg.wstring()},
+            {L"Program arguments (one argument per line)", L"", {}, true}};
+        fields[3].advanced = true;
+        for (const auto& argument : original.arguments)
+        {
+            fields[3].value += argument + L"\n";
+        }
+        fields[0].browse = cpplivelab::BrowseKind::Folder;
+        fields[0].help = L"Relative asset paths are resolved here. Blank uses the project root. "
+                         L"Example: Assets/Textures/player.png.";
+        fields[1].advanced = true;
+        fields[1].help = L"Name from your existing CMakePresets.json. Blank means no preset; '-' "
+                         L"explicitly bypasses presets. No preset files are edited.";
+        fields[2].advanced = true;
+        fields[2].browse = cpplivelab::BrowseKind::Folder;
+        fields[2].help =
+            L"An existing vcpkg installation containing scripts/buildsystems/vcpkg.cmake. Leave "
+            L"blank when your preset already chooses a toolchain.";
+        cpplivelab::FormOptions options;
+        options.theme = preferences.theme;
+        options.note = L"Applies only to this project and the selected " +
+                       selected_configuration() +
+                       L" configuration. Saved outside the source folder.";
+        options.validate = [](const auto& values) -> std::wstring
+        {
+            if (!values[0].value.empty() && !fs::is_directory(values[0].value))
+            {
+                return L"The program working directory does not exist.";
+            }
+            return L"";
+        };
+        if (show_project_form(L"Project Settings", fields, options))
+        {
+            auto changed = original;
+            changed.working_directory = fields[0].value;
+            changed.preset = fields[1].value;
+            changed.vcpkg = fields[2].value;
+            changed.arguments.clear();
+            std::wistringstream argument_lines(fields[3].value);
+            for (std::wstring argument; std::getline(argument_lines, argument);)
+            {
+                if (!argument.empty() && argument.back() == L'\r')
+                {
+                    argument.pop_back();
+                }
+                changed.arguments.push_back(argument);
+            }
+            if (changed.preset != original.preset || changed.vcpkg != original.vcpkg)
+            {
+                changed.target.clear();
+            }
+            cpplivelab::save_project_options(
+                active_project_directory, selected_configuration(), changed);
+            reload_targets();
+        }
+    }
+
+    void editor_settings()
+    {
+        auto editor = cpplivelab::load_editor();
+        std::wstring arguments;
+        for (const auto& argument : editor.arguments)
+        {
+            arguments += argument + L"\r\n";
+        }
+        std::vector<cpplivelab::FormField> fields{
+            {L"Preferred editor",
+                editor.choice,
+                {L"Visual Studio 2022", L"Visual Studio Code", L"CLion", L"Custom"}},
+            {L"Executable override", editor.executable.wstring()},
+            {L"Custom arguments (one per line)", arguments, {}, true}};
+        fields[1].advanced = true;
+        fields[1].browse = cpplivelab::BrowseKind::Executable;
+        fields[1].help = L"Normally detected automatically. Override only for a nonstandard "
+                         L"installation or a custom editor; select its .exe file.";
+        fields[2].advanced = true;
+        fields[2].help = L"Each line is one argument. {project} becomes the full folder as one "
+                         L"argument. Without it, the project folder is appended.";
+        cpplivelab::FormOptions options;
+        options.theme = preferences.theme;
+        options.note = L"Editor and compiler are independent. Ordinary editor choices use "
+                       L"automatic detection.";
+        options.custom_editor_field = 0;
+        options.expanded = !editor.executable.empty() || !editor.arguments.empty();
+        if (show_project_form(L"Preferred Editor", fields, options))
+        {
+            editor.choice = fields[0].value;
+            editor.executable = fields[1].value;
+            editor.arguments.clear();
+            std::wistringstream lines(fields[2].value);
+            for (std::wstring line; std::getline(lines, line);)
+            {
+                if (!line.empty() && line.back() == L'\r')
+                {
+                    line.pop_back();
+                }
+                if (!line.empty())
+                {
+                    editor.arguments.push_back(line);
+                }
+            }
+            cpplivelab::save_editor(editor);
+            const auto executable = editor.executable.empty()
+                                        ? cpplivelab::discover_editor(editor.choice)
+                                        : editor.executable;
+            append(fs::is_regular_file(executable)
+                       ? L"Preferred editor located.\n"
+                       : L"Editor not detected. Use Advanced Options to choose its executable.\n");
+        }
+    }
+
+    void update_library_summary()
+    {
+        std::wstring text = L"Libraries: ";
+        const auto records = cpplivelab::project_libraries(active_project_directory);
+        for (const auto& record : records)
+        {
+            if (text != L"Libraries: ")
+            {
+                text += L", ";
+            }
+            text += decode_console_text(record.name);
+        }
+        if (records.empty())
+        {
+            text += L"none managed (manual dependencies are preserved)";
+        }
+        SetWindowTextW(find_control(LibrarySummary), text.c_str());
+    }
+
+    void manage_libraries(bool adding = false)
+    {
+        struct Guard
+        {
+            bool& flag;
+            bool previous;
+
+            ~Guard()
+            {
+                flag = previous;
+            }
+        } guard{project_dialog_open, project_dialog_open};
+
+        project_dialog_open = true;
+        cpplivelab::LibraryManagerContext context;
+        context.owner = window_handle;
+        context.theme = preferences.theme;
+        context.project = active_project_directory;
+        context.cli = application_directory() / L"cpplivelab.exe";
+        context.configuration = selected_configuration();
+        context.options = project_options();
+        context.output = [&](const auto& text)
+        {
+            reveal_system_output();
+            system_console.append(cpplivelab::classify_build_line(text), text);
+            update_console_badges();
+        };
+        context.changed = [&]
+        {
+            if (!active_project_directory.empty())
+            {
+                freshness.invalidate(current_identity());
+                reload_targets();
+                update_library_summary();
+            }
+        };
+        context.busy = [&]
+        {
+            return operation_in_progress || tests_active;
+        };
+        context.restarting = [&]
+        {
+            return restart_pending || close_requested;
+        };
+        if (adding)
+        {
+            cpplivelab::add_project_libraries_dialog(context);
+        }
+        else
+        {
+            cpplivelab::manage_libraries_dialog(context);
+        }
     }
 
     cpplivelab::BuildIdentity current_identity() const
     {
-        const fs::path selected = read_control_text(find_control(ExecutableInput));
-        const auto executable = selected.empty() ? fs::path(L"app.exe") : selected;
+        auto executable = build_directory() / L"app.exe";
+        const auto options = project_options();
+        for (const auto& target : cpplivelab::executable_targets(
+                 active_project_directory, selected_configuration(), options))
+        {
+            if (target.name == options.target ||
+                (options.target.empty() &&
+                    cpplivelab::executable_targets(
+                        active_project_directory, selected_configuration(), options)
+                            .size() == 1))
+            {
+                executable = target.artifact;
+            }
+        }
         return {active_project_directory,
             selected_configuration(),
-            fs::weakly_canonical(
-                executable.is_absolute() ? executable : build_directory() / executable)};
+            fs::weakly_canonical(executable),
+            build_directory()};
     }
 
     void request_environment()
@@ -649,9 +1356,9 @@ public:
         }
     }
 
-    void start(bool run, bool automatic = false, bool incremental = false)
+    void start(bool run, bool automatic = false, bool incremental = false, bool recovery = false)
     {
-        if (operation_in_progress || active_project_directory.empty())
+        if (operation_in_progress || replacement_building || active_project_directory.empty())
         {
             return;
         }
@@ -663,7 +1370,8 @@ public:
             bool can_reuse = false;
             try
             {
-                can_reuse = freshness.can_probe(current_identity());
+                can_reuse = freshness.can_probe(current_identity()) &&
+                            fs::is_regular_file(build_directory() / L"build.ninja");
             }
             catch (const std::exception&)
             {
@@ -697,8 +1405,23 @@ public:
             watcher.consume_changes();
             auto_build.cancel();
         }
-        std::vector<std::wstring> arguments{
-            L"build", active_project_directory.wstring(), L"--config", selected_configuration()};
+        std::vector<std::wstring> arguments{recovery ? L"manage-rebuild" : L"manage-build",
+            active_project_directory.wstring(),
+            L"--config",
+            selected_configuration()};
+        if (recovery)
+        {
+            arguments.push_back(L"--approve-recovery");
+        }
+        const auto options = project_options();
+        if (!options.target.empty())
+        {
+            arguments.insert(arguments.end(), {L"--target", options.target});
+        }
+        if (configure_writes_authorized)
+        {
+            arguments.push_back(L"--allow-configure-writes");
+        }
         if (incremental)
         {
             arguments.push_back(L"--incremental");
@@ -755,6 +1478,12 @@ public:
             session.release_completed();
         }
         program_lease.reset();
+        graceful_stop_pending = false;
+        if (!replacement_stopping)
+        {
+            previous_windows.clear();
+            restore_started = 0;
+        }
         phase = Phase::Idle;
         program_started = false;
         operation_in_progress = false;
@@ -778,7 +1507,7 @@ public:
             ninja_executable = std::move(prepared.ninja);
             environment_ready = true;
         }
-        if (!freshness.can_probe(current_identity()))
+        if (!launch_latest && !freshness.can_probe(current_identity()))
         {
             finish_operation(L"Build Pending - inputs changed");
             start(true, false, true);
@@ -793,24 +1522,47 @@ public:
                 start(true, false, true);
                 return;
             }
+            auto arguments = std::vector<std::wstring>{L"-n"};
+            const auto configuration_file = L"build-" + selected_configuration() + L".ninja";
+            if (fs::is_regular_file(build_directory() / configuration_file))
+            {
+                arguments.insert(arguments.end(), {L"-f", configuration_file});
+            }
+            const auto options = project_options();
+            if (!options.target.empty())
+            {
+                arguments.push_back(options.target);
+            }
             session.start_program(
-                ninja_executable, {L"-n"}, build_directory(), program_environment);
+                ninja_executable, arguments, build_directory(), program_environment);
             phase = Phase::Checking;
             probe_output.clear();
             SetWindowTextW(find_control(StatusLabel), L"Checking build dependencies");
             refresh();
             return;
         }
-        const auto configured = read_control_text(find_control(ExecutableInput));
-        const fs::path selected = configured.empty() ? L"app.exe" : configured;
-        const auto executable = selected.is_absolute() ? selected : build_directory() / selected;
+        const auto executable = current_identity().executable;
+        if (read_control_text(find_control(ExecutableInput)).empty())
+        {
+            throw std::runtime_error("Choose an executable target before Run.");
+        }
         if (!fs::is_regular_file(executable))
         {
             throw std::runtime_error(
-                "Executable not found. Set Executable relative to the selected build folder.");
+                "Build completed but the selected File API artifact is missing. "
+                "Review Build Errors and the selected target; Run was refused.");
         }
         program_lease = std::make_unique<cpplivelab::BuildLease>(build_directory());
-        session.start_program(executable, {}, active_project_directory, program_environment);
+        const auto options = project_options();
+        const auto working = options.working_directory.empty() ? active_project_directory
+                                                               : options.working_directory;
+        session.start_program(executable,
+            options.arguments,
+            working,
+            cpplivelab::runtime_environment(program_environment, build_directory()));
+        launch_latest = false;
+        restore_started = previous_windows.empty() ? 0 : GetTickCount64();
+        restored_windows.clear();
         program_decoder.reset();
         error_decoder.reset();
         error_line_start = true;
@@ -844,9 +1596,247 @@ public:
             rendered);
     }
 
+    void reveal_system_output()
+    {
+        welcome_output = true;
+        select_console(false);
+        RECT client{};
+        GetClientRect(window_handle, &client);
+        layout(client.right, client.bottom);
+    }
+
+    void run_tests_dialog()
+    {
+        reveal_system_output();
+        if (tests_active)
+        {
+            append(L"A test session is already running. Tools > Cancel Running Tests stops only "
+                   L"that session.");
+            return;
+        }
+        std::vector<cpplivelab::FormField> fields{
+            {L"Test suite", L"Quick", {L"Quick", L"Full"}}, {L"Parallel workers (1-16)", L"4"}};
+        fields[1].help = L"Workers run independent CTest cases in parallel. Four is a useful "
+                         L"default. More workers use more memory.";
+        cpplivelab::FormOptions options;
+        options.theme = preferences.theme;
+        options.accept_label = L"Run Tests";
+        options.note = L"Tests use the manager source checkout and a separate build directory. "
+                       L"Program Console and the running user program are preserved.";
+        options.validate = [](const auto& values) -> std::wstring
+        {
+            try
+            {
+                size_t used = 0;
+                const auto count = std::stoi(values[1].value, &used);
+                if (used == values[1].value.size() && count >= 1 && count <= 16)
+                {
+                    return {};
+                }
+            }
+            catch (...)
+            {
+            }
+            return L"Worker count must be a whole number from 1 to 16.";
+        };
+        if (cpplivelab::project_form(window_handle, L"Run Cpp Tests", fields, options))
+        {
+            const auto workers = std::stoi(fields[1].value);
+            const auto command = cpplivelab::test_command(fields[0].value, workers);
+            test_decoder.reset();
+            tests_cancelled = false;
+            test_session.start_worker(command.executable, command.arguments, command.repository);
+            tests_active = true;
+            tests_started = GetTickCount64();
+            append(L"Starting " + fields[0].value + L" tests with " + std::to_wstring(workers) +
+                   L" workers.");
+        }
+    }
+
+    void poll_tests()
+    {
+        if (!tests_active)
+        {
+            return;
+        }
+        const auto bytes = test_session.poll();
+        const auto output = test_decoder.append(bytes);
+        if (!output.empty())
+        {
+            system_console.append(cpplivelab::classify_build_line(output), output);
+            update_console_badges();
+        }
+        if (test_session.root_exited())
+        {
+            test_session.finish_build();
+        }
+        if (!test_session.running() && !test_session.output_pending())
+        {
+            const auto tail = test_decoder.append({}, true);
+            if (!tail.empty())
+            {
+                system_console.append(cpplivelab::MessageKind::System, tail);
+            }
+            const auto code = test_session.exit_code();
+            log(tests_cancelled ? cpplivelab::MessageKind::Warning
+                : code == 0     ? cpplivelab::MessageKind::Success
+                                : cpplivelab::MessageKind::Error,
+                (tests_cancelled ? L"Tests cancelled" : L"Tests completed") +
+                    std::wstring(L"; exit ") + std::to_wstring(code) + L"; elapsed " +
+                    std::to_wstring((GetTickCount64() - tests_started) / 1000.0) + L" seconds.");
+            test_session.release_completed();
+            tests_active = false;
+        }
+    }
+
+    void request_restart()
+    {
+        if (restart_pending || restart_launch || restart_confirmation)
+        {
+            return;
+        }
+        const bool busy = operation_in_progress || tests_active || project_dialog_open ||
+                          cpplivelab::library_task_active();
+        if (busy)
+        {
+            restart_confirmation = true;
+            cpplivelab::FormOptions options;
+            options.theme = preferences.theme;
+            options.cancel_default = true;
+            options.accept_label = L"Restart Safely";
+            options.note =
+                L"Restart stops only Cpp-owned builds, tests and programs. "
+                L"Downloads are cancelled safely. Cache deletion and metadata writes finish at "
+                L"a safe boundary. Finish or cancel any open settings dialog. Your editor stays "
+                L"open.";
+            std::vector<cpplivelab::FormField> fields;
+            bool confirmed = false;
+            try
+            {
+                confirmed = show_project_form(L"Restart Cpp", fields, options);
+            }
+            catch (...)
+            {
+                restart_confirmation = false;
+                throw;
+            }
+            restart_confirmation = false;
+            if (!confirmed)
+            {
+                return;
+            }
+        }
+        restart_pending = true;
+        run_requested = false;
+        auto_build.cancel();
+        if (cpplivelab::library_task_active())
+        {
+            cpplivelab::cancel_library_task();
+        }
+        if (tests_active)
+        {
+            tests_cancelled = true;
+            test_session.stop();
+        }
+        if (operation_in_progress)
+        {
+            stop();
+        }
+        SetWindowTextW(find_control(StatusLabel), L"Restart pending - waiting for a safe boundary");
+    }
+
+    void poll_restart()
+    {
+        if (restart_launch)
+        {
+            const auto progress = restart_launch->poll();
+            if (progress == cpplivelab::RestartProgress::Ready)
+            {
+                try
+                {
+                    restart_launch->commit();
+                    DestroyWindow(window_handle);
+                }
+                catch (const std::exception& error)
+                {
+                    restart_launch.reset();
+                    EnableWindow(find_control(RestartButton), TRUE);
+                    log(cpplivelab::MessageKind::Error, decode_console_text(error.what()));
+                    if (auto_build.enabled() && !active_project_directory.empty())
+                    {
+                        watcher.start(active_project_directory);
+                    }
+                }
+            }
+            else if (progress == cpplivelab::RestartProgress::Failed)
+            {
+                restart_launch.reset();
+                restart_pending = false;
+                EnableWindow(find_control(RestartButton), TRUE);
+                if (auto_build.enabled() && !active_project_directory.empty())
+                {
+                    watcher.start(active_project_directory);
+                }
+                log(cpplivelab::MessageKind::Error,
+                    L"Replacement startup failed. The current application remains open and "
+                    L"usable.");
+                SetWindowTextW(
+                    find_control(StatusLabel), L"Restart failed - current application retained");
+            }
+            return;
+        }
+        if (!restart_pending || operation_in_progress || tests_active || project_dialog_open ||
+            cpplivelab::library_task_active() ||
+            (environment_future.valid() && environment_future.wait_for(std::chrono::milliseconds(
+                                               0)) != std::future_status::ready))
+        {
+            return;
+        }
+        restart_pending = false;
+        cpplivelab::RestartState state;
+        state.project = active_project_directory;
+        state.preference_store = preference_store;
+        GetWindowPlacement(window_handle, &state.placement);
+        if (!cpplivelab::save_preferences(preferences, preference_store))
+        {
+            throw std::runtime_error("Preferences could not be saved; restart was not attempted.");
+        }
+        if (!active_project_directory.empty())
+        {
+            save_selection();
+        }
+        try
+        {
+            restart_launch = std::make_unique<cpplivelab::RestartLaunch>(
+                application_directory() / L"cpplivelab-gui.exe", state, restart_instance_name);
+            watcher.stop();
+            auto_build.cancel();
+            EnableWindow(find_control(RestartButton), FALSE);
+            SetWindowTextW(find_control(StatusLabel),
+                L"Preparing replacement - current app retained until ready");
+        }
+        catch (const std::exception& error)
+        {
+            log(cpplivelab::MessageKind::Error, decode_console_text(error.what()));
+            SetWindowTextW(
+                find_control(StatusLabel), L"Restart failed - current application retained");
+        }
+    }
+
     void tick()
     {
+        poll_tests();
+        poll_restart();
+        if (!IsWindow(window_handle) || restart_launch)
+        {
+            return;
+        }
+        if (project_dialog_open && !operation_in_progress)
+        {
+            return;
+        }
         poll_watcher();
+        poll_auto_run();
         if (phase == Phase::Idle && run_requested && !auto_build.pending() && !close_requested)
         {
             start(true);
@@ -939,10 +1929,7 @@ public:
                         catch (const std::exception& error)
                         {
                             watcher.stop();
-                            auto_build.enable(false);
-                            preferences.auto_build = false;
-                            persist_preferences();
-                            SetWindowTextW(find_control(AutoBuildButton), L"Auto Build: OFF");
+                            disable_automatic_work();
                             log(cpplivelab::MessageKind::Warning,
                                 L"Watcher could not restart after cancellation: " +
                                     decode_console_text(error.what()));
@@ -967,20 +1954,49 @@ public:
                         build_id + L": Build Deferred - active executable/configuration preserved");
                     finish_operation(L"Build Deferred");
                 }
-                else if (result != 0)
+                else if (result == cpplivelab::artifact_missing_exit_code)
                 {
                     run_requested = false;
                     log(cpplivelab::MessageKind::Error,
-                        build_id + L": Build Failed (exit " + std::to_wstring(result) + L")");
+                        build_id +
+                            L": Compilation completed, executable missing. "
+                            L"Tools > Review Build Errors provides target/configuration actions.");
+                    finish_operation(L"Executable Missing");
+                }
+                else if (result != 0)
+                {
+                    run_requested = false;
+                    try
+                    {
+                        reload_targets();
+                    }
+                    catch (const std::exception& error)
+                    {
+                        log(cpplivelab::MessageKind::Warning, decode_console_text(error.what()));
+                    }
+                    log(cpplivelab::MessageKind::Error,
+                        build_id + L": Build Failed (exit " + std::to_wstring(result) +
+                            L"). Tools > Review Build Errors provides details and next actions; "
+                            L"double-click a file diagnostic to open it.");
                     finish_operation(L"Build Failed");
                 }
                 else
                 {
                     log(cpplivelab::MessageKind::Success,
                         build_id + L": Build Successful (exit 0)");
+                    std::ifstream libraries(build_directory() / L"libraries.txt");
+                    for (std::string library; std::getline(libraries, library);)
+                    {
+                        log(cpplivelab::MessageKind::System,
+                            L"Configured library target: " + decode_console_text(library));
+                    }
                     bool recorded = false;
                     try
                     {
+                        reload_targets();
+                        building_identity = current_identity();
+                        cpplivelab::save_project_options(
+                            active_project_directory, selected_configuration(), project_options());
                         recorded = building_sources_known &&
                                    freshness.succeeded(building_identity, building_sources);
                     }
@@ -992,7 +2008,14 @@ public:
                     }
                     if (should_run_program)
                     {
-                        if (!fs::is_regular_file(current_identity().executable))
+                        if (read_control_text(find_control(ExecutableInput)).empty())
+                        {
+                            run_requested = false;
+                            log(cpplivelab::MessageKind::Warning,
+                                L"Choose an executable target, then Run.");
+                            finish_operation(L"Choose executable target");
+                        }
+                        else if (!fs::is_regular_file(current_identity().executable))
                         {
                             run_requested = false;
                             log(cpplivelab::MessageKind::Error,
@@ -1050,9 +2073,14 @@ public:
                                    : cpplivelab::MessageKind::Error,
                     stop_requested ? L"Program stopped by user"
                                    : L"Program finished (exit " + std::to_wstring(result) + L")");
+                const bool replacing = replacement_stopping;
                 finish_operation(stop_requested
                                      ? L"Stopped"
                                      : L"Program finished (exit " + std::to_wstring(result) + L")");
+                if (replacing)
+                {
+                    complete_program_restart();
+                }
             }
         }
         if (phase == Phase::PreparingProgram)
@@ -1079,7 +2107,8 @@ public:
         const bool environment_worker_done =
             !environment_future.valid() ||
             environment_future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready;
-        if (close_requested && !operation_in_progress && environment_worker_done)
+        if (close_requested && !operation_in_progress && environment_worker_done &&
+            !project_dialog_open && !cpplivelab::library_task_active())
         {
             DestroyWindow(window_handle);
         }
@@ -1091,13 +2120,32 @@ public:
         {
             return;
         }
+        replacement_ready = false;
+        replacement_stopping = false;
+        previous_windows.clear();
+        if (replacement_building)
+        {
+            replacement_build.stop();
+        }
+        auto_build.cancel();
         stop_requested = true;
         run_requested = false;
         if (phase != Phase::Running)
         {
             auto_build.cancel();
         }
-        session.stop();
+        if (phase == Phase::Running)
+        {
+            cpplivelab::close_application_windows(session.active_process_ids());
+            session.close_input();
+            input_closed = true;
+            graceful_stop_pending = true;
+            shutdown_started = GetTickCount64();
+        }
+        else
+        {
+            session.stop();
+        }
         SetWindowTextW(find_control(StatusLabel), L"Stopping process tree...");
         refresh();
     }
@@ -1133,14 +2181,35 @@ public:
         }
     }
 
+    void update_automatic_controls()
+    {
+        SetWindowTextW(find_control(AutoBuildButton),
+            preferences.auto_build ? L"Auto Build: ON" : L"Auto Build: OFF");
+        SetWindowTextW(find_control(AutoRunButton),
+            auto_run_preferences.enabled ? L"Auto Run: ON" : L"Auto Run: OFF");
+        appearance.active_button(find_control(AutoBuildButton), preferences.auto_build);
+        appearance.active_button(find_control(AutoRunButton), auto_run_preferences.enabled);
+    }
+
+    void disable_automatic_work()
+    {
+        auto_build.enable(false);
+        preferences.auto_build = false;
+        auto_run_preferences.enabled = false;
+        persist_preferences();
+        if (!active_project_directory.empty())
+        {
+            cpplivelab::save_auto_run_preferences(active_project_directory, auto_run_preferences);
+        }
+        update_automatic_controls();
+    }
+
     void start_watching()
     {
         auto_status.clear();
         if (auto_build.enabled() && !active_project_directory.empty())
         {
-            const auto value = read_control_text(find_control(DebounceInput));
-            const auto milliseconds = value.empty() ? 400UL : std::stoul(value);
-            auto_build.set_debounce((std::clamp)(milliseconds, 100UL, 5000UL));
+            auto_build.set_debounce(preferences.debounce_ms);
             try
             {
                 watcher.start(active_project_directory);
@@ -1148,23 +2217,231 @@ public:
             catch (...)
             {
                 watcher.stop();
-                auto_build.enable(false);
-                SetWindowTextW(find_control(AutoBuildButton), L"Auto Build: OFF");
-                preferences.auto_build = false;
-                persist_preferences();
+                disable_automatic_work();
                 throw;
             }
             set_auto_status(L"Watching");
         }
         else
         {
-            set_auto_status(L"Auto Build OFF");
+            set_auto_status(L"Automatic building and running OFF");
+        }
+    }
+
+    void start_replacement_build()
+    {
+        if (replacement_building || replacement_stopping || stop_requested || project_dialog_open)
+        {
+            return;
+        }
+        replacement_options = project_options();
+        if (replacement_options.target.empty())
+        {
+            auto_build.cancel();
+            log(cpplivelab::MessageKind::Warning, L"Auto Run needs a selected executable target.");
+            return;
+        }
+        const auto current = build_directory().filename().wstring();
+        replacement_options.recovery_slot =
+            current.ends_with(L"-fresh-auto-a") ? L"fresh-auto-b" : L"fresh-auto-a";
+        replacement_sources =
+            cpplivelab::ProjectWatcher::source_fingerprints(active_project_directory);
+        std::vector<std::wstring> arguments{L"manage-build",
+            active_project_directory.wstring(),
+            L"--config",
+            selected_configuration(),
+            L"--target",
+            replacement_options.target,
+            L"--build-slot",
+            replacement_options.recovery_slot};
+        if (!auto_build.needs_reconfigure() &&
+            fs::is_regular_file(
+                cpplivelab::managed_build_directory(
+                    active_project_directory, selected_configuration(), replacement_options) /
+                L"CMakeCache.txt"))
+        {
+            arguments.push_back(L"--incremental");
+        }
+        if (configure_writes_authorized)
+        {
+            arguments.push_back(L"--allow-configure-writes");
+        }
+        replacement_build.start_worker(
+            application_directory() / L"cpplivelab.exe", arguments, active_project_directory);
+        replacement_building = true;
+        replacement_ready = false;
+        auto_build.begin_build();
+        log(cpplivelab::MessageKind::Build,
+            L"Auto Run: building replacement; previous application is still running.");
+        set_auto_status(L"Auto Run: building replacement");
+        refresh();
+    }
+
+    void request_program_restart()
+    {
+        previous_windows =
+            auto_run_preferences.restore_windows
+                ? cpplivelab::capture_application_windows(session.active_process_ids())
+                : std::vector<cpplivelab::ApplicationWindow>{};
+        cpplivelab::close_application_windows(session.active_process_ids());
+        session.close_input();
+        input_closed = true;
+        replacement_stopping = true;
+        shutdown_started = GetTickCount64();
+        set_auto_status(L"Restarting: waiting for graceful shutdown");
+        refresh();
+    }
+
+    void complete_program_restart()
+    {
+        replacement_stopping = false;
+        if (replacement_ready)
+        {
+            cpplivelab::activate_build_slot(
+                active_project_directory, selected_configuration(), replacement_options);
+            reload_targets();
+            const bool current = freshness.succeeded(current_identity(), replacement_sources);
+            replacement_ready = false;
+            if (!current)
+            {
+                // A save can arrive during graceful shutdown. Do not launch an
+                // obsolete replacement after the old process has finished.
+                run_requested = true;
+                start(true, false, true);
+                return;
+            }
+        }
+        // Restart intentionally uses the last successful artifact, including when
+        // the editor currently contains errors. It never starts another build.
+        launch_latest = true;
+        probe_pending = false;
+        operation_in_progress = true;
+        phase = Phase::PreparingProgram;
+        request_environment();
+    }
+
+    void poll_auto_run()
+    {
+        if (graceful_stop_pending && session.running() &&
+            GetTickCount64() - shutdown_started >= auto_run_preferences.shutdown_ms)
+        {
+            graceful_stop_pending = false;
+            if (auto_run_preferences.force_stop)
+            {
+                session.stop();
+            }
+            else
+            {
+                stop_requested = false;
+                log(cpplivelab::MessageKind::Warning,
+                    L"Stop timed out; application retained. Enable force-stop in Build Preferences "
+                    L"to terminate the owned tree after the timeout.");
+                SetWindowTextW(
+                    find_control(StatusLabel), L"Stop timed out — application still running");
+                refresh();
+            }
+        }
+        if (replacement_building)
+        {
+            append_build_output(output_decoder.append(replacement_build.poll()));
+            if (replacement_build.root_exited())
+            {
+                replacement_build.finish_build();
+            }
+            if (!replacement_build.running() && !replacement_build.output_pending())
+            {
+                const auto result = replacement_build.exit_code();
+                replacement_build.release_completed();
+                replacement_building = false;
+                append_build_output(output_decoder.append({}, true), true);
+                if (result != 0)
+                {
+                    const auto message =
+                        session.running() ? L"Build failed — previous application is still running."
+                                          : L"Build failed — previous application has exited.";
+                    log(cpplivelab::MessageKind::Error, message);
+                    set_auto_status(message);
+                }
+                else if (!auto_run_preferences.enabled || stop_requested || !program_started)
+                {
+                    log(cpplivelab::MessageKind::System,
+                        L"Replacement built; restart cancelled. Latest active program retained.");
+                }
+                else if (auto_build.pending() ||
+                         replacement_sources != cpplivelab::ProjectWatcher::source_fingerprints(
+                                                    active_project_directory))
+                {
+                    auto_build.notify(GetTickCount64());
+                    auto_build.confirm(true, true);
+                    set_auto_status(
+                        L"Newer changes pending; obsolete replacement was not launched");
+                }
+                else
+                {
+                    const auto targets = cpplivelab::executable_targets(
+                        active_project_directory, selected_configuration(), replacement_options);
+                    const auto selected = std::find_if(targets.begin(),
+                        targets.end(),
+                        [&](const auto& target)
+                        {
+                            return target.name == replacement_options.target &&
+                                   fs::is_regular_file(target.artifact);
+                        });
+                    if (selected == targets.end())
+                    {
+                        log(cpplivelab::MessageKind::Error,
+                            L"Replacement executable missing; previous application retained.");
+                    }
+                    else
+                    {
+                        replacement_ready = true;
+                        request_program_restart();
+                    }
+                }
+                refresh();
+            }
+        }
+        if (replacement_stopping && session.running() &&
+            GetTickCount64() - shutdown_started >= auto_run_preferences.shutdown_ms)
+        {
+            if (auto_run_preferences.force_stop)
+            {
+                session.stop();
+            }
+            else
+            {
+                replacement_stopping = false;
+                replacement_ready = false;
+                previous_windows.clear();
+                log(cpplivelab::MessageKind::Warning,
+                    L"Graceful shutdown timed out. Application retained; input is closed. Stop "
+                    L"manually or enable force-stop in Build Preferences.");
+                set_auto_status(L"Restart cancelled — application did not close gracefully");
+                refresh();
+            }
+        }
+        if (restore_started && program_started && !previous_windows.empty())
+        {
+            const auto restored = cpplivelab::restore_application_windows(
+                session.active_process_ids(), previous_windows, restored_windows);
+            if (restored >= previous_windows.size() || GetTickCount64() - restore_started > 15000)
+            {
+                log(restored >= previous_windows.size() ? cpplivelab::MessageKind::Success
+                                                        : cpplivelab::MessageKind::Warning,
+                    restored >= previous_windows.size()
+                        ? L"Window restoration complete."
+                        : L"Window restoration partially supported: some matching windows did not "
+                          L"appear within 15 seconds.");
+                restore_started = 0;
+                previous_windows.clear();
+            }
         }
     }
 
     void poll_watcher()
     {
-        if (!auto_build.enabled() || active_project_directory.empty() || close_requested)
+        if (!auto_build.enabled() || active_project_directory.empty() || close_requested ||
+            restart_pending)
         {
             return;
         }
@@ -1181,12 +2458,9 @@ public:
         catch (const std::exception& error)
         {
             watcher.stop();
-            auto_build.enable(false);
-            preferences.auto_build = false;
-            SetWindowTextW(find_control(AutoBuildButton), L"Auto Build: OFF");
-            persist_preferences();
+            disable_automatic_work();
             log(cpplivelab::MessageKind::Error, decode_console_text(error.what()));
-            set_auto_status(L"Watcher stopped - turn Auto Build on to retry");
+            set_auto_status(L"Watcher stopped - turn Auto Run on to retry");
             return;
         }
         if (notified)
@@ -1230,14 +2504,29 @@ public:
                                 ? L"Build Deferred - running program preserved"
                                 : build_id + L": Building; one follow-up Build Pending");
         }
-        if (auto_build.ready(now, operation_in_progress, true))
+        if (auto_run_preferences.enabled && program_started && phase == Phase::Running &&
+            auto_build.ready(now, replacement_building || replacement_stopping, true))
+        {
+            try
+            {
+                start_replacement_build();
+            }
+            catch (const std::exception& error)
+            {
+                auto_build.cancel();
+                log(cpplivelab::MessageKind::Error, decode_console_text(error.what()));
+                set_auto_status(
+                    L"Replacement build could not start; previous application retained");
+            }
+            return;
+        }
+        if (auto_build.ready(now, operation_in_progress || replacement_building, true))
         {
             const auto configuration =
                 SendMessageW(find_control(ConfigurationSelector), CB_GETCURSEL, 0, 0) == 1
                     ? L"Release"
                     : L"Debug";
-            const auto directory = active_project_directory / L".cpplivelab" /
-                                   (L"build-" + std::wstring(configuration));
+            const auto directory = build_directory();
             bool available = false;
             try
             {
@@ -1275,8 +2564,226 @@ public:
         }
     }
 
+    void recover_build()
+    {
+        if (operation_in_progress || replacement_building || active_project_directory.empty())
+        {
+            append(L"Stop the active operation and select a project before recovery.\n");
+            return;
+        }
+        cpplivelab::FormOptions options;
+        options.accept_label = L"Build Fresh Directory";
+        options.cancel_default = true;
+        options.note = L"Keep the old cache and diagnostics. Build in a fresh manager-owned "
+                       L"directory and activate it only if successful. No existing outputs, "
+                       L"source, assets or project configuration will be deleted.";
+        std::vector<cpplivelab::FormField> fields;
+        if (show_project_form(L"Clean & Rebuild", fields, options) && authorize_configuration())
+        {
+            start(false, false, false, true);
+        }
+    }
+
+    void open_diagnostic(const cpplivelab::BuildDiagnostic& diagnostic)
+    {
+        std::error_code error;
+        if (!diagnostic.file.empty() && fs::is_regular_file(diagnostic.file, error))
+        {
+            cpplivelab::launch_editor(cpplivelab::load_editor(),
+                active_project_directory,
+                diagnostic.file,
+                diagnostic.line,
+                diagnostic.column);
+        }
+        else
+        {
+            append(L"No existing source location. Tools > Review Build Errors provides "
+                   L"configuration, library and recovery actions.\n");
+        }
+    }
+
+    void review_errors()
+    {
+        const auto diagnostics =
+            cpplivelab::parse_build_diagnostics(build_diagnostics, active_project_directory);
+        std::vector<std::wstring> entries;
+        for (const auto& diagnostic : diagnostics)
+        {
+            entries.push_back(std::to_wstring(entries.size() + 1) + L". " + diagnostic.raw);
+        }
+        if (entries.empty())
+        {
+            entries.push_back(L"No recognized diagnostic; inspect the detailed output below.");
+        }
+        cpplivelab::FormOptions options;
+        options.note = L"Open source errors in your editor. Review Libraries for missing packages. "
+                       L"Use fresh build recovery for cache/generator mismatch. Ordinary compiler "
+                       L"errors should be repaired in source. Original output is retained.";
+        options.accept_label = L"Perform Action";
+        std::vector<cpplivelab::FormField> fields{{L"Diagnostic", entries.front(), entries},
+            {L"Action",
+                L"Show Details",
+                {L"Show Details",
+                    L"Open in Editor",
+                    L"Review Libraries",
+                    L"Project Settings",
+                    L"Clean & Rebuild"}},
+            {L"Detailed Output",
+                build_diagnostics,
+                {},
+                true,
+                L"",
+                cpplivelab::BrowseKind::None,
+                false,
+                true}};
+        if (!show_project_form(L"Build Errors", fields, options))
+        {
+            return;
+        }
+        if (fields[1].value == L"Open in Editor" && !diagnostics.empty())
+        {
+            const auto selected = std::find(entries.begin(), entries.end(), fields[0].value);
+            if (selected != entries.end())
+            {
+                open_diagnostic(diagnostics[static_cast<size_t>(selected - entries.begin())]);
+            }
+        }
+        else if (fields[1].value == L"Clean & Rebuild")
+        {
+            recover_build();
+        }
+        else if (fields[1].value == L"Review Libraries")
+        {
+            manage_libraries();
+        }
+        else if (fields[1].value == L"Project Settings")
+        {
+            command(ProjectSettingsMenu);
+        }
+    }
+
+    void activate_console_diagnostic()
+    {
+        const HWND console = find_control(SystemOutputPane);
+        CHARRANGE selection{};
+        SendMessageW(console, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
+        const auto line = SendMessageW(console, EM_EXLINEFROMCHAR, 0, selection.cpMin);
+        std::wstring text(8192, L'\0');
+        *reinterpret_cast<WORD*>(text.data()) = 8191;
+        text.resize(SendMessageW(console, EM_GETLINE, line, reinterpret_cast<LPARAM>(text.data())));
+        const auto diagnostics =
+            cpplivelab::parse_build_diagnostics(text, active_project_directory);
+        if (!diagnostics.empty())
+        {
+            open_diagnostic(diagnostics.front());
+        }
+        else
+        {
+            review_errors();
+        }
+    }
+
     void command(int control_id)
     {
+        if (restart_launch)
+        {
+            return;
+        }
+        if (control_id == RestartButton)
+        {
+            request_restart();
+            return;
+        }
+        if (control_id == RecoverBuildMenu)
+        {
+            recover_build();
+            return;
+        }
+        if (control_id == ReviewErrorsMenu)
+        {
+            review_errors();
+            return;
+        }
+        if (control_id == OpenWelcomeRecent)
+        {
+            const auto selected =
+                SendDlgItemMessageW(window_handle, WelcomeRecent, LB_GETCURSEL, 0, 0);
+            if (selected >= 0 && static_cast<size_t>(selected) < welcome_recents.size())
+            {
+                const auto& path = welcome_recents[selected];
+                if (fs::is_directory(path))
+                {
+                    open(path);
+                }
+                else
+                {
+                    SetWindowTextW(find_control(StatusLabel),
+                        L"Recent folder is missing. Use Project > Recent to remove it.");
+                }
+            }
+            return;
+        }
+        if (active_project_directory.empty() &&
+            (control_id == ManageLibrariesMenu || control_id == ProjectSettingsMenu ||
+                control_id == BuildButton || control_id == RunButton ||
+                control_id == EditProjectButton))
+        {
+            SetWindowTextW(
+                find_control(StatusLabel), L"Select or create a project before using this action.");
+            return;
+        }
+        if (control_id >= NavigationProject && control_id <= NavigationSettings)
+        {
+            show_navigation(control_id);
+            return;
+        }
+        if (control_id == AppearanceMenu)
+        {
+            appearance_dialog();
+            return;
+        }
+        if (control_id == BuildPreferencesMenu)
+        {
+            build_preferences_dialog();
+            return;
+        }
+        if (control_id == CopyProjectPath)
+        {
+            copy_project_path();
+            return;
+        }
+        if (control_id == TestRunnerMenu)
+        {
+            run_tests_dialog();
+            return;
+        }
+        if (control_id == CancelTestsMenu)
+        {
+            if (tests_active)
+            {
+                tests_cancelled = true;
+                test_session.stop();
+            }
+            return;
+        }
+        if (control_id == DoctorMenu || control_id == DetailedDoctorMenu)
+        {
+            std::ostringstream report;
+            const auto tools =
+                cpplivelab::discover_toolchain(cpplivelab::system_discovery_inputs());
+            if (control_id == DoctorMenu)
+            {
+                report << cpplivelab::diagnostics_summary(tools);
+            }
+            else
+            {
+                cpplivelab::run_doctor(report, tools);
+            }
+            reveal_system_output();
+            append(decode_console_text(report.str()));
+            select_console(false);
+            return;
+        }
         // Handle Stop/input before rejecting other commands during an operation.
         // Disabled buttons alone are insufficient: Windows may have queued a command.
         if (control_id == ProgramTab)
@@ -1291,11 +2798,18 @@ public:
         }
         if (control_id == ClearProgram)
         {
-            program_console.clear();
+            if (program_started && phase == Phase::Running && !stop_requested && session.running())
+            {
+                program_console.clear_preserving_unfinished_stdout();
+            }
+            else
+            {
+                program_console.clear();
+            }
             if (program_started && phase == Phase::Running && !input_closed)
             {
                 SetWindowTextW(find_control(StatusLabel),
-                    L"Program running - input remains available (display cleared)");
+                    L"Program running - input remains available (earlier output cleared)");
             }
             update_console_badges();
             return;
@@ -1306,16 +2820,67 @@ public:
             update_console_badges();
             return;
         }
-        if (control_id == AutoBuildButton)
+        if (control_id == AutoBuildButton || control_id == AutoRunButton)
         {
-            auto_build.enable(!auto_build.enabled());
-            preferences.auto_build = auto_build.enabled();
-            persist_preferences();
-            appearance.active_button(find_control(AutoBuildButton), preferences.auto_build);
-            watcher.stop();
-            SetWindowTextW(find_control(AutoBuildButton),
-                auto_build.enabled() ? L"Auto Build: ON" : L"Auto Build: OFF");
-            start_watching();
+            const bool was_enabled = auto_build.enabled();
+            if (control_id == AutoBuildButton)
+            {
+                preferences.auto_build = !preferences.auto_build;
+                persist_preferences();
+            }
+            else
+            {
+                auto_run_preferences.enabled = !auto_run_preferences.enabled;
+                if (!active_project_directory.empty())
+                {
+                    cpplivelab::save_auto_run_preferences(
+                        active_project_directory, auto_run_preferences);
+                }
+            }
+            const bool enabled = preferences.auto_build || auto_run_preferences.enabled;
+            if (was_enabled != enabled)
+            {
+                auto_build.enable(enabled);
+                watcher.stop();
+                start_watching();
+            }
+            if (!auto_run_preferences.enabled && replacement_ready && replacement_stopping)
+            {
+                replacement_ready = false;
+                replacement_stopping = false;
+                previous_windows.clear();
+                log(cpplivelab::MessageKind::Warning,
+                    L"Automatic restart cancelled; Auto Run is OFF.");
+            }
+            update_automatic_controls();
+            return;
+        }
+        if (control_id == ProgramRestartButton)
+        {
+            if (program_started && !replacement_building && !replacement_stopping)
+            {
+                replacement_options = project_options();
+                replacement_ready = false;
+                request_program_restart();
+            }
+            else if (!operation_in_progress && !replacement_building &&
+                     !active_project_directory.empty() &&
+                     fs::is_regular_file(current_identity().executable))
+            {
+                launch_latest = true;
+                probe_pending = false;
+                operation_in_progress = true;
+                phase = Phase::PreparingProgram;
+                request_environment();
+            }
+            return;
+        }
+        if (control_id == AddLibraryButton)
+        {
+            if (!operation_in_progress)
+            {
+                manage_libraries(true);
+            }
             return;
         }
         if (control_id == SendButton)
@@ -1346,13 +2911,39 @@ public:
                 L"Run Pending - waiting for the current build and latest source changes.");
             return;
         }
+        if (control_id == EditProjectButton && !active_project_directory.empty())
+        {
+            cpplivelab::launch_editor(cpplivelab::load_editor(), active_project_directory);
+            append(L"Opened project in preferred editor. Save edits before Build/Run.\n");
+            return;
+        }
         if (operation_in_progress)
         {
             return;
         }
-        if (control_id == OpenProjectButton)
+        if (control_id == NewProjectMenu)
         {
-            open(read_control_text(find_control(FolderInput)));
+            new_project();
+        }
+        else if (control_id == RecentProjectsMenu)
+        {
+            recent_dialog();
+        }
+        else if (control_id == ProjectSettingsMenu)
+        {
+            project_settings();
+        }
+        else if (control_id == EditorSettingsMenu)
+        {
+            editor_settings();
+        }
+        else if (control_id == ManageLibrariesMenu)
+        {
+            manage_libraries();
+        }
+        else if (control_id == OpenProjectButton)
+        {
+            browse();
         }
         else if (control_id == BrowseButton)
         {
@@ -1360,17 +2951,19 @@ public:
         }
         else if (control_id == BuildButton)
         {
+            if (!authorize_configuration())
+            {
+                return;
+            }
             start(false);
         }
         else if (control_id == RunButton)
         {
+            if (!authorize_configuration())
+            {
+                return;
+            }
             start(true);
-        }
-        else if (control_id == EditProjectButton && !active_project_directory.empty())
-        {
-            cpplivelab::open_in_visual_studio(
-                cpplivelab::find_visual_studio_2022(), active_project_directory);
-            append(L"Opened project in Visual Studio 2022. Save edits there before Build/Run.\n");
         }
     }
 };
@@ -1409,10 +3002,17 @@ LRESULT CALLBACK window_procedure(HWND window_handle, UINT message, WPARAM wpara
                 return 0;
             case WM_GETMINMAXINFO:
                 reinterpret_cast<MINMAXINFO*>(lparam)->ptMinTrackSize = {
-                    cpplivelab::scale_pixels(940, application->dpi),
-                    cpplivelab::scale_pixels(650, application->dpi)};
+                    cpplivelab::scale_pixels(780, application->dpi),
+                    cpplivelab::scale_pixels(600, application->dpi)};
                 return 0;
             case WM_MEASUREITEM:
+                if (reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->CtlType == ODT_MENU)
+                {
+                    auto& measure = *reinterpret_cast<MEASUREITEMSTRUCT*>(lparam);
+                    measure.itemWidth = cpplivelab::scale_pixels(280, application->dpi);
+                    measure.itemHeight = cpplivelab::scale_pixels(34, application->dpi);
+                    return TRUE;
+                }
                 if (reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->CtlType == ODT_COMBOBOX)
                 {
                     reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight =
@@ -1501,15 +3101,41 @@ LRESULT CALLBACK window_procedure(HWND window_handle, UINT message, WPARAM wpara
                 application->apply_appearance();
                 return 0;
             }
-            case WM_COMMAND:
-                if (LOWORD(wparam) == AppearanceSelector && HIWORD(wparam) == CBN_SELCHANGE)
+            case WM_NOTIFY:
+            {
+                const auto* notification = reinterpret_cast<NMHDR*>(lparam);
+                if (notification->idFrom == SystemOutputPane && notification->code == EN_MSGFILTER)
                 {
-                    application->change_appearance();
-                    return 0;
+                    const auto* filter = reinterpret_cast<MSGFILTER*>(lparam);
+                    if (filter->msg == WM_LBUTTONDBLCLK ||
+                        (filter->msg == WM_KEYDOWN && filter->wParam == VK_RETURN))
+                    {
+                        if (filter->msg == WM_LBUTTONDBLCLK)
+                        {
+                            POINTL point{static_cast<short>(LOWORD(filter->lParam)),
+                                static_cast<short>(HIWORD(filter->lParam))};
+                            const auto console = application->find_control(SystemOutputPane);
+                            const auto character = SendMessageW(
+                                console, EM_CHARFROMPOS, 0, reinterpret_cast<LPARAM>(&point));
+                            SendMessageW(console, EM_SETSEL, character, character);
+                        }
+                        application->activate_console_diagnostic();
+                        return 1;
+                    }
                 }
-                if (LOWORD(wparam) == DebounceInput && HIWORD(wparam) == EN_KILLFOCUS)
+                break;
+            }
+            case WM_COMMAND:
+                if ((LOWORD(wparam) == ConfigurationSelector ||
+                        LOWORD(wparam) == ExecutableInput) &&
+                    HIWORD(wparam) == CBN_SELCHANGE && !application->operation_in_progress &&
+                    !application->active_project_directory.empty())
                 {
-                    application->update_debounce();
+                    if (LOWORD(wparam) == ConfigurationSelector)
+                    {
+                        application->reload_targets();
+                    }
+                    application->save_selection();
                     return 0;
                 }
                 if (HIWORD(wparam) == BN_CLICKED)
@@ -1520,10 +3146,27 @@ LRESULT CALLBACK window_procedure(HWND window_handle, UINT message, WPARAM wpara
             case WM_TIMER:
                 application->tick();
                 return 0;
+            case WM_SYSKEYDOWN:
+                if (wparam == 'P' || wparam == 'T' || wparam == 'S' || wparam == 'R')
+                {
+                    application->command(wparam == 'R'   ? RestartButton
+                                         : wparam == 'P' ? NavigationProject
+                                         : wparam == 'T' ? NavigationTools
+                                                         : NavigationSettings);
+                    return 0;
+                }
+                break;
             case WM_CLOSE:
+                application->restart_pending = false;
+                application->restart_launch.reset();
+                if (application->tests_active)
+                {
+                    application->test_session.stop();
+                }
                 application->watcher.stop();
                 application->auto_build.enable(false);
-                if (application->operation_in_progress || application->environment_future.valid())
+                if (application->operation_in_progress || application->environment_future.valid() ||
+                    application->project_dialog_open || cpplivelab::library_task_active())
                 {
                     application->close_requested = true;
                     application->stop();
@@ -1551,6 +3194,59 @@ LRESULT CALLBACK window_procedure(HWND window_handle, UINT message, WPARAM wpara
 #ifndef CPPLIVELAB_GUI_TEST
 int WINAPI wWinMain(HINSTANCE application_instance, HINSTANCE, PWSTR, int initial_show_state)
 {
+    int argc = 0;
+    auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    const bool restarting = argv && argc > 1 && std::wstring_view(argv[1]) == L"--restart-parent";
+    cpplivelab::GuiInstance instance(restarting);
+    std::unique_ptr<cpplivelab::RestartChild> restart;
+    try
+    {
+        if (restarting)
+        {
+            restart = cpplivelab::restart_child(argc, argv, instance.name);
+        }
+        else if (!instance.acquired)
+        {
+            struct ExistingWindow
+            {
+                ULONG_PTR key;
+                HWND window = nullptr;
+            } existing{instance.key};
+
+            EnumWindows(
+                [](HWND window, LPARAM parameter) -> BOOL
+                {
+                    auto& value = *reinterpret_cast<ExistingWindow*>(parameter);
+                    if (reinterpret_cast<ULONG_PTR>(GetPropW(window, L"CppLiveLabInstance")) ==
+                            value.key &&
+                        IsWindowVisible(window))
+                    {
+                        value.window = window;
+                        return FALSE;
+                    }
+                    return TRUE;
+                },
+                reinterpret_cast<LPARAM>(&existing));
+            if (existing.window)
+            {
+                ShowWindow(existing.window, SW_RESTORE);
+                SetForegroundWindow(existing.window);
+            }
+            if (argv)
+            {
+                LocalFree(argv);
+            }
+            return 0;
+        }
+    }
+    catch (...)
+    {
+        if (argv)
+        {
+            LocalFree(argv);
+        }
+        return 2;
+    }
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     const auto rich_edit_library = LoadLibraryW(L"Msftedit.dll");
     if (!rich_edit_library)
@@ -1569,12 +3265,30 @@ int WINAPI wWinMain(HINSTANCE application_instance, HINSTANCE, PWSTR, int initia
     window_class.lpszClassName = L"CppLiveLabWindow";
     RegisterClassW(&window_class);
     Application application;
+    application.restart_instance_name = instance.name;
+    if (restart)
+    {
+        application.preference_store = restart->state.preference_store;
+        application.preferences = cpplivelab::load_preferences(application.preference_store);
+    }
+    else
+    {
+        wchar_t test_child[8]{}, state_override[32768]{};
+        if (GetEnvironmentVariableW(L"CPPLIVELAB_TEST_CHILD", test_child, 8) &&
+            GetEnvironmentVariableW(L"CPPLIVELAB_STATE_HOME", state_override, 32768))
+        {
+            application.preference_store =
+                L"Software\\CppLiveLab\\Tests\\" +
+                decode_console_text(cpplivelab::library_key(encode_utf8(state_override)));
+            application.preferences = cpplivelab::load_preferences(application.preference_store);
+        }
+    }
     const auto initial_dpi = GetDpiForSystem();
     RECT desktop{};
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &desktop, 0);
     HWND window_handle = CreateWindowExW(WS_EX_CONTROLPARENT,
         window_class.lpszClassName,
-        L"CppLiveLab",
+        L"Cpp — Make Your Life Easier",
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
@@ -1594,9 +3308,20 @@ int WINAPI wWinMain(HINSTANCE application_instance, HINSTANCE, PWSTR, int initia
         }
         return 1;
     }
-    int argc = 0;
-    auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    if (argv && argc == 2)
+    SetPropW(window_handle, L"CppLiveLabInstance", reinterpret_cast<HANDLE>(instance.key));
+    if (restart && !restart->state.project.empty())
+    {
+        try
+        {
+            application.open(restart->state.project);
+        }
+        catch (...)
+        {
+            DestroyWindow(window_handle);
+            return 3;
+        }
+    }
+    else if (!restart && argv && argc == 2)
     {
         try
         {
@@ -1611,10 +3336,39 @@ int WINAPI wWinMain(HINSTANCE application_instance, HINSTANCE, PWSTR, int initia
     {
         LocalFree(argv);
     }
+    if (restart)
+    {
+        if (!restart->acknowledge_and_wait(instance))
+        {
+            DestroyWindow(window_handle);
+            return 4;
+        }
+        const auto& rectangle = restart->state.placement.rcNormalPosition;
+        if (rectangle.right > rectangle.left + 200 && rectangle.bottom > rectangle.top + 200)
+        {
+            auto placement = restart->state.placement;
+            placement.showCmd = SW_HIDE;
+            SetWindowPlacement(window_handle, &placement);
+        }
+        initial_show_state =
+            restart->state.placement.showCmd == SW_SHOWMAXIMIZED ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+    }
     ShowWindow(window_handle, initial_show_state);
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0)
     {
+        if (message.message == WM_SYSKEYDOWN &&
+            (message.wParam == 'P' || message.wParam == 'B' || message.wParam == 'T' ||
+                message.wParam == 'S' || message.wParam == 'R'))
+        {
+            SendMessageW(window_handle, WM_SYSKEYDOWN, message.wParam, message.lParam);
+            continue;
+        }
+        if (message.message == WM_KEYDOWN && message.wParam == VK_F10)
+        {
+            SetFocus(application.find_control(NavigationProject));
+            continue;
+        }
         if (message.message == WM_KEYDOWN && message.wParam == VK_RETURN &&
             GetFocus() == application.find_control(ProgramInput))
         {

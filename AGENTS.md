@@ -4,6 +4,16 @@ Work only on the stage or maintenance task the user has approved. Preserve appro
 Stage 1–3 behavior. Do not start another stage, commit, or push without the user's
 authorization. Finish the authorized checks, report the results, and stop for feedback.
 
+For generation, dependency dialogs, traversal, artifact discovery, error navigation
+and build recovery, follow [GENERATED_PROJECT_STANDARDS.md](GENERATED_PROJECT_STANDARDS.md).
+All future templates inherit CODING_STYLE.md and .clang-format. Fresh GitHub Add
+fields start empty. Preserve imported projects and require explicit recovery approval.
+
+For ALL UI work, read and follow [UI_DESIGN_GUIDELINES.md](UI_DESIGN_GUIDELINES.md)
+before implementation. This applies to every future stage. Reuse shared Win32 styling,
+keep one settings destination and one action/state implementation, preserve customized
+palettes, and add relevant native-control and manual acceptance tests.
+
 ## Readable C++20
 
 - Readability matters more than line count. Use Allman braces, four spaces, no tabs,
@@ -44,3 +54,14 @@ authorization. Finish the authorized checks, report the results, and stop for fe
   existing changes, delete `.vs`, or run destructive Git cleanup.
 - Give beginner-friendly manual checks and expected results. Leave the final review,
   commit and push to the user unless they explicitly authorize them.
+
+## Permanent Stage 5 workflow constraints
+
+Keep Project/Tools left and one Settings destination right. Preserve the no-project
+welcome state. Shared form layout must survive resize, DPI and repeated Advanced
+Options toggles with erased parent borders and regenerated regions. Keep help subtle
+and keyboard accessible. GitHub metadata discovery is passive; configuring third-party
+code requires explicit repository/commit approval. Preview and separately approve any
+existing-project edit; back up and roll back failed dependency changes. Test tools use
+owned background jobs and isolated output, never the selected project's build directory.
+Found tools are not proof of compiler/SDK compatibility. See UI_DESIGN_GUIDELINES.md.

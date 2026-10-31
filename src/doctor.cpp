@@ -260,7 +260,7 @@ Toolchain discover_toolchain(const DiscoveryInputs& inputs)
 
 int run_doctor(std::ostream& out, const Toolchain& toolchain)
 {
-    out << "CppLiveLab environment doctor\n";
+    out << "Cpp environment doctor\n";
     bool cmake = false, ninja = false, compiler = false;
     for (const auto& tool : toolchain.tools)
     {

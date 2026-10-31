@@ -1,4 +1,5 @@
 #include "../src/console_view.hpp"
+#include "theme_test_support.hpp"
 
 #include <iostream>
 #include <stdexcept>
@@ -43,7 +44,16 @@ int main()
                 throw std::runtime_error(message);
             }
         };
-        program.append(cpplivelab::MessageKind::ProgramOutput, L"Name: ");
+        program.append(cpplivelab::MessageKind::ProgramOutput, L"Completed output\nNa");
+        program.append(cpplivelab::MessageKind::ProgramOutput, L"me: ");
+        program.clear_preserving_unfinished_stdout();
+        wchar_t prompt[64]{};
+        GetWindowTextW(program.window, prompt, 64);
+        require(
+            std::wstring(prompt) == L"Name: ", "Clear did not retain only the split stdout line");
+        program.clear_preserving_unfinished_stdout();
+        require(GetWindowTextLengthW(program.window) == 6,
+            "Repeated clear duplicated or lost the prompt");
         require(GetWindowTextLengthW(program.window) == 6,
             "Prompt without newline was not rendered immediately");
         system.set_visible(false);
@@ -82,11 +92,46 @@ int main()
         format.cbSize = sizeof(format);
         SendMessageW(
             system.window, EM_GETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&format));
-        if (format.crTextColor != RGB(175, 35, 50))
+        theme_test::require_rendered_color(cpplivelab::ThemeChoice::Light,
+            cpplivelab::MessageKind::Error,
+            cpplivelab::ConsoleColors{},
+            format);
+        for (const auto choice : {cpplivelab::ThemeChoice::Dark, cpplivelab::ThemeChoice::Light})
         {
-            throw std::runtime_error(
-                "Actual Rich Edit error color was not red: " + std::to_string(format.crTextColor) +
-                " mask " + std::to_string(format.dwMask));
+            const auto palette = cpplivelab::theme_palette(choice);
+            system.clear();
+            system.set_colors(palette.console);
+            for (const auto kind : {cpplivelab::MessageKind::System,
+                     cpplivelab::MessageKind::Success,
+                     cpplivelab::MessageKind::Warning,
+                     cpplivelab::MessageKind::Error,
+                     cpplivelab::MessageKind::ProgramError,
+                     cpplivelab::MessageKind::ProgramOutput})
+            {
+                const auto start = system.history.characters();
+                system.append(kind, std::wstring(cpplivelab::message_label(kind)) + L"sample\n");
+                SendMessageW(system.window, EM_SETSEL, start, start + 1);
+                format = {};
+                format.cbSize = sizeof(format);
+                SendMessageW(system.window,
+                    EM_GETCHARFORMAT,
+                    SCF_SELECTION,
+                    reinterpret_cast<LPARAM>(&format));
+                theme_test::require_rendered_color(choice, kind, palette.console, format);
+                // Exercise retained output recoloring as well as freshly appended text.
+                const auto other_choice = choice == cpplivelab::ThemeChoice::Dark
+                                              ? cpplivelab::ThemeChoice::Light
+                                              : cpplivelab::ThemeChoice::Dark;
+                const auto other_palette = cpplivelab::theme_palette(other_choice);
+                system.set_colors(other_palette.console);
+                SendMessageW(system.window,
+                    EM_GETCHARFORMAT,
+                    SCF_SELECTION,
+                    reinterpret_cast<LPARAM>(&format));
+                theme_test::require_rendered_color(
+                    other_choice, kind, other_palette.console, format);
+                system.set_colors(palette.console);
+            }
         }
         system.clear();
         require(

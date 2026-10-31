@@ -5,7 +5,8 @@ Stage4Acceptance and CalculatorDemo stay unchanged. Visual inspection is intenti
 left to you; the new GUI-controller test runs in a hidden test-owned window.
 
 Still open from the earlier request: structured/friendly diagnostic summaries, a
-Simple/Detailed log toggle, and further Light palette distinction improvements. Raw
+Simple/Detailed log toggle. The final refinements now improve Light/Dark palettes
+and preserve unfinished prompts; see STAGE4_FINAL_REFINEMENTS.md. Raw
 compiler messages remain available in Build & System. Do not treat this automated
 retest as completion/approval of those unfinished presentation requests.
 
@@ -22,7 +23,7 @@ retest as completion/approval of those unfinished presentation requests.
    .\build\debug\cpplivelab-gui.exe
    ```
 
-   Expect 28/28 automated tests. Keep this PowerShell window open: `$demo` belongs
+   Expect 30/30 Full automated tests. Keep this PowerShell window open: `$demo` belongs
    to this session. In another window, set `$demo` to the printed absolute folder.
 
 2. Paste the printed folder into **Project folder**, click **Open Project**, choose
@@ -88,17 +89,17 @@ retest as completion/approval of those unfinished presentation requests.
 ## E — Clear display history while input is active
 
 1. Run and leave the calculator at the name prompt. Click Clear Program.
-2. Expect the old prompt/history to clear, but the process to continue. The status
-   says `Program running - input remains available (display cleared)`; Send stays
-   enabled. Arbitrary stdout is not guessed to be a formal prompt.
+2. Expect completed history to clear and the observed unfinished name prompt to
+   remain. The status says `Program running - input remains available (earlier output cleared)`;
+   Send stays enabled. No formal prompt text is guessed or invented.
 3. Send Ada/2.5/3.75. Expect the usual result, proving the application was not reset.
 4. Clear Build & System. Expect Program Console to retain its own output.
 
 ## F — Theme and window inspection
 
 1. Select Light, Dark, and Follow Windows. Check semantic colors and labels side by
-   side after a success, error, and cancellation. Existing numerical contrast tests
-   pass, but the earlier requested extra Light color distinction remains open.
+   side after a success, error, and cancellation. Expect red errors, green success,
+   blue system information and orange warnings, with neutral ordinary stdout.
 2. Resize repeatedly, minimize/restore, maximize/restore, then return to a small
    supported size. Expect controls and rounded corners to remain complete, with no
    overlap or clipped input area. Report any visual artifacts and display scaling.
@@ -141,6 +142,6 @@ git diff --check
 git status --short
 ```
 
-Expect 28/28 tests, formatting success, and no whitespace errors. Review changes before
+Expect 30/30 Full tests, formatting success, and no whitespace errors. Review changes before
 any commit or push; none is automatic. Report the test letter, exact action, status,
 configuration/path and copied diagnostics for any mismatch. Stage 5 has not started.

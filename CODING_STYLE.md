@@ -3,6 +3,12 @@
 Readable code is a product requirement. A longer, clear implementation is preferable
 to a short expression that obscures ownership or control flow.
 
+These rules and `.clang-format` also apply to every generated C++ starter/header,
+including dependency probes and future templates. Generated CMake uses four-space
+indentation and readable multiline declarations. See
+[GENERATED_PROJECT_STANDARDS.md](GENERATED_PROJECT_STANDARDS.md) for the shared generator,
+source-list strategy, modular dependencies and automated validation requirements.
+
 ## Formatting
 
 Use C++20, Allman braces, four-space indentation, no indentation tabs and approximately

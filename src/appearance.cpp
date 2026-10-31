@@ -72,9 +72,14 @@ bool windows_uses_dark_theme()
 
 ThemePalette theme_palette(ThemeChoice choice)
 {
+    return theme_palette(choice, choice == ThemeChoice::FollowWindows && windows_uses_dark_theme());
+}
+
+ThemePalette theme_palette(ThemeChoice choice, bool windows_dark)
+{
     ThemePalette result;
-    result.dark = choice == ThemeChoice::Dark ||
-                  (choice == ThemeChoice::FollowWindows && windows_uses_dark_theme());
+    result.dark =
+        choice == ThemeChoice::Dark || (choice == ThemeChoice::FollowWindows && windows_dark);
     if (result.dark)
     {
         result.background = RGB(24, 27, 33);
@@ -88,10 +93,11 @@ ThemePalette theme_palette(ThemeChoice choice)
         result.accent = RGB(38, 85, 140);
         result.console.background = result.panel;
         result.console.neutral = result.text;
-        result.console.information = RGB(110, 180, 255);
-        result.console.success = RGB(100, 215, 150);
-        result.console.warning = RGB(245, 198, 95);
-        result.console.error = RGB(255, 140, 140);
+        result.console.information = RGB(96, 165, 250); // #60A5FA
+        result.console.success = RGB(74, 222, 128);     // #4ADE80
+        result.console.warning = RGB(251, 191, 36);     // #FBBF24
+        // A small white tint retains the customized red hue at >= 4.5:1.
+        result.console.error = RGB(255, 68, 25);
     }
     return result;
 }

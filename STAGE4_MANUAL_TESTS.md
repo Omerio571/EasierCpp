@@ -19,7 +19,7 @@ new sibling project. No commit or push is part of these steps.
    .\build\debug\cpplivelab-gui.exe
    ```
 
-   Expected: all 28 CTest tests pass; version is `CppLiveLab 0.1.0`; doctor finds the
+   Expected: all 30 Full CTest tests pass; version is `CppLiveLab 0.1.0`; doctor finds the
    installed toolchain without requiring a developer shell. A new calculator is
    created outside the manager. If Stage4Acceptance already exists, choose a new
    name rather than overwriting it.
@@ -98,7 +98,9 @@ new sibling project. No commit or push is part of these steps.
    readable text. Scroll up in a long build log, then Build again: it stays where
    you are reading. Return to the bottom and clear the selection: new output follows.
 6. Click **Clear Build & System**. Expected: only that history clears. Select Program
-   Console: its output remains. **Clear Program** clears only program output.
+   Console: its output remains. **Clear Program** clears only that history, preserving
+   a reliable unfinished stdout line while running. See STAGE4_FINAL_REFINEMENTS.md
+   for the active-prompt/input checks.
 
 ## E — Themes, persistence, and resizing
 
@@ -164,7 +166,7 @@ new sibling project. No commit or push is part of these steps.
    git status --short
    ```
 
-   Expected: 28/28 tests, formatter passes, no whitespace errors. Review source/docs
+   Expected: 30/30 Full tests, formatter passes, no whitespace errors. Review source/docs
    changes only; generated artifacts are ignored. Do not commit/push until your
    acceptance testing is complete. Report the failed test letter, exact action,
    status and copied diagnostics if anything differs. Stage 5 awaits your approval.

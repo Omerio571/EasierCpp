@@ -4,10 +4,30 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <fstream>
+#include <filesystem>
 #include "cpplivelab/process.hpp"
 
 int wmain(int argc, wchar_t** argv)
 {
+    if (argc == 7 && std::wstring(argv[1]) == L"capture-editor-location")
+    {
+        std::ofstream output(std::filesystem::path(argv[2]), std::ios::binary);
+        for (int index = 3; index < argc; ++index)
+        {
+            const auto text = std::filesystem::path(argv[index]).u8string();
+            output.write(reinterpret_cast<const char*>(text.data()), text.size());
+            output << '\n';
+        }
+        return output ? 0 : 1;
+    }
+    if (argc == 4 && std::wstring(argv[1]) == L"capture-editor")
+    {
+        std::ofstream output(std::filesystem::path(argv[2]), std::ios::binary);
+        const auto text = std::filesystem::path(argv[3]).u8string();
+        output.write(reinterpret_cast<const char*>(text.data()), text.size());
+        return output ? 0 : 1;
+    }
     if (argc == 3 && std::wstring(argv[1]) == L"signal-handle")
     {
         const auto handle = reinterpret_cast<HANDLE>(std::stoull(argv[2]));
@@ -49,6 +69,10 @@ int wmain(int argc, wchar_t** argv)
         return 2;
     }
     const std::wstring fixture_mode(argv[1]);
+    if (fixture_mode == L"noop")
+    {
+        return 0;
+    }
     if (fixture_mode == L"silent-hold")
     {
         Sleep(INFINITE);

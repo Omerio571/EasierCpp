@@ -4,7 +4,8 @@ namespace cpplivelab
 {
 std::filesystem::path BuildIdentity::directory() const
 {
-    return project / L".cpplivelab" / (L"build-" + configuration);
+    return output_directory.empty() ? project / L".cpplivelab" / (L"build-" + configuration)
+                                    : output_directory;
 }
 
 std::vector<BuildFreshness::FileStamp> BuildFreshness::artifacts(const BuildIdentity& identity)
@@ -40,7 +41,10 @@ bool BuildFreshness::succeeded(const BuildIdentity& identity, const SourceFinger
     invalidate(identity);
     auto now = ProjectWatcher::source_fingerprints(identity.project);
     const auto outputs = artifacts(identity);
-    if (before != now || !outputs[0].exists || !outputs[1].exists || !outputs[2].exists)
+    const bool visual_studio =
+        std::filesystem::is_regular_file(identity.directory() / L"ALL_BUILD.vcxproj");
+    if (before != now || !outputs[0].exists || !outputs[1].exists ||
+        (!outputs[2].exists && !visual_studio))
     {
         return false;
     }

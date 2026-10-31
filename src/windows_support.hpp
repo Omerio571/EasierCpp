@@ -14,6 +14,20 @@
 
 namespace cpplivelab::windows_support
 {
+inline std::wstring extended_path(const std::filesystem::path& path)
+{
+    auto absolute = std::filesystem::absolute(path).lexically_normal().wstring();
+    if (absolute.starts_with(L"\\\\?\\"))
+    {
+        return absolute;
+    }
+    if (absolute.starts_with(L"\\\\"))
+    {
+        return L"\\\\?\\UNC\\" + absolute.substr(2);
+    }
+    return L"\\\\?\\" + absolute;
+}
+
 // A HANDLE is an opaque reference to a Windows resource, not a C++ object pointer.
 // nullptr means that nothing is owned; file/pipe creation can instead fail with
 // INVALID_HANDLE_VALUE. Neither failure value may be passed to CloseHandle.

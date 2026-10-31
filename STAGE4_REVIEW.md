@@ -3,9 +3,10 @@
 The latest reliability retest adds explicit tool-worker completion, intelligent Run
 observations, hidden-controller coverage, input/Stop restart fixes and minimize-layout
 protection. See [STAGE4_REPAIR_MANUAL_TESTS.md](STAGE4_REPAIR_MANUAL_TESTS.md) for current
-manual checks. Structured diagnostic summaries/Simple-Detailed presentation and the
-additional requested Light palette distinction remain unfinished; this is not a
-claim that every item in the later Stage 4 bug-fix request has been delivered.
+manual checks. The subsequent [final refinements](STAGE4_FINAL_REFINEMENTS.md) add
+unfinished-prompt preservation, semantic Dark/Light palettes, measured timing findings
+and explicit Quick/Full test modes. Structured diagnostic summaries/Simple-Detailed
+presentation remain outside that pass; earlier results below are historical.
 
 Stage 4 extends the existing native Win32 application. It does not migrate frameworks
 or create a code editor. CMake, Ninja, tool discovery, child-only MSVC initialization,

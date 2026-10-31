@@ -30,10 +30,12 @@ struct ConsoleColors
 {
     COLORREF background = RGB(255, 255, 255);
     COLORREF neutral = RGB(25, 35, 50);
-    COLORREF information = RGB(20, 80, 150);
-    COLORREF success = RGB(20, 100, 55);
-    COLORREF warning = RGB(125, 85, 0);
-    COLORREF error = RGB(175, 35, 50);
+    COLORREF information = RGB(0, 78, 255);
+    // Darken the customized hues only enough for 4.5:1 on white. Keep warning
+    // slightly farther from red so the semantic hues remain 30 degrees apart.
+    COLORREF success = RGB(43, 136, 0);
+    COLORREF warning = RGB(158, 109, 0);
+    COLORREF error = RGB(228, 43, 0);
 };
 
 struct ThemePalette
@@ -53,6 +55,8 @@ struct ThemePalette
 };
 
 ThemePalette theme_palette(ThemeChoice choice);
+// Pure resolver lets tests cover both Follow Windows states without changing OS settings.
+ThemePalette theme_palette(ThemeChoice choice, bool windows_dark);
 COLORREF message_color(const ConsoleColors& colors, MessageKind kind);
 
 inline int scale_pixels(int pixels, UINT dpi)

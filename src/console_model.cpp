@@ -36,6 +36,7 @@ size_t ConsoleHistory::append(MessageKind kind, std::wstring_view text)
     {
         return 0;
     }
+    track_unfinished_line(kind, normalized);
     if (normalized.size() > maximum_characters_)
     {
         normalized.erase(0, normalized.size() - maximum_characters_);
@@ -71,6 +72,37 @@ void ConsoleHistory::clear()
     unread_ = false;
     unread_error_ = false;
     previous_was_cr_ = false;
+    unfinished_line_.clear();
+    unfinished_line_reliable_ = true;
+}
+
+void ConsoleHistory::track_unfinished_line(MessageKind kind, std::wstring_view normalized)
+{
+    for (wchar_t character : normalized)
+    {
+        if (character == L'\r')
+        {
+            unfinished_line_.clear();
+            unfinished_line_reliable_ = true;
+        }
+        else if (kind != MessageKind::ProgramOutput || (character < L' ' && character != L'\t') ||
+                 character == 0x7F || unfinished_line_.size() >= maximum_characters_)
+        {
+            // Do not reconstruct a line containing stderr/input, ANSI escapes,
+            // backspaces or a truncated over-limit prefix. A newline resets it.
+            unfinished_line_.clear();
+            unfinished_line_reliable_ = false;
+        }
+        else if (unfinished_line_reliable_)
+        {
+            unfinished_line_ += character;
+        }
+    }
+}
+
+std::wstring_view ConsoleHistory::unfinished_stdout_line() const
+{
+    return unfinished_line_reliable_ ? std::wstring_view(unfinished_line_) : std::wstring_view{};
 }
 
 void ConsoleHistory::set_active(bool active)

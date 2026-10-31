@@ -1,4 +1,5 @@
 #include "auto_build.hpp"
+#include "directory_scan.hpp"
 
 #include <algorithm>
 #include <cwctype>
@@ -25,12 +26,19 @@ std::wstring lowercase(std::wstring text)
 std::optional<std::uint64_t> fingerprint(const fs::path& path)
 {
     std::error_code error;
-    if (!fs::is_regular_file(path, error))
+    const auto native_path = windows_support::extended_path(path);
+    const bool regular = fs::is_regular_file(native_path, error);
+    if (error && error != std::errc::no_such_file_or_directory)
+    {
+        throw std::runtime_error(
+            "Source status unavailable; freshness is unverified: " + error.message());
+    }
+    if (!regular)
     {
         return std::nullopt;
     }
 
-    std::ifstream source(path, std::ios::binary);
+    std::ifstream source(native_path, std::ios::binary);
     if (!source)
     {
         throw std::runtime_error(
@@ -49,6 +57,10 @@ std::optional<std::uint64_t> fingerprint(const fs::path& path)
         }
     }
 
+    if (source.bad())
+    {
+        throw std::runtime_error("Source read incomplete; freshness is unverified.");
+    }
     return hash;
 }
 
@@ -72,8 +84,8 @@ bool ProjectWatcher::ignored_directory(const fs::path& component)
 {
     const auto name = lowercase(component.wstring());
     return name == L".git" || name == L".vs" || name == L".cpplivelab" || name == L"build" ||
-           name == L"out" || name == L"cmakefiles" || name == L"debug" || name == L"release" ||
-           name.starts_with(L"cmake-build-") || name.starts_with(L"build-");
+           name == L"out" || name == L"_deps" || name == L"cmakefiles" || name == L"debug" ||
+           name == L"release" || name.starts_with(L"cmake-build-") || name.starts_with(L"build-");
 }
 
 bool ProjectWatcher::relevant(const fs::path& relative_path)
@@ -109,34 +121,24 @@ bool ProjectWatcher::relevant(const fs::path& relative_path)
 std::map<fs::path, std::uint64_t> ProjectWatcher::snapshot() const
 {
     std::map<fs::path, std::uint64_t> files;
-    for (auto entry = fs::recursive_directory_iterator(
-             project_, fs::directory_options::skip_permission_denied);
-        entry != fs::recursive_directory_iterator();
-        ++entry)
-    {
-        // Never follow directory links into another project or a generated tree.
-        if (entry->is_directory())
+    scan_directory(project_,
+        [&](const fs::path& path, bool directory)
         {
-            const auto attributes = GetFileAttributesW(entry->path().c_str());
-            if (ignored_directory(entry->path().filename()) ||
-                generated_tree(project_, entry->path().lexically_relative(project_)) ||
-                (attributes != INVALID_FILE_ATTRIBUTES &&
-                    (attributes & FILE_ATTRIBUTE_REPARSE_POINT)))
+            if (directory)
             {
-                entry.disable_recursion_pending();
+                return !ignored_directory(path.filename()) &&
+                       !generated_tree(project_, path.lexically_relative(project_));
             }
-            continue;
-        }
-
-        const auto relative_path = entry->path().lexically_relative(project_);
-        if (relevant(relative_path))
-        {
-            if (const auto hash = fingerprint(entry->path()))
+            const auto relative_path = path.lexically_relative(project_);
+            if (relevant(relative_path))
             {
-                files[relative_path] = *hash;
+                if (const auto hash = fingerprint(path))
+                {
+                    files[relative_path] = *hash;
+                }
             }
-        }
-    }
+            return true;
+        });
 
     return files;
 }

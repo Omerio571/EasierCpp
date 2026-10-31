@@ -38,6 +38,9 @@ public:
     bool unread_error() const;
     size_t characters() const;
     const std::deque<ConsoleEntry>& entries() const;
+    // Observed text only, never an inferred formal prompt. Mixed streams or
+    // terminal editing/control sequences make the current display line unreliable.
+    std::wstring_view unfinished_stdout_line() const;
 
 private:
     std::deque<ConsoleEntry> entries_;
@@ -48,6 +51,9 @@ private:
     bool unread_ = false;
     bool unread_error_ = false;
     bool previous_was_cr_ = false;
+    std::wstring unfinished_line_;
+    bool unfinished_line_reliable_ = true;
+    void track_unfinished_line(MessageKind kind, std::wstring_view normalized);
 };
 
 MessageKind classify_build_line(std::wstring_view line);

@@ -2,6 +2,7 @@
 
 #include "windows_support.hpp"
 #include "project_paths.hpp"
+#include "directory_scan.hpp"
 
 #include <stdexcept>
 
@@ -49,34 +50,36 @@ private:
 
 inline void ensure_executables_stopped(const std::filesystem::path& directory)
 {
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(directory))
-    {
-        if (!entry.is_regular_file() || entry.path().extension() != L".exe")
+    scan_directory(directory,
+        [&](const std::filesystem::path& path, bool is_directory)
         {
-            continue;
-        }
-
-        windows_support::UniqueHandle executable_write_handle;
-        executable_write_handle.reset(CreateFileW(entry.path().c_str(),
-            GENERIC_WRITE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            nullptr,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
-            nullptr));
-        if (executable_write_handle.value == INVALID_HANDLE_VALUE)
-        {
-            const auto error = GetLastError();
-            const auto message =
-                "Executable is running or not writable: " + path_support::path_utf8(entry.path()) +
-                ". Stop it before building.";
-            if (error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION)
+            if (is_directory || path.extension() != L".exe")
             {
-                throw BuildDeferredError(message);
+                return true;
             }
-            throw std::runtime_error(message + " Windows error " + std::to_string(error));
-        }
-    }
+
+            windows_support::UniqueHandle executable_write_handle;
+            executable_write_handle.reset(CreateFileW(windows_support::extended_path(path).c_str(),
+                GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                nullptr,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                nullptr));
+            if (executable_write_handle.value == INVALID_HANDLE_VALUE)
+            {
+                const auto error = GetLastError();
+                const auto message =
+                    "Executable is running or not writable: " + path_support::path_utf8(path) +
+                    ". Stop it before building.";
+                if (error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION)
+                {
+                    throw BuildDeferredError(message);
+                }
+                throw std::runtime_error(message + " Windows error " + std::to_string(error));
+            }
+            return true;
+        });
 }
 
 // Used at most once a second, only while an automatic build is deferred. No compiler
