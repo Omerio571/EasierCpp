@@ -1,5 +1,6 @@
 #include "build/auto_build.hpp"
 #include "build/build_lease.hpp"
+#include "build/build_profile.hpp"
 #include "process/console_model.hpp"
 #include "appearance/appearance.hpp"
 #include "../theme_test_support.hpp"
@@ -184,8 +185,68 @@ void test_watcher()
     require(after <= before + 1, "Watcher shutdown leaked Windows handles");
 }
 
+void test_build_profile()
+{
+    TemporaryProjects fixture;
+    std::ostringstream captured;
+
+    struct RestoreDiagnostics
+    {
+        std::streambuf* output;
+        std::wstring environment;
+
+        ~RestoreDiagnostics()
+        {
+            std::cout.rdbuf(output);
+            SetEnvironmentVariableW(
+                L"EASIERCPP_PROFILE_BUILD", environment.empty() ? nullptr : environment.c_str());
+        }
+    } restore{std::cout.rdbuf(captured.rdbuf()), {}};
+
+    const auto length = GetEnvironmentVariableW(L"EASIERCPP_PROFILE_BUILD", nullptr, 0);
+    if (length)
+    {
+        restore.environment.resize(length);
+        restore.environment.resize(GetEnvironmentVariableW(
+            L"EASIERCPP_PROFILE_BUILD", restore.environment.data(), length));
+    }
+    SetEnvironmentVariableW(L"EASIERCPP_PROFILE_BUILD", L"0");
+    cpplivelab::BuildProfile::worker_start();
+    cpplivelab::BuildProfile disabled;
+    disabled.checkpoint("disabled");
+    disabled.ninja_begin(fixture.root);
+    disabled.ninja_end();
+    require(captured.str().empty(), "Build profiling leaked output without explicit opt-in");
+
+    const auto log = fixture.root / L".ninja_log";
+    write_file(log, "# ninja log v6\n0\t20\t1\told.obj\told\n");
+    SetEnvironmentVariableW(L"EASIERCPP_PROFILE_BUILD", L"1");
+    cpplivelab::BuildProfile profile;
+    profile.ninja_begin(fixture.root);
+    std::ofstream(log, std::ios::app) << "0\t30\t1\thelper.lib\tlink\n0\t30\t1\thelper.dll\tlink\n"
+                                         "1\t41\t1\tmain.obj\tcompile\n";
+    captured.str("");
+    profile.ninja_end();
+    require(captured.str().find("compile_commands_ms=40.000") != std::string::npos &&
+                captured.str().find("link_commands_ms=30.000") != std::string::npos &&
+                captured.str().find("archive_commands_ms=0.000") != std::string::npos &&
+                captured.str().find("ninja_commands=2.000") != std::string::npos,
+        "Ninja profiling included old commands or double-counted a DLL/import library");
+    profile.ninja_begin(fixture.root);
+    captured.str("");
+    profile.ninja_end();
+    require(captured.str().find("ninja_commands=0.000") != std::string::npos,
+        "No-op profiling counted historical compiler work");
+    write_file(log, std::string(1024, 'x'));
+    captured.str("");
+    profile.ninja_end();
+    require(captured.str().find("ninja_log_available=0.000") != std::string::npos,
+        "Rewritten Ninja log produced misleading timings");
+}
+
 void test_scheduler()
 {
+    test_build_profile();
     using cpplivelab::ProjectWatcher;
     const std::map<fs::path, std::uint64_t> inputs{{L"main.cpp", 1}, {L"CMakeLists.txt", 2}};
     auto changed = inputs;

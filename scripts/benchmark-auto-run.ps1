@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Executable,
-    [Parameter(Mandatory=$true)][string]$ReportDirectory
+    [Parameter(Mandatory=$true)][string]$ReportDirectory,
+    [switch]$ProfileBuild
 )
 $ErrorActionPreference = 'Stop'
 $Executable = [IO.Path]::GetFullPath($Executable)
@@ -10,10 +11,13 @@ $fixture = Join-Path $env:TEMP ('EasierCppBenchmark-' + [Guid]::NewGuid().ToStri
 if (Test-Path -LiteralPath $fixture) { throw 'Benchmark fixture already exists.' }
 [IO.Directory]::CreateDirectory($fixture) | Out-Null
 $oldState = $env:CPPLIVELAB_STATE_HOME
+$oldProfile = $env:EASIERCPP_PROFILE_BUILD
+$profiles = [Collections.Generic.List[object]]::new()
 $rows = [Collections.Generic.List[object]]::new()
 function Measure-CommandLine([string]$Name, [string]$Program, [string[]]$Arguments) {
     $log = Join-Path $ReportDirectory ($Name + '.log')
     $watch = [Diagnostics.Stopwatch]::StartNew()
+    $parentTick = if ($ProfileBuild) { [EasierCppBenchmarkClock]::GetTickCount64() } else { 0 }
     # Windows PowerShell 5 turns redirected native stderr into ErrorRecords.
     # Retain warning/error text, but use the native exit code to decide success.
     $previousErrorAction = $ErrorActionPreference
@@ -26,10 +30,29 @@ function Measure-CommandLine([string]$Name, [string]$Program, [string[]]$Argumen
     }
     $elapsed = $watch.Elapsed.TotalMilliseconds
     $rows.Add([pscustomobject]@{Case=$Name; Milliseconds=[Math]::Round($elapsed,2); ExitCode=$code})
+    if ($ProfileBuild) {
+        $profile = [ordered]@{Case=$Name; TotalMs=[Math]::Round($elapsed,2)}
+        foreach ($line in [IO.File]::ReadAllLines($log)) {
+            if ($line -match '^EASIERCPP_PROFILE ([a-z_]+)=([0-9.]+)$') {
+                $profile[$matches[1]] = [double]::Parse($matches[2], [Globalization.CultureInfo]::InvariantCulture)
+            }
+        }
+        if ($profile.Contains('worker_start_tick')) {
+            $profile['worker_startup_ms'] = $profile['worker_start_tick'] - $parentTick
+            $profile['cli_dispatch_ms'] = $profile['managed_entry_tick'] - $profile['worker_start_tick']
+            $profiles.Add([pscustomobject]$profile)
+        }
+    }
     if ($code -ne 0 -and $Name -ne 'failure') { throw "Benchmark failed: $Name. See $log" }
     return $code
 }
 try {
+    if ($ProfileBuild) {
+        $env:EASIERCPP_PROFILE_BUILD = '1'
+        if (-not ('EasierCppBenchmarkClock' -as [type])) {
+            Add-Type 'public static class EasierCppBenchmarkClock { [System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern ulong GetTickCount64(); }'
+        }
+    }
     $env:CPPLIVELAB_STATE_HOME = Join-Path $fixture 'state'
     $source = Join-Path $fixture 'source'
     [IO.Directory]::CreateDirectory($source) | Out-Null
@@ -111,8 +134,14 @@ int main()
     $rows.Add([pscustomobject]@{Case='console_with_input'; Milliseconds=[Math]::Round($watch.Elapsed.TotalMilliseconds,2); ExitCode=0})
     $rows | Export-Csv -LiteralPath (Join-Path $ReportDirectory 'timings.csv') -NoTypeInformation
     $rows | Format-Table
+    if ($ProfileBuild) {
+        # A failure stops before artifact verification; union the successful row's columns.
+        $columns = $profiles | ForEach-Object { $_.PSObject.Properties.Name } | Select-Object -Unique
+        $profiles | Select-Object $columns | Export-Csv -LiteralPath (Join-Path $ReportDirectory 'profiles.csv') -NoTypeInformation
+    }
 } finally {
     $env:CPPLIVELAB_STATE_HOME = $oldState
+    $env:EASIERCPP_PROFILE_BUILD = $oldProfile
     $resolved = [IO.Path]::GetFullPath($fixture)
     if ([IO.Path]::GetDirectoryName($resolved) -ne [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') -or [IO.Path]::GetFileName($resolved) -notlike 'EasierCppBenchmark-*') { throw 'Unsafe benchmark cleanup path.' }
     Remove-Item -LiteralPath $resolved -Recurse -Force

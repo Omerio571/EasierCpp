@@ -62,3 +62,17 @@ file(WRITE "${BUILD}/libraries.txt" "${libraries}")
 list(REMOVE_DUPLICATES runtime_paths)
 list(JOIN runtime_paths "\n" runtime_text)
 file(WRITE "${BUILD}/runtime-paths.txt" "${runtime_text}")
+
+# Proof of the exact derived metadata and reader version. CMake owns the indexed
+# replies and never replaces one with different contents under the same name.
+# A changed index/configuration/reader or any damaged manifest invalidates reuse.
+get_filename_component(index_name "${index}" NAME)
+set(snapshot "1\n${CONFIG}\n${index_name}\n")
+foreach(manifest executables.txt generator.txt libraries.txt runtime-paths.txt)
+    file(READ "${BUILD}/${manifest}" bytes HEX)
+    string(APPEND snapshot "${bytes}\n")
+endforeach()
+file(READ "${CMAKE_CURRENT_LIST_FILE}" reader HEX)
+string(APPEND snapshot "${reader}\n")
+file(WRITE "${BUILD}/file-api.snapshot.tmp" "${snapshot}")
+file(RENAME "${BUILD}/file-api.snapshot.tmp" "${BUILD}/file-api.snapshot")

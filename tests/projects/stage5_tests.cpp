@@ -401,7 +401,16 @@ void projects(const fs::path& parent, const fs::path& cli)
     const auto debug_artifact = game->artifact;
     const auto debug_written = fs::last_write_time(debug_artifact);
     const auto debug_directory = managed_build_directory(project, L"Debug", {});
-    for (const int damage : {0, 1, 2})
+    const auto original_manifest = read(debug_directory / L"executables.txt");
+    const auto original_libraries = read(debug_directory / L"libraries.txt");
+    const auto original_runtime = read(debug_directory / L"runtime-paths.txt");
+    const auto metadata_written = fs::last_write_time(debug_directory / L"executables.txt");
+    result = execute(
+        cli, {L"manage-build", project.wstring(), L"--target", L"game", L"--incremental"}, parent);
+    require(result.code == 0 &&
+                fs::last_write_time(debug_directory / L"executables.txt") == metadata_written,
+        "Unchanged File API model unnecessarily rewrote target metadata: " + result.output);
+    for (const int damage : {0, 1, 2, 3, 4, 5, 6, 7})
     {
         if (damage == 0)
         {
@@ -411,24 +420,47 @@ void projects(const fs::path& parent, const fs::path& cli)
         {
             write(debug_directory / L"executables.txt", "incomplete target\n");
         }
-        else
+        else if (damage == 2 || damage == 3)
         {
-            // Simulate an external configure publishing a newer File API index.
-            // Valid-looking stale metadata must be refreshed before path checks.
+            // Repair valid-looking damaged metadata before path checks, with
+            // either an old timestamp (2) or a freshly written timestamp (3).
             write(debug_directory / L"executables.txt",
                 "game\n" + path_support::path_utf8(parent / L"outside.exe") + "\n");
-            fs::last_write_time(debug_directory / L"executables.txt",
-                fs::last_write_time(debug_directory / L"CMakeCache.txt") - std::chrono::hours(24));
+            if (damage == 2)
+            {
+                fs::last_write_time(debug_directory / L"executables.txt",
+                    fs::last_write_time(debug_directory / L"CMakeCache.txt") -
+                        std::chrono::hours(24));
+            }
+        }
+        else if (damage == 4)
+        {
+            fs::remove(debug_directory / L"libraries.txt");
+        }
+        else if (damage == 5)
+        {
+            write(debug_directory / L"runtime-paths.txt", "incorrect runtime directory");
+        }
+        else if (damage == 6)
+        {
+            fs::remove(debug_directory / L"file-api.snapshot");
+        }
+        else
+        {
+            write(debug_directory / L"file-api.snapshot", "1\nDebug\ntruncated\n");
         }
         result = execute(cli,
             {L"manage-build", project.wstring(), L"--target", L"game", L"--incremental"},
             parent);
-        require(result.code == 0 && executable_targets(project, L"Debug", {}).size() == 2 &&
+        require(result.code == 0 &&
+                    read(debug_directory / L"executables.txt") == original_manifest &&
+                    read(debug_directory / L"libraries.txt") == original_libraries &&
+                    read(debug_directory / L"runtime-paths.txt") == original_runtime &&
                     fs::last_write_time(debug_artifact) == debug_written &&
                     !fs::exists(parent / L"outside.exe"),
             "Incremental metadata recovery failed, rebuilt unchanged code or used a stale "
             "artifact: " +
-                result.output);
+                std::to_string(damage) + ": " + result.output);
     }
     result = execute(
         cli, {L"manage-run", project.wstring(), L"--target", L"game", L"--incremental"}, parent);
@@ -448,6 +480,43 @@ void projects(const fs::path& parent, const fs::path& cli)
         "Ambiguous target was guessed");
     require(before == snapshot(project),
         "Import/build/run changed project files, assets, presets or directory organization");
+
+    // Regeneration during Ninja must refresh both executable and DLL lookup data.
+    const auto regeneration = parent / L"Metadata regeneration";
+    const std::string cmake =
+        "cmake_minimum_required(VERSION 3.24)\nproject(Regeneration LANGUAGES CXX)\n"
+        "add_library(helper SHARED helper.cpp)\nadd_executable(app main.cpp)\n"
+        "target_link_libraries(app PRIVATE helper)\n";
+    write(regeneration / L"helper.cpp", "__declspec(dllexport) int value() { return 11; }\n");
+    write(regeneration / L"main.cpp",
+        "__declspec(dllimport) int value();\nint main() { return value() == 11 ? 0 : 1; }\n");
+    write(regeneration / L"CMakeLists.txt", cmake);
+    result = execute(cli, {L"manage-run", regeneration.wstring(), L"--target", L"app"}, parent);
+    require(result.code == 0, "Initial local DLL consumer failed: " + result.output);
+    const auto regenerated_directory = managed_build_directory(regeneration, L"Debug", {});
+    const auto previous_snapshot = read(regenerated_directory / L"file-api.snapshot");
+    write(regeneration / L"CMakeLists.txt",
+        cmake + "set_target_properties(app PROPERTIES OUTPUT_NAME renamed)\n"
+                "set_target_properties(helper PROPERTIES RUNTIME_OUTPUT_DIRECTORY "
+                "\"${CMAKE_BINARY_DIR}/dlls\")\n");
+    result = execute(cli,
+        {L"manage-run", regeneration.wstring(), L"--target", L"app", L"--incremental"},
+        parent);
+    const auto regenerated_targets = executable_targets(regeneration, L"Debug", {});
+    require(
+        result.code == 0 && regenerated_targets.size() == 1 &&
+            regenerated_targets[0].artifact.filename() == L"renamed.exe" &&
+            read(regenerated_directory / L"file-api.snapshot") != previous_snapshot &&
+            read(regenerated_directory / L"runtime-paths.txt").find("dlls") != std::string::npos,
+        "Build-time CMake regeneration reused stale executable/DLL metadata: " + result.output);
+    const auto regenerated_manifest =
+        fs::last_write_time(regenerated_directory / L"executables.txt");
+    result = execute(cli,
+        {L"manage-run", regeneration.wstring(), L"--target", L"app", L"--incremental"},
+        parent);
+    require(result.code == 0 && fs::last_write_time(regenerated_directory / L"executables.txt") ==
+                                    regenerated_manifest,
+        "Cached graph lost the DLL runtime path or unnecessarily refreshed: " + result.output);
     const auto broken = parent / L"Unreachable dependency";
     write(broken / L"CMakeLists.txt",
         "cmake_minimum_required(VERSION 3.24)\n"

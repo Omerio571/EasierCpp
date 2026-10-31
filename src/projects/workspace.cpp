@@ -6,6 +6,7 @@
 #include "build/auto_build.hpp"
 #include "projects/directory_scan.hpp"
 #include "build/build_lease.hpp"
+#include "build/build_profile.hpp"
 #include "projects/project_paths.hpp"
 #include <algorithm>
 #include <fstream>
@@ -86,6 +87,30 @@ std::string read(const fs::path& path)
     return {(std::istreambuf_iterator<char>(input)), {}};
 }
 
+std::string metadata_hex(const fs::path& path)
+{
+    // Bound cache validation work. Larger projects can still use the normal reader.
+    if (!fs::is_regular_file(path) || fs::file_size(path) > 8 * 1024 * 1024)
+    {
+        throw std::runtime_error("Metadata snapshot is unavailable.");
+    }
+    std::ifstream input(path, std::ios::binary);
+    const std::string bytes{std::istreambuf_iterator<char>(input), {}};
+    if (!input || bytes.size() != fs::file_size(path))
+    {
+        throw std::runtime_error("Metadata snapshot could not be read.");
+    }
+    constexpr char digits[] = "0123456789abcdef";
+    std::string hex;
+    hex.reserve(bytes.size() * 2);
+    for (const unsigned char byte : bytes)
+    {
+        hex += digits[byte >> 4];
+        hex += digits[byte & 15];
+    }
+    return hex;
+}
+
 bool reusable_target_metadata(const fs::path& project,
     const fs::path& directory,
     const std::wstring& configuration,
@@ -101,23 +126,54 @@ bool reusable_target_metadata(const fs::path& project,
         }
         const auto written = (std::min)(fs::last_write_time(directory / L"executables.txt"),
             fs::last_write_time(directory / L"generator.txt"));
-        bool index_found = false;
+        fs::path latest_index;
         for (const auto& entry : fs::directory_iterator(directory / L".cmake/api/v1/reply"))
         {
             if (entry.path().filename().wstring().starts_with(L"index-") &&
                 entry.path().extension() == L".json")
             {
-                index_found = true;
+                if (entry.path().filename() > latest_index.filename())
+                {
+                    latest_index = entry.path();
+                }
                 if (entry.last_write_time() > written)
                 {
                     return false;
                 }
             }
         }
-        // Validate the cached manifest before trusting it for output-path checks.
-        // External configuration, missing files or damage use the existing reader.
+        if (latest_index.empty())
+        {
+            return false;
+        }
+        // CMake publishes a new unique index whenever it generates the buildsystem;
+        // indexed replies are immutable (cmake-file-api(7)). Compare exact derived
+        // bytes as well, so missing/damaged/legacy manifests cannot masquerade as a
+        // current model. Never alter CMake-owned replies or bypass Ninja checks.
+        std::string expected = "1\n" + narrow(configuration) + "\n" +
+                               path_support::path_utf8(latest_index.filename()) + "\n";
+        for (const auto* name :
+            {L"executables.txt", L"generator.txt", L"libraries.txt", L"runtime-paths.txt"})
+        {
+            expected += metadata_hex(directory / name) + "\n";
+        }
+        expected +=
+            metadata_hex(fs::path(CPPLIVELAB_SOURCE_DIR) / L"scripts/file_api.cmake") + "\n";
+        const auto snapshot = directory / L"file-api.snapshot";
+        if (!fs::is_regular_file(snapshot) || fs::file_size(snapshot) > expected.size() * 2)
+        {
+            return false;
+        }
+        // CMake's text writes use native newlines. Only snapshot separators are
+        // normalized; manifest/reader contents above are compared as raw hex.
+        auto cached = read(snapshot);
+        cached.erase(std::remove(cached.begin(), cached.end(), '\r'), cached.end());
+        if (cached != expected)
+        {
+            return false;
+        }
         executable_targets(project, configuration, options);
-        return index_found;
+        return true;
     }
     catch (const std::exception&)
     {
@@ -527,7 +583,9 @@ int managed_build(const fs::path& root,
     bool run,
     bool incremental)
 {
+    BuildProfile profile;
     const auto project = inspect_project(root);
+    profile.checkpoint("project_inspection_ms");
     std::unique_ptr<BuildLease> project_gate;
     if (options.library_transaction.empty())
     {
@@ -598,7 +656,9 @@ int managed_build(const fs::path& root,
                 "manager directory. No stale program was launched.");
         }
     }
+    profile.checkpoint("leases_options_cache_ms");
     const auto tools = discover_toolchain(system_discovery_inputs());
+    profile.checkpoint("tool_discovery_ms");
     const auto cmake = tool(tools, "cmake");
     if (cmake.empty())
     {
@@ -612,6 +672,7 @@ int managed_build(const fs::path& root,
     // Preset generators also need discovered tools in the CHILD's PATH; do not
     // depend on scripts/build.ps1 having initialized the caller's terminal.
     environment = tool_environment(std::move(environment), tools);
+    profile.checkpoint("environment_ms");
     const auto query = directory / L".cmake/api/v1/query";
     write(query / L"codemodel-v2", "");
     auto configure = std::vector<std::wstring>{L"-S", project.root.wstring()};
@@ -737,6 +798,7 @@ int managed_build(const fs::path& root,
               << path_support::path_utf8(project.root) << '\n'
               << std::flush;
     int result = 0;
+    profile.checkpoint("configure_arguments_ms");
     if (!incremental || !fs::is_regular_file(directory / L"CMakeCache.txt"))
     {
         result = run_process(cmake, configure, project.root, environment);
@@ -756,6 +818,7 @@ int managed_build(const fs::path& root,
             }
         }
     }
+    profile.checkpoint("configure_ms");
     if (!incremental || !reusable_target_metadata(project.root, directory, configuration, options))
     {
         result = run_process(cmake,
@@ -770,6 +833,7 @@ int managed_build(const fs::path& root,
             return result;
         }
     }
+    profile.checkpoint("metadata_before_ms");
     auto targets = executable_targets(project.root, configuration, options);
     const auto generator = read(directory / L"generator.txt");
     if (generator != "Ninja" && generator != "Ninja Multi-Config" &&
@@ -821,23 +885,32 @@ int managed_build(const fs::path& root,
         throw std::runtime_error(
             "Select an executable target; this project has zero or multiple programs.");
     }
+    profile.checkpoint("artifact_before_ms");
+    profile.ninja_begin(directory);
     result = run_process(cmake, arguments, project.root, environment);
+    profile.checkpoint("ninja_wall_ms");
+    profile.ninja_end();
     if (result != 0)
     {
         return result;
     }
-    // A build can regenerate CMake and alter target artifacts.
-    result = run_process(cmake,
-        {L"-DBUILD=" + directory.wstring(),
-            L"-DCONFIG=" + configuration,
-            L"-P",
-            fs::path(CPPLIVELAB_SOURCE_DIR).wstring() + L"/scripts/file_api.cmake"},
-        project.root,
-        environment);
-    if (result != 0)
+    // Ninja/MSBuild may regenerate CMake during the build. Only skip the reader
+    // when its indexed graph and all derived manifests are still identical.
+    if (!reusable_target_metadata(project.root, directory, configuration, options))
     {
-        return result;
+        result = run_process(cmake,
+            {L"-DBUILD=" + directory.wstring(),
+                L"-DCONFIG=" + configuration,
+                L"-P",
+                fs::path(CPPLIVELAB_SOURCE_DIR).wstring() + L"/scripts/file_api.cmake"},
+            project.root,
+            environment);
+        if (result != 0)
+        {
+            return result;
+        }
     }
+    profile.checkpoint("metadata_after_ms");
     targets = executable_targets(project.root, configuration, options);
     if (!selected_name.empty())
     {
@@ -854,6 +927,7 @@ int managed_build(const fs::path& root,
             return artifact_missing_exit_code;
         }
     }
+    profile.checkpoint("artifact_after_ms");
     const auto dependency_directory = state_root() / L"d" / key(directory);
     register_build_dependency_caches(project.root,
         directory,

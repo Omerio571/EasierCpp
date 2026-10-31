@@ -1,6 +1,7 @@
 #include "cpplivelab/doctor.hpp"
 #include "cpplivelab/projects.hpp"
 #include "build/build_lease.hpp"
+#include "build/build_profile.hpp"
 #include "cli/workspace_cli.hpp"
 #include <iostream>
 #include <string_view>
@@ -8,6 +9,7 @@
 
 int wmain(int argc, wchar_t** argv)
 {
+    cpplivelab::BuildProfile::worker_start();
     try
     {
         if (argc == 1 || (argc == 2 && std::wstring_view(argv[1]) == L"--help"))
