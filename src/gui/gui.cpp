@@ -2379,6 +2379,12 @@ public:
         {
             cpplivelab::activate_build_slot(
                 active_project_directory, selected_configuration(), replacement_options);
+#ifdef CPPLIVELAB_GUI_TEST
+            if (auto_run_trace)
+            {
+                auto_run_trace("slot_activated");
+            }
+#endif
             reload_targets();
             const bool current = freshness.succeeded(current_identity(), replacement_sources);
             replacement_ready = false;

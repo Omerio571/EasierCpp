@@ -9,6 +9,7 @@
 #include <iostream>
 #include <functional>
 #include <atomic>
+#include <psapi.h>
 
 namespace flow_tests
 {
@@ -387,6 +388,182 @@ struct Host
         app.command(SendButton);
     }
 };
+
+void benchmark_project(const fs::path& project, unsigned samples)
+{
+    std::ifstream marker(project / L".easiercpp-benchmark");
+    std::string ownership;
+    std::getline(marker, ownership);
+    require(ownership == "EasierCpp owned Phase 3 copy" && samples >= 3 && samples <= 30,
+        "Benchmark requires a marked disposable copy and 3-30 samples");
+    const auto source = project / L"Source/main.cpp";
+    std::ifstream input(source, std::ios::binary);
+    const std::string original{std::istreambuf_iterator<char>(input), {}};
+    input.close();
+    require(!original.empty(), "Benchmark source is missing");
+    SetEnvironmentVariableW(L"EASIERCPP_PROFILE_BUILD", L"1");
+    Host host(project);
+    auto& app = host.app;
+    const auto cold_started = GetTickCount64();
+    app.command(RunButton);
+    host.running();
+    const auto find_window = [&]()
+    {
+        struct Search
+        {
+            DWORD process;
+            HWND window = nullptr;
+        } search{app.session.process_id()};
+        EnumWindows(
+            [](HWND window, LPARAM context) -> BOOL
+            {
+                auto& search = *reinterpret_cast<Search*>(context);
+                DWORD process = 0;
+                GetWindowThreadProcessId(window, &process);
+                if (process == search.process && IsWindowVisible(window) &&
+                    GetWindow(window, GW_OWNER) == nullptr)
+                {
+                    search.window = window;
+                }
+                return TRUE;
+            },
+            reinterpret_cast<LPARAM>(&search));
+        return search.window;
+    };
+    host.await(
+        [&]
+        {
+            return find_window() != nullptr;
+        },
+        "FarmGame initial window missing");
+    std::cout << "FARM_COLD,manual_run_to_window_ms=" << GetTickCount64() - cold_started << '\n';
+    const auto dump_profile = [&](const std::string& sample)
+    {
+        const auto output = encode_utf8(app.build_diagnostics);
+        const auto start = output.rfind("EASIERCPP_PROFILE worker_start_tick=");
+        require(start != std::string::npos, "FarmGame worker profiling missing");
+        std::istringstream lines(output.substr(start));
+        for (std::string line; std::getline(lines, line);)
+        {
+            if (line.starts_with("EASIERCPP_PROFILE "))
+            {
+                std::cout << "FARM_PROFILE," << sample << ',' << line.substr(18) << '\n';
+            }
+            else if (line.find("incremental") != std::string::npos ||
+                     line.find("LINK :") != std::string::npos)
+            {
+                std::cout << "FARM_LINK," << sample << ',' << line << '\n';
+            }
+        }
+    };
+    dump_profile("cold");
+    SetWindowPos(find_window(), nullptr, 80, 80, 900, 650, SWP_NOZORDER | SWP_NOACTIVATE);
+    RECT expected{};
+    GetWindowRect(find_window(), &expected);
+    if (!app.auto_build.enabled())
+    {
+        app.command(AutoRunButton);
+    }
+    std::cout << "FARM_TIMING,sample,slot,detect,debounce,build,shutdown,activation,preparation,"
+                 "startup,window,total,peak_worker_bytes\n";
+    for (unsigned sample = 0; sample < samples + 3; ++sample)
+    {
+        const auto old_process = app.session.process_id();
+        std::map<std::string, ULONGLONG> trace;
+
+        struct ResetTrace
+        {
+            Application& app;
+
+            ~ResetTrace()
+            {
+                app.auto_run_trace = {};
+            }
+        } reset{app};
+
+        app.auto_run_trace = [&](const char* stage)
+        {
+            trace.try_emplace(stage, GetTickCount64());
+        };
+        const auto saved = GetTickCount64();
+        if (sample == samples + 2)
+        {
+            std::ofstream(project / L"Include/Config.h", std::ios::app)
+                << "\n// Phase 3 header sample\n";
+        }
+        else
+        {
+            std::ofstream(source, std::ios::binary)
+                << original << "\n// Phase 3 sample " << sample << '\n';
+        }
+        SIZE_T peak = 0;
+        host.await(
+            [&]
+            {
+                for (const auto process : app.replacement_build.active_process_ids())
+                {
+                    cpplivelab::windows_support::UniqueHandle handle;
+                    handle.reset(OpenProcess(
+                        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE, process));
+                    PROCESS_MEMORY_COUNTERS memory{sizeof(memory)};
+                    if (handle.value &&
+                        K32GetProcessMemoryInfo(handle.value, &memory, sizeof(memory)))
+                    {
+                        peak = (std::max)(peak, memory.PeakWorkingSetSize);
+                    }
+                }
+                return trace.contains("restored") && app.session.process_id() != old_process &&
+                       app.program_started && !app.restore_started && find_window() != nullptr;
+            },
+            "FarmGame replacement did not reach a restored window",
+            180000);
+        app.auto_run_trace = {};
+        RECT actual{};
+        GetWindowRect(find_window(), &actual);
+        require(EqualRect(&expected, &actual), "FarmGame replacement lost window placement");
+        if (sample < 2)
+        {
+            continue;
+        }
+        const auto index =
+            sample == samples + 2 ? std::string("header") : std::to_string(sample - 2);
+        std::cout << "FARM_TIMING," << index << ','
+                  << encode_utf8(app.build_directory().filename().wstring()) << ','
+                  << trace.at("detect") - saved << ',' << trace.at("build") - trace.at("detect")
+                  << ',' << trace.at("shutdown") - trace.at("build") << ','
+                  << trace.at("old_stopped") - trace.at("shutdown") << ','
+                  << trace.at("slot_activated") - trace.at("old_stopped") << ','
+                  << trace.at("startup") - trace.at("slot_activated") << ','
+                  << trace.at("started") - trace.at("startup") << ','
+                  << trace.at("restored") - trace.at("started") << ','
+                  << trace.at("restored") - saved << ',' << peak << '\n';
+        dump_profile(index);
+        std::cout << "FARM_WORKER_START," << index << ',' << trace.at("build") << '\n'
+                  << std::flush;
+    }
+    app.stop();
+    host.idle();
+    std::uintmax_t pch = 0, ilk = 0, pdb = 0;
+    for (const auto& file : fs::recursive_directory_iterator(cpplivelab::manager_state_directory()))
+    {
+        if (file.is_regular_file())
+        {
+            if (file.path().extension() == L".pch")
+            {
+                pch += file.file_size();
+            }
+            if (file.path().extension() == L".ilk")
+            {
+                ilk += file.file_size();
+            }
+            if (file.path().extension() == L".pdb")
+            {
+                pdb += file.file_size();
+            }
+        }
+    }
+    std::cout << "FARM_DISK,pch=" << pch << ",ilk=" << ilk << ",pdb=" << pdb << '\n';
+}
 
 void run(const fs::path& fixtures, const fs::path& snapshots = {})
 {
@@ -1138,7 +1315,14 @@ int wmain(int argc, wchar_t** argv)
         workspace_test::Fixture isolated_state;
         flow_tests::baseline_worker_environment =
             argc == 3 && std::wstring_view(argv[2]) == L"--baseline-sdk";
-        flow_tests::run(isolated_state.root, argc >= 2 ? fs::path(argv[1]) : fs::path{});
+        if (argc == 4 && std::wstring_view(argv[1]) == L"--benchmark-project")
+        {
+            flow_tests::benchmark_project(argv[2], static_cast<unsigned>(std::stoul(argv[3])));
+        }
+        else
+        {
+            flow_tests::run(isolated_state.root, argc >= 2 ? fs::path(argv[1]) : fs::path{});
+        }
     }
     catch (const std::exception& error)
     {

@@ -1,7 +1,8 @@
 param(
     [Parameter(Mandatory=$true)][string]$Executable,
     [Parameter(Mandatory=$true)][string]$ReportDirectory,
-    [switch]$ProfileBuild
+    [switch]$ProfileBuild,
+    [ValidateRange(3,30)][int]$Samples = 3
 )
 $ErrorActionPreference = 'Stop'
 $Executable = [IO.Path]::GetFullPath($Executable)
@@ -116,7 +117,7 @@ int main()
     $libraryWritten = [IO.File]::GetLastWriteTimeUtc($dependency)
     Measure-CommandLine 'warm_noop' $Executable @('manage-build',$source,'--target','app','--build-slot','fresh-auto-a','--incremental') | Out-Null
     if ([IO.File]::GetLastWriteTimeUtc($artifact.FullName) -ne $written) { throw 'No-op rebuilt the executable.' }
-    for ($sample=0; $sample -lt 3; $sample++) {
+    for ($sample=0; $sample -lt $Samples; $sample++) {
         [IO.File]::WriteAllText((Join-Path $source 'main.cpp'), $main + "`n// source sample $sample`n")
         Measure-CommandLine "source_$sample" $Executable @('manage-build',$source,'--target','app','--build-slot','fresh-auto-a','--incremental') | Out-Null
         if ([IO.File]::GetLastWriteTimeUtc($dependency) -ne $libraryWritten) { throw 'Unchanged dependency was rebuilt.' }
