@@ -15,15 +15,16 @@ enum class ThemeChoice : DWORD
 struct Preferences
 {
     ThemeChoice theme = ThemeChoice::FollowWindows;
-    bool auto_build = false;
-    DWORD debounce_ms = 400;
+    DWORD debounce_ms = 150;
 };
 
-// Persist only three UI preferences, never project state, source, or environments.
+// Automatic-mode ownership is per project; this stores appearance and debounce only.
 // Tests pass a separate temporary key instead of changing the user's preferences.
 Preferences load_preferences(const std::wstring& key = L"Software\\CppLiveLab");
 bool save_preferences(
     const Preferences& preferences, const std::wstring& key = L"Software\\CppLiveLab");
+// Read-only compatibility input. An explicit project Auto Run setting takes priority.
+bool legacy_auto_build_enabled(const std::wstring& key = L"Software\\CppLiveLab");
 bool windows_uses_dark_theme();
 
 struct ConsoleColors

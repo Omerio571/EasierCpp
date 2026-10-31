@@ -644,21 +644,18 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     app.command(RunButton);
     host.running();
     const auto before_error = app.session.process_id();
-    app.command(AutoBuildButton);
-    require(app.preferences.auto_build && !app.auto_run_preferences.enabled,
-        "Auto Build toggle changed the independent Auto Run setting");
-    std::ofstream(source_path) << original << "\n// Auto Build without restart\n";
-    host.await(
-        [&]
-        {
-            return app.auto_build.pending();
-        },
-        "Auto Build did not observe the save",
-        10000);
+    require(GetDlgItem(app.window_handle, AutoBuildButton) == nullptr,
+        "Retired Auto Build control is still present");
+    std::ofstream(source_path) << original << "\n// Auto Run OFF\n";
+    const auto off_at = GetTickCount64();
+    while (GetTickCount64() - off_at < 750)
+    {
+        pump();
+        Sleep(5);
+    }
     require(app.session.process_id() == before_error && app.session.running() &&
-                !app.replacement_building,
-        "Auto Build unexpectedly restarted the running program");
-    app.command(AutoBuildButton);
+                !app.replacement_building && !app.auto_build.pending(),
+        "Auto Run OFF performed automatic work");
     app.command(AutoRunButton);
     require(app.auto_build.enabled(), "Auto Run toggle did not enable scheduling");
     std::ofstream(source_path) << "this is a deliberate syntax error\n";
@@ -705,6 +702,73 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
         "Interactive console input failed after automatic/manual restart");
     app.command(AutoRunButton);
     require(!app.auto_build.enabled(), "Auto Run toggle did not disable scheduling");
+    app.command(AutoRunButton);
+    const auto enabled_at = GetTickCount64();
+    while (GetTickCount64() - enabled_at < 400)
+    {
+        pump();
+        Sleep(5);
+    }
+    require(!app.operation_in_progress, "Enabling Auto Run immediately launched an idle project");
+    std::ofstream(source_path) << original << "\n// Launch from idle after relevant save\n";
+    host.running();
+    host.prompt(L"Your name:");
+    host.send(L"Idle Auto");
+    host.prompt(L"First number:");
+    host.send(L"4");
+    host.prompt(L"Second number:");
+    host.send(L"6");
+    host.idle();
+    require(read_control_text(app.program_console.window).find(L"Hello, Idle Auto! Sum: 10") !=
+                std::wstring::npos,
+        "Auto Run from idle lost interactive input/output");
+    std::ofstream(source_path) << original << "\n// Cancel idle automatic build with OFF\n";
+    host.await(
+        [&]
+        {
+            return app.phase == Application::Phase::Building;
+        },
+        "Idle automatic build did not start",
+        90000);
+    app.command(AutoRunButton);
+    host.idle();
+    require(!app.program_started && !app.auto_build.enabled(),
+        "Turning Auto Run OFF during an idle build launched a program");
+    app.command(AutoRunButton);
+    std::ofstream(source_path) << original
+                               << "\n// Explicit Run must survive turning automation OFF\n";
+    host.await(
+        [&]
+        {
+            return app.phase == Application::Phase::Building;
+        },
+        "Manual override fixture did not begin",
+        90000);
+    app.command(RunButton);
+    app.command(AutoRunButton);
+    host.running();
+    require(!app.auto_run_preferences.enabled, "Manual Run unexpectedly enabled automatic mode");
+    app.command(StopButton);
+    host.idle();
+    app.command(AutoRunButton);
+    app.command(StopButton);
+    const auto paused_builds = app.build_sequence;
+    std::ofstream(source_path) << original << "\n// Save after explicit idle Stop\n";
+    host.await(
+        [&]
+        {
+            return app.build_sequence > paused_builds && !app.operation_in_progress;
+        },
+        "Auto Run did not finish the save after Stop",
+        90000);
+    require(!app.program_started && !app.auto_launch_armed,
+        "Explicit Stop did not disarm automatic launch");
+    app.command(RunButton);
+    host.running();
+    require(app.auto_launch_armed, "Manual Run did not rearm automatic launch");
+    app.command(StopButton);
+    host.idle();
+    app.command(AutoRunButton);
     std::cout << "Auto Run: failed build retains PID, repair restarts, manual Restart reuses "
                  "artifact, interactive I/O passed\n";
     const auto window_project = fixtures / L"Native window project";
@@ -890,6 +954,60 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
                   << ",window=" << trace.at("restored") - trace.at("started")
                   << ",total=" << trace.at("restored") - saved << "\n";
     }
+    const auto cancelled_pid = app.session.process_id();
+    std::ofstream(native_file) << native_source << "\n// Cancel replacement with OFF\n";
+    host.await(
+        [&]
+        {
+            return app.replacement_building;
+        },
+        "Replacement did not begin before OFF");
+    app.command(AutoRunButton);
+    host.await(
+        [&]
+        {
+            return !app.replacement_building;
+        },
+        "OFF did not cancel automatic worker",
+        30000);
+    require(app.session.running() && app.session.process_id() == cancelled_pid,
+        "OFF cancelled the working application instead of its replacement build");
+    app.command(AutoRunButton);
+    std::ofstream(native_file) << native_source << "\n// Resume after OFF\n";
+    host.await(
+        [&]
+        {
+            return app.program_started && app.session.process_id() != cancelled_pid &&
+                   !app.replacement_building && !app.restore_started && native_window();
+        },
+        "Auto Run did not resume after OFF/ON",
+        90000);
+    const auto exited_pid = app.session.process_id();
+    std::ofstream(native_file) << native_source << "\n// Old program exits during compilation\n";
+    host.await(
+        [&]
+        {
+            return app.replacement_building;
+        },
+        "Exit-during-build fixture did not begin");
+    PostMessageW(native_window(), WM_CLOSE, 0, 0);
+    host.await(
+        [&]
+        {
+            return !app.program_started && app.replacement_building;
+        },
+        "Owned replacement lost its busy state after the old program exited");
+    require(!IsWindowEnabled(app.find_control(AddLibraryButton)) &&
+                !IsWindowEnabled(app.find_control(ConfigurationSelector)),
+        "Project mutations were enabled while an orphaned replacement build was active");
+    host.await(
+        [&]
+        {
+            return app.program_started && app.session.process_id() != exited_pid &&
+                   !app.replacement_building && native_window();
+        },
+        "Successful replacement was lost when the old program exited during compilation",
+        90000);
     app.command(StopButton);
     host.idle();
     const auto stopped_at = GetTickCount64();

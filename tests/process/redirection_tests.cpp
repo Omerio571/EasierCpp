@@ -43,6 +43,15 @@ void unit(const fs::path& root)
         "Project Auto Run preferences did not round-trip");
     require(!load_auto_run_preferences(root / L"other").enabled,
         "Auto Run preference leaked across projects");
+    const auto migrated = root / L"migrated";
+    require(load_auto_run_preferences(migrated, true).enabled,
+        "Legacy Auto Build ON was not available for first project migration");
+    save_auto_run_preferences(migrated, {false, true, false, 3000});
+    require(!load_auto_run_preferences(migrated, true).enabled,
+        "Legacy global ON overrode an explicit project OFF");
+    write(workspace_directory(migrated) / L"auto-run.settings", "damaged settings\n");
+    require(!load_auto_run_preferences(migrated, true).enabled,
+        "Damaged settings silently armed automatic launch through legacy fallback");
     LibraryRecord record;
     record.id = "local-test";
     record.name = "Fixture package";

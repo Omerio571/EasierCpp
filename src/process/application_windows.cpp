@@ -245,10 +245,17 @@ size_t restore_application_windows(const std::vector<unsigned long>& ids,
     return restored.size();
 }
 
-AutoRunPreferences load_auto_run_preferences(const std::filesystem::path& project)
+AutoRunPreferences load_auto_run_preferences(
+    const std::filesystem::path& project, bool legacy_auto_build)
 {
     AutoRunPreferences value;
-    std::ifstream input(workspace_directory(project) / L"auto-run.settings");
+    const auto settings = workspace_directory(project) / L"auto-run.settings";
+    std::ifstream input(settings);
+    // Do not let a legacy global ON override an explicit OFF or a damaged file.
+    if (!std::filesystem::exists(settings))
+    {
+        value.enabled = legacy_auto_build;
+    }
     AutoRunPreferences loaded;
     if (input >> loaded.enabled >> loaded.restore_windows >> loaded.force_stop >>
             loaded.shutdown_ms &&

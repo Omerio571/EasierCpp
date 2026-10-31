@@ -8,6 +8,14 @@ out/
 cmake-build-*/
 .cpplivelab/
 
+# These are maintained modules after source organization, not build outputs.
+!src/build/
+!src/build/**
+!include/build/
+!include/build/**
+!tests/build/
+!tests/build/**
+
 # Generated CMake and Ninja files.
 CMakeFiles/
 CMakeCache.txt

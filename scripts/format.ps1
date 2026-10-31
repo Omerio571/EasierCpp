@@ -36,7 +36,8 @@ $sourceFiles = foreach ($directory in @('src', 'include', 'tests')) {
     Get-ChildItem -LiteralPath (Join-Path $repositoryRoot $directory) -File -Recurse |
         Where-Object {
             $relativePath = $_.FullName.Substring($repositoryRoot.Length).Replace('\', '/')
-            $isGeneratedOrExternal = $relativePath -match '/(build|out|generated|third_party|vendor|CMakeFiles|\.vs|\.cpplivelab)/'
+            $isGeneratedOrExternal = $relativePath -match '/(out|generated|third_party|vendor|CMakeFiles|\.vs|\.cpplivelab)/' -or
+                $relativePath -match '^/(src|include|tests)/.+/build/'
             $_.Extension -in @('.cpp', '.hpp', '.h', '.cc', '.cxx') -and -not $isGeneratedOrExternal
         }
 }

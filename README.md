@@ -289,10 +289,20 @@ programs should flush prompts normally (`std::cin` does so for tied `std::cout`)
 
 **Appearance** offers Dark, Light, and Follow Windows, with rounded native controls,
 themed console colors and per-monitor DPI handling. Follow Windows updates when the
-OS broadcasts a theme change. Only Theme, Auto Build and debounce are persisted as
-DWORD preferences under `HKCU\Software\CppLiveLab`. Ordinary launch shows the
+OS broadcasts a theme change. Theme and debounce are persisted as
+DWORD preferences under `HKCU\Software\CppLiveLab`. Auto Run is a single per-project
+preference stored outside the source tree. An explicit project ON/OFF wins over the
+read-only legacy global Auto Build migration input. New profiles use a 150 ms debounce;
+existing saved values are retained. Ordinary launch shows the
 welcome screen; Restart restores the active project and persistent preferences.
 It does not restore a running program or checkpoint. Native scrollbar/title-bar details may vary with Windows version.
+
+Auto Run ON builds relevant saved changes and launches the selected current target,
+including from idle. Enabling it alone does not launch or stop a program. Stop pauses
+automatic launching; Run, Restart, or an OFF/ON toggle rearms it. OFF cancels automatic
+workers and pending automatic launches while preserving explicit manual Run requests.
+Manual Build/Run/Stop/Restart remain available. See the
+[unified Auto Run acceptance guide](docs/manual-tests/auto-run/FAST_AUTO_RUN_MANUAL_TESTS.md).
 Customized palette RGB values, measured contrast and theme-testing details are in
 [THEME_ACCESSIBILITY.md](THEME_ACCESSIBILITY.md).
 

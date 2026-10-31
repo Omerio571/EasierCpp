@@ -38,7 +38,8 @@ struct AutoRunPreferences
     unsigned long shutdown_ms = 3000;
 };
 
-AutoRunPreferences load_auto_run_preferences(const std::filesystem::path& project);
+AutoRunPreferences load_auto_run_preferences(
+    const std::filesystem::path& project, bool legacy_auto_build = false);
 void save_auto_run_preferences(
     const std::filesystem::path& project, const AutoRunPreferences& value);
 } // namespace cpplivelab

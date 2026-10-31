@@ -87,7 +87,7 @@ void tests(const fs::path& gui)
     const auto key_text = library_key((fixture.root / L"manager state").string());
     const auto preferences_key =
         L"Software\\CppLiveLab\\Tests\\" + std::wstring(key_text.begin(), key_text.end());
-    Preferences preferences{ThemeChoice::Dark, false, 650};
+    Preferences preferences{ThemeChoice::Dark, 650};
     require(
         save_preferences(preferences, preferences_key), "Cannot seed isolated restart preferences");
 

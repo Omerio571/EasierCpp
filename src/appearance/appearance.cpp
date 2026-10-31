@@ -24,10 +24,14 @@ Preferences load_preferences(const std::wstring& key)
     Preferences result;
     const DWORD theme = read_dword(HKEY_CURRENT_USER, key, L"Theme", 2);
     result.theme = theme <= 2 ? static_cast<ThemeChoice>(theme) : ThemeChoice::FollowWindows;
-    result.auto_build = read_dword(HKEY_CURRENT_USER, key, L"AutoBuild", 0) != 0;
     result.debounce_ms = (std::clamp)(
-        read_dword(HKEY_CURRENT_USER, key, L"DebounceMilliseconds", 400), DWORD{100}, DWORD{5000});
+        read_dword(HKEY_CURRENT_USER, key, L"DebounceMilliseconds", 150), DWORD{100}, DWORD{5000});
     return result;
+}
+
+bool legacy_auto_build_enabled(const std::wstring& key)
+{
+    return read_dword(HKEY_CURRENT_USER, key, L"AutoBuild", 0) != 0;
 }
 
 bool save_preferences(const Preferences& preferences, const std::wstring& key)
@@ -56,7 +60,6 @@ bool save_preferences(const Preferences& preferences, const std::wstring& key)
                    sizeof(value)) == ERROR_SUCCESS;
     };
     const bool saved = write(L"Theme", static_cast<DWORD>(preferences.theme)) &&
-                       write(L"AutoBuild", preferences.auto_build ? 1 : 0) &&
                        write(L"DebounceMilliseconds", preferences.debounce_ms);
     RegCloseKey(settings);
     return saved;

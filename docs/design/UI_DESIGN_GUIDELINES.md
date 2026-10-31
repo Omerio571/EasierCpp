@@ -12,7 +12,7 @@ rigidly or replace the product with a different framework.
 ## Main workspace and navigation
 
 - Keep frequent actions visible: active project, Build/Run/Stop/Open Editor,
-  configuration/target, Auto Build, status, console tabs and program input.
+  configuration/target, Auto Run, status, console tabs and program input.
 - Give remaining space to the consoles. Resizing primarily changes their area.
 - Use one themed navigation row: Project and Tools on the left, Settings aligned
   to the right edge. Its native buttons
@@ -67,7 +67,7 @@ rigidly or replace the product with a different framework.
 ## Architecture and reliability
 
 - Keep one source of truth for preferences, editor settings, active project, target,
-  build configuration and Auto Build state. Dialogs edit values; controllers persist them.
+  build configuration and Auto Run state. Dialogs edit values; controllers persist them.
 - Reuse existing action handlers. Popup menus return one command and suppress duplicate
   WM_COMMAND notification. Toolbar shortcuts and menus must not execute an action twice.
 - Keep scheduler, watcher, build freshness and process ownership separate from styling.
