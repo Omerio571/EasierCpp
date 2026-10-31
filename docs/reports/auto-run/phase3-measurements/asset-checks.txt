@@ -1,0 +1,2 @@
+copy_directory : unchanged timestamp retained=False; changed/new=passed; deleted source=destination retained
+copy_directory_if_different : unchanged timestamp retained=True; changed/new=passed; deleted source=destination retained

@@ -1,0 +1,3 @@
+"Mode","Median","P95","Maximum"
+"copy_directory","53.366749999999996","61.3894","61.3894"
+"copy_directory_if_different","49.66095","56.2305","56.2305"
