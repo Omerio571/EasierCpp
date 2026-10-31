@@ -14,9 +14,17 @@ $rows = [Collections.Generic.List[object]]::new()
 function Measure-CommandLine([string]$Name, [string]$Program, [string[]]$Arguments) {
     $log = Join-Path $ReportDirectory ($Name + '.log')
     $watch = [Diagnostics.Stopwatch]::StartNew()
-    & $Program @Arguments *> $log
+    # Windows PowerShell 5 turns redirected native stderr into ErrorRecords.
+    # Retain warning/error text, but use the native exit code to decide success.
+    $previousErrorAction = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $Program @Arguments *> $log
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorAction
+    }
     $elapsed = $watch.Elapsed.TotalMilliseconds
-    $code = $LASTEXITCODE
     $rows.Add([pscustomobject]@{Case=$Name; Milliseconds=[Math]::Round($elapsed,2); ExitCode=$code})
     if ($code -ne 0 -and $Name -ne 'failure') { throw "Benchmark failed: $Name. See $log" }
     return $code
