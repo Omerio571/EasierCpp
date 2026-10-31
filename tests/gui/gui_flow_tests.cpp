@@ -471,6 +471,9 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
         require(app.find_control(section) != nullptr, "Themed navigation section missing");
         for (const auto& action : app.navigation_actions(section))
         {
+            require(action.second != AutoBuildButton &&
+                        action.first.find(L"Auto Build") == std::wstring::npos,
+                "Retired Auto Build action remains in a navigation popup");
             if (action.second == AppearanceMenu)
             {
                 ++settings_entries;
@@ -646,6 +649,26 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     const auto before_error = app.session.process_id();
     require(GetDlgItem(app.window_handle, AutoBuildButton) == nullptr,
         "Retired Auto Build control is still present");
+    bool obsolete_caption = false;
+    EnumChildWindows(
+        app.window_handle,
+        [](HWND control, LPARAM context) -> BOOL
+        {
+            wchar_t class_name[64]{};
+            GetClassNameW(control, class_name, 64);
+            // Do not search console contents: project output can contain any text.
+            if (std::wstring_view(class_name) == L"Button" ||
+                std::wstring_view(class_name) == L"Static")
+            {
+                if (read_control_text(control).find(L"Auto Build") != std::wstring::npos)
+                {
+                    *reinterpret_cast<bool*>(context) = true;
+                }
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&obsolete_caption));
+    require(!obsolete_caption, "Retired Auto Build caption remains in the workspace");
     std::ofstream(source_path) << original << "\n// Auto Run OFF\n";
     const auto off_at = GetTickCount64();
     while (GetTickCount64() - off_at < 750)
