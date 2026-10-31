@@ -78,7 +78,32 @@ bool generated_tree(const fs::path& root, const fs::path& relative)
     }
     return false;
 }
+
+bool configuration_file(const fs::path& path)
+{
+    const auto name = lowercase(path.filename().wstring());
+    return name == L"cmakelists.txt" || name.ends_with(L".cmake") || name == L"cmakepresets.json" ||
+           name == L"cmakeuserpresets.json";
+}
 } // namespace
+
+bool ProjectWatcher::configuration_changed(
+    const std::map<fs::path, std::uint64_t>& before, const std::map<fs::path, std::uint64_t>& after)
+{
+    const auto differs = [](const auto& first, const auto& second)
+    {
+        for (const auto& [path, hash] : first)
+        {
+            const auto other = second.find(path);
+            if (configuration_file(path) && (other == second.end() || other->second != hash))
+            {
+                return true;
+            }
+        }
+        return false;
+    };
+    return differs(before, after) || differs(after, before);
+}
 
 bool ProjectWatcher::ignored_directory(const fs::path& component)
 {
@@ -343,10 +368,7 @@ std::vector<SourceChange> ProjectWatcher::consume_changes()
             (previous != fingerprints_.end() && next != current.end() &&
                 previous->second != next->second))
         {
-            const auto name = lowercase(path.filename().wstring());
-            changes.push_back({path,
-                name == L"cmakelists.txt" || name.ends_with(L".cmake") ||
-                    name == L"cmakepresets.json" || name == L"cmakeuserpresets.json"});
+            changes.push_back({path, configuration_file(path)});
         }
     }
 

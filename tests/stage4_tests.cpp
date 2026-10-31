@@ -186,6 +186,21 @@ void test_watcher()
 
 void test_scheduler()
 {
+    using cpplivelab::ProjectWatcher;
+    const std::map<fs::path, std::uint64_t> inputs{{L"main.cpp", 1}, {L"CMakeLists.txt", 2}};
+    auto changed = inputs;
+    changed[L"main.cpp"] = 3;
+    require(!ProjectWatcher::configuration_changed(inputs, changed),
+        "Source-only replacement incorrectly requested CMake reconfiguration");
+    for (const auto* file :
+        {L"CMakeLists.txt", L"cmake/extra.CMAKE", L"CMakePresets.json", L"CMakeUserPresets.json"})
+    {
+        auto configuration = changed;
+        configuration[file] = 4;
+        require(ProjectWatcher::configuration_changed(inputs, configuration) &&
+                    ProjectWatcher::configuration_changed(configuration, inputs),
+            "Changed/added/removed configuration input lost reconfiguration");
+    }
     cpplivelab::AutoBuildScheduler scheduler;
     scheduler.notify(0);
     require(!scheduler.pending(), "Disabled scheduler queued work");

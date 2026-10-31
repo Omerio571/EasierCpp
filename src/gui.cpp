@@ -2367,12 +2367,17 @@ public:
                     log(cpplivelab::MessageKind::System,
                         L"Replacement built; restart cancelled. Latest active program retained.");
                 }
-                else if (auto_build.pending() ||
-                         replacement_sources != cpplivelab::ProjectWatcher::source_fingerprints(
-                                                    active_project_directory))
+                else if (const auto latest_sources =
+                             cpplivelab::ProjectWatcher::source_fingerprints(
+                                 active_project_directory);
+                    auto_build.pending() || replacement_sources != latest_sources)
                 {
                     auto_build.notify(GetTickCount64());
-                    auto_build.confirm(true, true);
+                    // Source-only saves need another build, not another configure.
+                    // Preserve configuration changes, including events not yet debounced.
+                    auto_build.confirm(true,
+                        cpplivelab::ProjectWatcher::configuration_changed(
+                            replacement_sources, latest_sources));
                     set_auto_status(
                         L"Newer changes pending; obsolete replacement was not launched");
                 }

@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
     [string]$ExpectedArchiveHash = '',
     [string]$CMakeExecutable = '',
+    [string]$MetadataCacheDirectory = '',
     [switch]$Repair
 )
 $ErrorActionPreference = 'Stop'
@@ -22,14 +23,40 @@ if ($Repository -notmatch '^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-
 $repo = "$($matches[1])/$($matches[2])".ToLowerInvariant()
 [IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
 $utf8 = New-Object Text.UTF8Encoding($false)
+$metadataClock = [Diagnostics.Stopwatch]::StartNew()
+# Discovery is a short passive operation, not dependency verification. Cache only
+# published version metadata, scoped to the repository and valid for five minutes.
+if (-not $MetadataCacheDirectory) { $MetadataCacheDirectory = Join-Path $OutputDirectory 'metadata-cache' }
+$metadataFile = ''
+if ($Action -eq 'Discover') {
+    $metadataFile = Join-Path $MetadataCacheDirectory ($repo.Replace('/', '--') + '.json')
+    try {
+        if ((Test-Path -LiteralPath $metadataFile) -and
+            (([DateTime]::UtcNow - [IO.File]::GetLastWriteTimeUtc($metadataFile)).TotalSeconds -lt 300)) {
+            $cached = [IO.File]::ReadAllText($metadataFile) | ConvertFrom-Json
+            if ($cached.repository -eq $repo -and $cached.versions -is [array]) {
+                [IO.File]::WriteAllLines((Join-Path $OutputDirectory 'versions.txt'), [string[]]$cached.versions, $utf8)
+                Write-Output 'Reused cached published-version metadata. Compatibility still requires a supported integration.'
+                exit 0
+            }
+        }
+    } catch { # Ignore incomplete cache entries; never substitute them for evidence.
+    }
+}
 function Request-GitHub([string]$Path) {
     try {
+        $timeout = 5
+        if ($Action -eq 'Discover') {
+            $remaining = 5000 - $metadataClock.ElapsedMilliseconds
+            if ($remaining -le 0) { throw 'Quick metadata check timed out; compatibility is Unable to Verify.' }
+            $timeout = [Math]::Max(1, [int][Math]::Floor($remaining / 1000))
+        }
         # Invoke-RestMethod emits a JSON array as one pipeline object on Windows
         # PowerShell. Returning the captured value enumerates its release entries,
         # so draft/prerelease filtering evaluates each release rather than arrays.
         $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/$Path" -Headers @{
             Accept='application/vnd.github+json'; 'User-Agent'='CppLiveLab'; 'X-GitHub-Api-Version'='2022-11-28'
-        } -TimeoutSec 30
+        } -TimeoutSec $timeout
         return $response
     } catch {
         $status = 0
@@ -51,6 +78,13 @@ if ($Action -eq 'Discover' -or ($Action -eq 'Resolve' -and $Version -eq 'Latest 
         $versions += @($tags | ForEach-Object { $_.name })
         $versions = @($versions | Where-Object { $_ -and $_ -notmatch '[\r\n]' } | Select-Object -Unique)
         [IO.File]::WriteAllLines((Join-Path $OutputDirectory 'versions.txt'), [string[]]$versions, $utf8)
+        try {
+            [IO.Directory]::CreateDirectory($MetadataCacheDirectory) | Out-Null
+            $temporaryMetadata = $metadataFile + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+            [IO.File]::WriteAllText($temporaryMetadata, (@{repository=$repo; versions=$versions} | ConvertTo-Json), $utf8)
+            Move-Item -LiteralPath $temporaryMetadata -Destination $metadataFile -Force
+        } catch { # A read-only or busy cache must not make valid discovery fail.
+        }
         Write-Output "Retrieved $($versions.Count) published releases/tags (first 100 of each). A valid older tag or commit can also be entered."
         exit 0
     }

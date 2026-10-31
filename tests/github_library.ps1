@@ -2,7 +2,7 @@ param([Parameter(Mandatory=$true)][string]$Script)
 $ErrorActionPreference = 'Stop'
 $fixture = Join-Path $env:TEMP ('CppLiveLab GitHub fixtures ' + [Guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($fixture) | Out-Null
-$global:CppLiveLabApiFixture = @{Status=0; NetworkFailure=$false; LastCommit=''; Downloads=0; DownloadFailure=$false; Archive=''}
+$global:CppLiveLabApiFixture = @{Status=0; NetworkFailure=$false; LastCommit=''; Downloads=0; DownloadFailure=$false; Archive=''; Requests=0; Timeout=0; Slow=$false; TimedOut=$false}
 class FixtureApiException : Exception {
     [object]$Response
     FixtureApiException([int]$status) : base('Controlled API response') {
@@ -11,6 +11,10 @@ class FixtureApiException : Exception {
 }
 function Invoke-RestMethod {
     param($Uri, $Headers, $TimeoutSec)
+    $global:CppLiveLabApiFixture.Requests++
+    $global:CppLiveLabApiFixture.Timeout=$TimeoutSec
+    if ($global:CppLiveLabApiFixture.Slow) { Start-Sleep -Milliseconds 100 }
+    if ($global:CppLiveLabApiFixture.TimedOut) { throw 'Controlled request timeout' }
     if ($global:CppLiveLabApiFixture.Status) { throw [FixtureApiException]::new($global:CppLiveLabApiFixture.Status) }
     if ($global:CppLiveLabApiFixture.NetworkFailure) { throw 'Controlled disconnected network' }
     if ($Uri -match '/releases\?') {
@@ -43,6 +47,25 @@ try {
     $versions = [IO.File]::ReadAllLines((Join-Path $fixture 'versions.txt'))
     Require ($versions[0] -eq 'Latest Stable' -and $versions -contains 'v0.5' -and $versions -contains 'v3.0-beta') 'Actual release/tag alternatives missing'
     Require ($versions -notcontains 'v4.0-draft') 'Draft release was offered as a published version'
+    $requests = $global:CppLiveLabApiFixture.Requests
+    $global:CppLiveLabApiFixture.Status=403
+    $cachedClock=[Diagnostics.Stopwatch]::StartNew()
+    & $Script -Action Discover -Repository 'https://github.com/example/library' -OutputDirectory $fixture
+    Write-Host "Controlled cached metadata check: $($cachedClock.ElapsedMilliseconds) ms"
+    Require ($global:CppLiveLabApiFixture.Requests -eq $requests) 'Repeated discovery unnecessarily requested remote metadata'
+    $global:CppLiveLabApiFixture.Status=0
+    $slowOutput=Join-Path $fixture 'slow'
+    $global:CppLiveLabApiFixture.Slow=$true
+    & $Script -Action Discover -Repository 'https://github.com/example/library' -OutputDirectory $slowOutput
+    Require ($global:CppLiveLabApiFixture.Timeout -ge 1 -and $global:CppLiveLabApiFixture.Timeout -le 5) 'Quick request did not use a bounded timeout'
+    $global:CppLiveLabApiFixture.Slow=$false
+    $global:CppLiveLabApiFixture.TimedOut=$true
+    Refuses { & $Script -Action Discover -Repository 'https://github.com/example/library' -OutputDirectory (Join-Path $fixture 'timeout') } 'timeout'
+    Require (-not (Test-Path (Join-Path $fixture 'timeout/versions.txt'))) 'Failed quick check published usable metadata'
+    $global:CppLiveLabApiFixture.TimedOut=$false
+    $global:CppLiveLabApiFixture.Status=429
+    Refuses { & $Script -Action Discover -Repository 'https://github.com/example/library' -OutputDirectory (Join-Path $fixture 'rate-limit') } 'existence could not be checked'
+    $global:CppLiveLabApiFixture.Status=0
     & $Script -Action Resolve -Repository 'https://github.com/example/library' -Version 'Latest Stable' -OutputDirectory $fixture
     Require ($global:CppLiveLabApiFixture.LastCommit -eq 'v2.0') 'Latest Stable incorrectly selected prerelease'
     $resolved = [IO.File]::ReadAllLines((Join-Path $fixture 'resolved.txt'))

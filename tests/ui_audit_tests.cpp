@@ -12,6 +12,53 @@ fs::path screenshots;
 std::string case_name;
 int observed_forms = 0;
 
+struct UncertainFlow
+{
+    bool try_anyway;
+    int step = 0;
+    bool version_retained = false;
+    ULONGLONG deadline = GetTickCount64() + 15000;
+};
+
+UncertainFlow* uncertain_flow = nullptr;
+
+void CALLBACK drive_uncertain_flow(HWND, UINT, UINT_PTR, DWORD)
+{
+    EnumThreadWindows(
+        GetCurrentThreadId(),
+        [](HWND window, LPARAM) -> BOOL
+        {
+            auto& flow = *uncertain_flow;
+            wchar_t title[128]{};
+            GetWindowTextW(window, title, 128);
+            if (GetTickCount64() > flow.deadline)
+            {
+                PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
+            }
+            else if (flow.step == 0 && std::wstring_view(title) == L"GitHub Repository")
+            {
+                SetDlgItemTextW(window, 2000, L"https://github.com/example/library");
+                ++flow.step;
+                PostMessageW(window, WM_COMMAND, IDOK, 0);
+            }
+            else if (flow.step == 1 && std::wstring_view(title) == L"Unable to Verify")
+            {
+                ++flow.step;
+                PostMessageW(window, WM_COMMAND, flow.try_anyway ? IDOK : IDCANCEL, 0);
+            }
+            else if (flow.step == 2 && std::wstring_view(title) == L"Library Version")
+            {
+                wchar_t version[128]{};
+                GetDlgItemTextW(window, 2001, version, 128);
+                flow.version_retained = std::wstring_view(version) == L"v1.0";
+                ++flow.step;
+                PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
+            }
+            return TRUE;
+        },
+        0);
+}
+
 void require(bool value, const std::string& reason)
 {
     if (!value)
@@ -201,6 +248,61 @@ int wmain(int argc, wchar_t** argv)
     try
     {
         workspace_test::Fixture fixture;
+        const auto metadata = cpplivelab::manager_state_directory() / L"github-metadata";
+        fs::create_directories(metadata);
+        std::ofstream(metadata / L"example--library.json")
+            << R"({"repository":"example/library","versions":["v1.0"]})";
+        for (const bool try_anyway : {false, true})
+        {
+            audit::UncertainFlow flow{try_anyway};
+            audit::uncertain_flow = &flow;
+            const auto timer = SetTimer(nullptr, 0, 20, audit::drive_uncertain_flow);
+            const auto result = cpplivelab::github_library_dialog(nullptr,
+                cpplivelab::ThemeChoice::Dark,
+                application_directory() / L"cpplivelab.exe",
+                [](const auto&)
+                {
+                });
+            KillTimer(nullptr, timer);
+            audit::uncertain_flow = nullptr;
+            audit::require(!result && flow.step == (try_anyway ? 3 : 2) &&
+                               (!try_anyway || flow.version_retained) &&
+                               !fs::exists(cpplivelab::manager_state_directory() / L"integrations"),
+                "Uncertain Add/Cancel flow lost version state, registered a library or failed to "
+                "return");
+        }
+        for (const bool accept : {false, true})
+        {
+            cpplivelab::FormOptions uncertain;
+            cpplivelab::initialize_uncertain_library_form(uncertain);
+            audit::require(uncertain.accept_label == L"Try Adding Anyway" &&
+                               uncertain.cancel_default &&
+                               uncertain.note.find(L"Compatibility could not be verified.") == 0,
+                "Uncertain compatibility lost its explicit warning or safe Cancel default");
+            std::vector<cpplivelab::FormField> fields;
+            cpplivelab::ProjectFormWindow warning(nullptr, L"Unable to Verify", fields, uncertain);
+            warning.command(accept ? IDOK : IDCANCEL);
+            audit::require(warning.finished && warning.accepted == accept,
+                "Try Adding Anyway/Cancel did not preserve the native dialog decision");
+        }
+        wchar_t system[MAX_PATH]{};
+        GetSystemDirectoryW(system, MAX_PATH);
+        std::wstring timeout_output;
+        const auto timeout_started = GetTickCount64();
+        const bool timed_task = cpplivelab::run_library_task(
+            nullptr,
+            cpplivelab::ThemeChoice::Dark,
+            fs::path(system) / L"WindowsPowerShell/v1.0/powershell.exe",
+            {L"-NoProfile", L"-Command", L"Start-Sleep -Seconds 30"},
+            fixture.root,
+            [&](const auto& text)
+            {
+                timeout_output += text;
+            },
+            100);
+        audit::require(!timed_task && GetTickCount64() - timeout_started < 5000 &&
+                           timeout_output.find(L"Unable to Verify") != std::wstring::npos,
+            "Slow metadata worker did not time out responsively with an uncertain result");
         for (int session = 0; session < 2; ++session)
         {
             std::vector<cpplivelab::FormField> repository{

@@ -69,7 +69,7 @@ std::string compatibility_label(LibraryCompatibility status)
         case LibraryCompatibility::NotLibrary:
             return "Incompatible — Not a library";
         case LibraryCompatibility::RequiresDecision:
-            return "Requires compatibility decision — non-C++ package";
+            return "Unable to Verify — non-C++ package requires compatibility decision";
         default:
             return "Unable to Verify";
     }

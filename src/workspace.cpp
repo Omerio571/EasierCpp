@@ -86,6 +86,45 @@ std::string read(const fs::path& path)
     return {(std::istreambuf_iterator<char>(input)), {}};
 }
 
+bool reusable_target_metadata(const fs::path& project,
+    const fs::path& directory,
+    const std::wstring& configuration,
+    const ProjectOptions& options)
+{
+    try
+    {
+        const auto generator = read(directory / L"generator.txt");
+        if (generator != "Ninja" && generator != "Ninja Multi-Config" &&
+            generator != "Visual Studio 17 2022")
+        {
+            return false;
+        }
+        const auto written = (std::min)(fs::last_write_time(directory / L"executables.txt"),
+            fs::last_write_time(directory / L"generator.txt"));
+        bool index_found = false;
+        for (const auto& entry : fs::directory_iterator(directory / L".cmake/api/v1/reply"))
+        {
+            if (entry.path().filename().wstring().starts_with(L"index-") &&
+                entry.path().extension() == L".json")
+            {
+                index_found = true;
+                if (entry.last_write_time() > written)
+                {
+                    return false;
+                }
+            }
+        }
+        // Validate the cached manifest before trusting it for output-path checks.
+        // External configuration, missing files or damage use the existing reader.
+        executable_targets(project, configuration, options);
+        return index_found;
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
+}
+
 void configuration_valid(const std::wstring& configuration)
 {
     if (configuration != L"Debug" && configuration != L"Release")
@@ -717,16 +756,19 @@ int managed_build(const fs::path& root,
             }
         }
     }
-    result = run_process(cmake,
-        {L"-DBUILD=" + directory.wstring(),
-            L"-DCONFIG=" + configuration,
-            L"-P",
-            fs::path(CPPLIVELAB_SOURCE_DIR).wstring() + L"/scripts/file_api.cmake"},
-        project.root,
-        environment);
-    if (result != 0)
+    if (!incremental || !reusable_target_metadata(project.root, directory, configuration, options))
     {
-        return result;
+        result = run_process(cmake,
+            {L"-DBUILD=" + directory.wstring(),
+                L"-DCONFIG=" + configuration,
+                L"-P",
+                fs::path(CPPLIVELAB_SOURCE_DIR).wstring() + L"/scripts/file_api.cmake"},
+            project.root,
+            environment);
+        if (result != 0)
+        {
+            return result;
+        }
     }
     auto targets = executable_targets(project.root, configuration, options);
     const auto generator = read(directory / L"generator.txt");

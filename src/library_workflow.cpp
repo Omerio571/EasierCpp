@@ -53,7 +53,8 @@ bool execute(HWND owner,
     const fs::path& executable,
     const std::vector<std::wstring>& arguments,
     const fs::path& directory,
-    const LibraryOutput& output)
+    const LibraryOutput& output,
+    ULONGLONG timeout_ms = 900000)
 {
     std::vector<FormField> fields;
     FormOptions options;
@@ -85,7 +86,10 @@ bool execute(HWND owner,
     } restore{owner, GetFocus(), IsWindowEnabled(owner)};
 
     // Declared after the restorer so the modal is destroyed before focus returns.
-    ProjectFormWindow form(owner, L"Library verification", fields, options);
+    ProjectFormWindow form(owner,
+        timeout_ms <= 5000 ? L"Quick library metadata check" : L"Library verification",
+        fields,
+        options);
     RECT parent{};
     GetWindowRect(owner, &parent);
     SetWindowPos(
@@ -146,13 +150,13 @@ bool execute(HWND owner,
                     DispatchMessageW(&message);
                 }
             }
-            if ((form.finished || cancel_requested || GetTickCount64() - started > 900000) &&
+            if ((form.finished || cancel_requested || GetTickCount64() - started > timeout_ms) &&
                 !cancelled)
             {
                 cancelled = true;
                 session.stop();
-                output(L"Dependency task cancelled or reached its fifteen-minute limit. No "
-                       L"integration registered.\n");
+                output(L"Unable to Verify: dependency task cancelled or its time limit reached. "
+                       L"No integration registered.\n");
             }
             if (session.root_exited())
             {
@@ -168,9 +172,10 @@ bool execute(HWND owner,
             Sleep(10);
         }
     }
-    catch (...)
+    catch (const std::exception& error)
     {
-        throw;
+        output(decode_console_text(std::string("Unable to Verify: ") + error.what() + "\n"));
+        return false;
     }
 }
 } // namespace
@@ -271,9 +276,18 @@ bool run_library_task(HWND owner,
     const fs::path& executable,
     const std::vector<std::wstring>& arguments,
     const fs::path& directory,
-    const LibraryOutput& output)
+    const LibraryOutput& output,
+    ULONGLONG timeout_ms)
 {
-    return execute(owner, theme, executable, arguments, directory, output);
+    return execute(owner, theme, executable, arguments, directory, output, timeout_ms);
+}
+
+void initialize_uncertain_library_form(FormOptions& options)
+{
+    options.accept_label = L"Try Adding Anyway";
+    options.cancel_default = true;
+    options.note = L"Compatibility could not be verified. This library may not integrate or build "
+                   L"correctly. Would you like to try adding it anyway?";
 }
 
 void initialize_github_repository_form(std::vector<FormField>& repository, FormOptions& options)
@@ -360,25 +374,69 @@ std::optional<std::string> github_library_dialog(HWND owner,
             L"-ExpectedArchiveHash",
             expected_archive_hash,
             L"-CMakeExecutable",
-            archive_extractor.wstring()};
+            archive_extractor.wstring(),
+            L"-MetadataCacheDirectory",
+            (manager_state_directory() / L"github-metadata").wstring()};
         if (operation == LibraryEdit::Repair)
         {
             arguments.push_back(L"-Repair");
         }
-        const bool succeeded =
-            execute(owner, theme, powershell, arguments, source_repository(), output);
-        if (!succeeded)
+        while (true)
         {
-            output(L"Unable to Verify: repository metadata/download was unavailable or cancelled. "
-                   L"Nothing was registered.\n");
+            const bool succeeded = execute(owner,
+                theme,
+                powershell,
+                arguments,
+                source_repository(),
+                output,
+                action == L"Discover" ? 5000 : 900000);
+            if (!succeeded)
+            {
+                output(
+                    L"Unable to Verify: repository metadata/download was unavailable or cancelled. "
+                    L"Nothing was registered.\n");
+            }
+            if (succeeded || action != L"Download" || restart_cancelled)
+            {
+                return succeeded;
+            }
+            std::vector<FormField> retry;
+            FormOptions failed;
+            failed.theme = theme;
+            failed.note =
+                L"Unable to Verify: the pinned source download or extraction failed. See "
+                L"Build & System for details. Your repository and exact version are retained. "
+                L"Retry the download, or Cancel to return to Libraries. No project changed.";
+            failed.accept_label = L"Retry Download";
+            failed.cancel_default = true;
+            if (!project_form(owner, L"Library download failed", retry, failed))
+            {
+                return false;
+            }
         }
-        return succeeded;
     };
     const bool select_version =
         !existing || operation == LibraryEdit::UpdateVersion || existing->revision.empty();
-    if (select_version && !passive(L"Discover"))
+    if (select_version)
     {
-        return {};
+        const bool discovered = passive(L"Discover");
+        if (restart_cancelled)
+        {
+            return {};
+        }
+        if (!discovered || !existing)
+        {
+            std::vector<FormField> warning;
+            FormOptions uncertain;
+            uncertain.theme = theme;
+            initialize_uncertain_library_form(uncertain);
+            output(L"Unable to Verify: quick version metadata does not prove library "
+                   L"compatibility. No source download or third-party execution performed.\n");
+            if (!project_form(owner, L"Unable to Verify", warning, uncertain))
+            {
+                return {};
+            }
+        }
     }
     const auto versions =
         select_version ? lines(cache / L"versions.txt") : std::vector<std::string>{};
@@ -490,8 +548,15 @@ std::optional<std::string> github_library_dialog(HWND owner,
     }
     output(decode_console_text(
         compatibility_label(assessment.status) + ": " + assessment.reason + "\n"));
-    if (!assessment.native_candidate)
+    if (assessment.status == LibraryCompatibility::NotLibrary)
     {
+        std::vector<FormField> blocked;
+        FormOptions incompatible;
+        incompatible.theme = theme;
+        incompatible.note =
+            decode_console_text(compatibility_label(assessment.status) + ": " + assessment.reason);
+        incompatible.accept_label = L"Return to Libraries";
+        project_form(owner, L"Incompatible", blocked, incompatible);
         return {};
     }
     record.archive_hash = downloaded[1];
@@ -527,6 +592,16 @@ std::optional<std::string> github_library_dialog(HWND owner,
                    L"registration. No existing project files are changed.";
     options.accept_label = L"Approve Verification";
     options.cancel_default = true;
+    options.validate = [&](const auto& fields) -> std::wstring
+    {
+        if (fields[0].value == L"CMake library" && !fs::is_regular_file(source / L"CMakeLists.txt"))
+        {
+            return L"This source has no root CMakeLists.txt. Select Header-only include if it "
+                   L"exports a public header, or Cancel. Your selected repository/version is "
+                   L"retained.";
+        }
+        return L"";
+    };
     if (!project_form(owner, L"Approve dependency verification", method, options))
     {
         return {};
@@ -601,18 +676,43 @@ std::optional<std::string> github_library_dialog(HWND owner,
     write(probe / L"CMakeLists.txt", setup);
     const auto verify = [&]()
     {
-        const bool success = execute(owner,
-            theme,
-            manager_cli,
-            {L"manage-build",
-                probe.wstring(),
-                L"--target",
-                L"cpplivelab_probe",
-                L"--allow-configure-writes"},
-            cache,
-            output);
-        register_probe_dependency_caches(probe, record);
-        return success;
+        while (!restart_cancelled)
+        {
+            const bool success = execute(owner,
+                theme,
+                manager_cli,
+                {L"manage-build",
+                    probe.wstring(),
+                    L"--target",
+                    L"cpplivelab_probe",
+                    L"--allow-configure-writes"},
+                cache,
+                output);
+            register_probe_dependency_caches(probe, record);
+            if (success)
+            {
+                return true;
+            }
+            if (restart_cancelled)
+            {
+                return false;
+            }
+            std::vector<FormField> retry;
+            FormOptions failed;
+            failed.theme = theme;
+            failed.note =
+                L"Unable to Verify: verification failed or was cancelled. See Build & System "
+                L"for the exact error. Your repository, version and integration options are "
+                L"retained. No library was registered or project changed. Retry the same "
+                L"approved verification, or Cancel to return to Libraries.";
+            failed.accept_label = L"Retry Verification";
+            failed.cancel_default = true;
+            if (!project_form(owner, L"Library verification failed", retry, failed))
+            {
+                return false;
+            }
+        }
+        return false;
     };
     if (!verify())
     {

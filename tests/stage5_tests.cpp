@@ -400,6 +400,36 @@ void projects(const fs::path& parent, const fs::path& cli)
         "Wrong target/artifact was built");
     const auto debug_artifact = game->artifact;
     const auto debug_written = fs::last_write_time(debug_artifact);
+    const auto debug_directory = managed_build_directory(project, L"Debug", {});
+    for (const int damage : {0, 1, 2})
+    {
+        if (damage == 0)
+        {
+            fs::remove(debug_directory / L"generator.txt");
+        }
+        else if (damage == 1)
+        {
+            write(debug_directory / L"executables.txt", "incomplete target\n");
+        }
+        else
+        {
+            // Simulate an external configure publishing a newer File API index.
+            // Valid-looking stale metadata must be refreshed before path checks.
+            write(debug_directory / L"executables.txt",
+                "game\n" + path_support::path_utf8(parent / L"outside.exe") + "\n");
+            fs::last_write_time(debug_directory / L"executables.txt",
+                fs::last_write_time(debug_directory / L"CMakeCache.txt") - std::chrono::hours(24));
+        }
+        result = execute(cli,
+            {L"manage-build", project.wstring(), L"--target", L"game", L"--incremental"},
+            parent);
+        require(result.code == 0 && executable_targets(project, L"Debug", {}).size() == 2 &&
+                    fs::last_write_time(debug_artifact) == debug_written &&
+                    !fs::exists(parent / L"outside.exe"),
+            "Incremental metadata recovery failed, rebuilt unchanged code or used a stale "
+            "artifact: " +
+                result.output);
+    }
     result = execute(
         cli, {L"manage-run", project.wstring(), L"--target", L"game", L"--incremental"}, parent);
     require(result.code == 0 && result.output.find("GAME original") != result.output.npos,

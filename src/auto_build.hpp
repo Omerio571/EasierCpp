@@ -32,6 +32,9 @@ public:
     static bool ignored_directory(const std::filesystem::path& component);
     static std::map<std::filesystem::path, std::uint64_t> source_fingerprints(
         const std::filesystem::path& project);
+    // Includes added/removed configuration inputs, not just modified files.
+    static bool configuration_changed(const std::map<std::filesystem::path, std::uint64_t>& before,
+        const std::map<std::filesystem::path, std::uint64_t>& after);
 
 private:
     windows_support::UniqueHandle directory_handle_;
