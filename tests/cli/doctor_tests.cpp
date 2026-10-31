@@ -1,4 +1,7 @@
 #include "cpplivelab/doctor.hpp"
+#include "process/windows_support.hpp"
+#include <map>
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -83,6 +86,67 @@ int main()
     discovered_toolchain = cpplivelab::discover_toolchain(discovery_inputs);
     check(!discovered_toolchain.tools[2].installed_path.empty(),
         "Multiple VS instance discovery failed");
+    {
+        struct RestoreEnvironment
+        {
+            std::map<std::wstring, std::wstring> values;
+
+            ~RestoreEnvironment()
+            {
+                for (const auto& [name, value] : values)
+                {
+                    SetEnvironmentVariableW(name.c_str(), value.empty() ? nullptr : value.c_str());
+                }
+            }
+        } restore;
+
+        const auto set = [&](const wchar_t* name, const std::wstring& value)
+        {
+            if (!restore.values.contains(name))
+            {
+                const auto length = GetEnvironmentVariableW(name, nullptr, 0);
+                std::wstring previous(length, L'\0');
+                if (length)
+                {
+                    previous.resize(GetEnvironmentVariableW(name, previous.data(), length));
+                }
+                restore.values[name] = previous;
+            }
+            SetEnvironmentVariableW(name, value.c_str());
+        };
+        const auto prepared = visual_studio_directory / L"Common7/Tools/VsDevCmd.bat";
+        const auto toolset = visual_studio_directory / L"VC/Tools/MSVC/14.44.35207";
+        set(L"VSINSTALLDIR", visual_studio_directory.wstring());
+        set(L"CPPLIVELAB_PREPARED_VS", prepared.wstring());
+        set(L"VCToolsInstallDir", toolset.wstring());
+        set(L"VSCMD_ARG_TGT_ARCH", L"x64");
+        set(L"VSCMD_ARG_HOST_ARCH", L"x64");
+        set(L"INCLUDE", L"fixture includes");
+        set(L"LIB", L"fixture libraries");
+        const auto uses_prepared = [&]
+        {
+            const auto inputs = cpplivelab::system_discovery_inputs(true);
+            return inputs.visual_studios.size() == 1 &&
+                   inputs.visual_studios[0] == visual_studio_directory;
+        };
+        check(uses_prepared(), "Validated prepared VS instance was not reused");
+        const auto fresh = cpplivelab::system_discovery_inputs();
+        check(std::find(fresh.visual_studios.begin(),
+                  fresh.visual_studios.end(),
+                  visual_studio_directory) == fresh.visual_studios.end(),
+            "Doctor incorrectly reused a prepared installation hint");
+        set(L"VSCMD_ARG_TGT_ARCH", L"x86");
+        check(!uses_prepared(), "Wrong architecture bypassed fresh discovery");
+        set(L"VSCMD_ARG_TGT_ARCH", L"x64");
+        set(L"CPPLIVELAB_PREPARED_VS", (temporary_directory / L"wrong.bat").wstring());
+        check(!uses_prepared(), "Wrong setup marker bypassed discovery");
+        set(L"CPPLIVELAB_PREPARED_VS", prepared.wstring());
+        set(L"LIB", L"");
+        check(!uses_prepared(), "Incomplete SDK environment bypassed discovery");
+        set(L"LIB", L"fixture libraries");
+        fs::remove(toolset / L"bin/Hostx64/x64/cl.exe");
+        check(!uses_prepared(), "Removed compiler was reused from a stale hint");
+    }
     fs::remove_all(temporary_directory);
     return failures ? 1 : 0;
 }

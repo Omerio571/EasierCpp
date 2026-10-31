@@ -657,7 +657,7 @@ int managed_build(const fs::path& root,
         }
     }
     profile.checkpoint("leases_options_cache_ms");
-    const auto tools = discover_toolchain(system_discovery_inputs());
+    const auto tools = discover_toolchain(system_discovery_inputs(true));
     profile.checkpoint("tool_discovery_ms");
     const auto cmake = tool(tools, "cmake");
     if (cmake.empty())

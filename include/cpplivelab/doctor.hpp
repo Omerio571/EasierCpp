@@ -35,7 +35,9 @@ struct Toolchain
 
 // Use vswhere for Visual Studio installations, then inspect standard standalone
 // installation folders and the current process's PATH. No persistent environment changes.
-DiscoveryInputs system_discovery_inputs();
+// Build workers may reuse the explicitly prepared VS instance after validating
+// its setup script, architecture and toolset. Doctor always uses fresh discovery.
+DiscoveryInputs system_discovery_inputs(bool reuse_prepared_environment = false);
 std::filesystem::path find_visual_studio_2022();
 Toolchain discover_toolchain(const DiscoveryInputs& inputs);
 // Returns 0 when CMake, Ninja and at least one compiler were found; GCC is optional.

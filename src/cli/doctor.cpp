@@ -171,13 +171,40 @@ std::filesystem::path find_visual_studio_2022()
     return {};
 }
 
-DiscoveryInputs system_discovery_inputs()
+DiscoveryInputs system_discovery_inputs(bool reuse_prepared_environment)
 {
     DiscoveryInputs inputs;
     inputs.terminal_directories = split_paths(read_environment_variable(L"PATH"));
     const fs::path program_files = read_environment_variable(L"ProgramFiles");
     const fs::path program_files_x86 = read_environment_variable(L"ProgramFiles(x86)");
-    if (!program_files_x86.empty())
+    if (reuse_prepared_environment)
+    {
+        const fs::path installation = read_environment_variable(L"VSINSTALLDIR");
+        const fs::path prepared = read_environment_variable(L"CPPLIVELAB_PREPARED_VS");
+        const fs::path toolset = read_environment_variable(L"VCToolsInstallDir");
+        std::ifstream version_file(
+            installation / L"VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt");
+        std::string version;
+        version_file >> version;
+        std::error_code script_error, toolset_error;
+        // Only the same validated instance/toolset that supplied the child's SDK
+        // block can replace vswhere. Missing or inconsistent hints fail closed to
+        // ordinary discovery. Nothing is persisted and files are checked each time.
+        if (installation.is_absolute() && prepared.is_absolute() && toolset.is_absolute() &&
+            !version.empty() && read_environment_variable(L"VSCMD_ARG_TGT_ARCH") == L"x64" &&
+            read_environment_variable(L"VSCMD_ARG_HOST_ARCH") == L"x64" &&
+            !read_environment_variable(L"INCLUDE").empty() &&
+            !read_environment_variable(L"LIB").empty() &&
+            file_exists(toolset / L"bin/Hostx64/x64/cl.exe") &&
+            fs::equivalent(prepared, installation / L"Common7/Tools/VsDevCmd.bat", script_error) &&
+            !script_error &&
+            fs::equivalent(toolset, installation / L"VC/Tools/MSVC" / version, toolset_error) &&
+            !toolset_error)
+        {
+            inputs.visual_studios.push_back(installation);
+        }
+    }
+    if (inputs.visual_studios.empty() && !program_files_x86.empty())
     {
         inputs.visual_studios =
             visual_studios(program_files_x86 / L"Microsoft Visual Studio/Installer/vswhere.exe");
