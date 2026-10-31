@@ -1,7 +1,7 @@
 // Compile the real controller/window procedure into a test host. No desktop input,
 // visible user window or external application is automated by this test.
 #define CPPLIVELAB_GUI_TEST
-#include "../src/gui.cpp"
+#include "../../src/gui/gui.cpp"
 #include "cpplivelab/projects.hpp"
 #include "../workspace_test_support.hpp"
 #include "../ui_capture.hpp"
@@ -713,7 +713,8 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
         << "cmake_minimum_required(VERSION 3.20)\nproject(WindowFixture LANGUAGES CXX)\n"
            "add_executable(app main.cpp)\ntarget_compile_features(app PRIVATE "
            "cxx_std_20)\ntarget_link_libraries(app PRIVATE user32)\n";
-    std::ifstream native_sample(fs::path(__FILE__).parent_path() / L"consumers/native_window.cpp");
+    std::ifstream native_sample(
+        fs::path(__FILE__).parent_path().parent_path() / L"consumers/native_window.cpp");
     std::string native_source{std::istreambuf_iterator<char>(native_sample), {}};
     require(!native_source.empty(), "Native manual acceptance sample is missing");
     native_source.insert(0,
