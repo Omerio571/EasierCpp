@@ -1,7 +1,7 @@
 #include "cpplivelab/libraries.hpp"
-#include "../src/build_lease.hpp"
-#include "../src/tool_workflows.hpp"
-#include "../src/project_paths.hpp"
+#include "build_lease.hpp"
+#include "tool_workflows.hpp"
+#include "project_paths.hpp"
 #include "workspace_test_support.hpp"
 #include <fstream>
 #include <algorithm>

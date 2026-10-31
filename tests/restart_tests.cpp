@@ -1,4 +1,4 @@
-#include "../src/restart.hpp"
+#include "restart.hpp"
 #include "cpplivelab/workspace.hpp"
 #include "workspace_test_support.hpp"
 #include <fstream>

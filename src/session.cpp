@@ -234,9 +234,10 @@ void ConsoleSession::start_program(const std::filesystem::path& executable,
 
 void ConsoleSession::start_worker(const std::filesystem::path& executable,
     const std::vector<std::wstring>& arguments,
-    const std::filesystem::path& directory)
+    const std::filesystem::path& directory,
+    const Environment& environment)
 {
-    start_impl(executable, arguments, directory, {}, false);
+    start_impl(executable, arguments, directory, environment, false);
     impl_->is_worker = true;
 }
 

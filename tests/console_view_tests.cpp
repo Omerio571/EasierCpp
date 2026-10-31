@@ -1,4 +1,4 @@
-#include "../src/console_view.hpp"
+#include "console_view.hpp"
 #include "theme_test_support.hpp"
 
 #include <iostream>

@@ -1,4 +1,4 @@
-#include "../src/tool_workflows.hpp"
+#include "tool_workflows.hpp"
 #include "cpplivelab/session.hpp"
 #include "workspace_test_support.hpp"
 #include <windows.h>

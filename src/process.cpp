@@ -122,6 +122,34 @@ Environment developer_environment(const std::filesystem::path& developer_setup_s
     {
         throw std::runtime_error("Unsupported Visual Studio setup path");
     }
+    const auto prepared_script =
+        std::filesystem::weakly_canonical(developer_setup_script).wstring();
+    const auto value = [](const wchar_t* name)
+    {
+        wchar_t text[32768]{};
+        GetEnvironmentVariableW(name, text, 32768);
+        return std::wstring(text);
+    };
+    // Only reuse a block explicitly prepared by this function for this setup
+    // script and x64 architecture. Ordinary terminals still initialize normally.
+    if (_wcsicmp(value(L"CPPLIVELAB_PREPARED_VS").c_str(), prepared_script.c_str()) == 0 &&
+        value(L"VSCMD_ARG_TGT_ARCH") == L"x64" && value(L"VSCMD_ARG_HOST_ARCH") == L"x64" &&
+        !value(L"INCLUDE").empty() && !value(L"LIB").empty())
+    {
+        const auto inherited = GetEnvironmentStringsW();
+        if (!inherited)
+        {
+            throw std::runtime_error("Cannot read prepared child environment");
+        }
+        const auto* end = inherited;
+        while (*end)
+        {
+            end += std::wcslen(end) + 1;
+        }
+        Environment result(static_cast<const wchar_t*>(inherited), end + 1);
+        FreeEnvironmentStringsW(inherited);
+        return result;
+    }
     wchar_t system_directory[MAX_PATH]{};
     GetSystemDirectoryW(system_directory, MAX_PATH);
     const auto command_interpreter = std::filesystem::path(system_directory) / L"cmd.exe";
@@ -194,7 +222,8 @@ Environment developer_environment(const std::filesystem::path& developer_setup_s
         {
             environment_entry.pop_back();
         }
-        if (environment_entry.find(L'=') != environment_entry.npos)
+        if (environment_entry.find(L'=') != environment_entry.npos &&
+            _wcsnicmp(environment_entry.c_str(), L"CPPLIVELAB_PREPARED_VS=", 23) != 0)
         {
             child_environment.insert(
                 child_environment.end(), environment_entry.begin(), environment_entry.end());
@@ -202,11 +231,20 @@ Environment developer_environment(const std::filesystem::path& developer_setup_s
         }
         line_begin = line_end + 1;
     }
-    child_environment.push_back(L'\0');
     if (child_environment.size() < 2)
     {
         throw std::runtime_error("Empty developer environment");
     }
+    auto marker = L"CPPLIVELAB_PREPARED_VS=" + prepared_script;
+    marker.push_back(L'\0');
+    size_t insertion = 0;
+    while (insertion < child_environment.size() &&
+           _wcsicmp(child_environment.data() + insertion, marker.c_str()) < 0)
+    {
+        insertion += std::wcslen(child_environment.data() + insertion) + 1;
+    }
+    child_environment.insert(child_environment.begin() + insertion, marker.begin(), marker.end());
+    child_environment.push_back(L'\0');
     return child_environment;
 }
 } // namespace cpplivelab

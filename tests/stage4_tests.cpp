@@ -1,7 +1,7 @@
-#include "../src/auto_build.hpp"
-#include "../src/build_lease.hpp"
-#include "../src/console_model.hpp"
-#include "../src/appearance.hpp"
+#include "auto_build.hpp"
+#include "build_lease.hpp"
+#include "console_model.hpp"
+#include "appearance.hpp"
 #include "theme_test_support.hpp"
 #include <cmath>
 #include <array>

@@ -1,5 +1,5 @@
 #pragma once
-#include "../src/windows_support.hpp"
+#include "windows_support.hpp"
 #include <objidl.h>
 #include <objbase.h>
 #include <gdiplus.h>

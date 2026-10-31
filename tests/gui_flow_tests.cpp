@@ -12,6 +12,8 @@
 
 namespace flow_tests
 {
+bool baseline_worker_environment = false;
+
 void require(bool condition, const char* message)
 {
     if (!condition)
@@ -837,6 +839,56 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
         "Rapid native saves did not coalesce into a maximized replacement",
         90000);
     require(IsZoomed(native_window()), "Actual restarted application lost maximization");
+    // Both slots are warm now. Time equivalent source-only edits through the real
+    // controller, retaining the delayed-window/DLL/assets fixture for both modes.
+    app.reuse_worker_environment = !baseline_worker_environment;
+    for (int sample = 0; sample < 3; ++sample)
+    {
+        const auto previous_id = app.session.process_id();
+        const auto saved = GetTickCount64();
+        std::map<std::string, ULONGLONG> trace;
+
+        struct ResetTrace
+        {
+            Application& application;
+
+            ~ResetTrace()
+            {
+                application.auto_run_trace = {};
+            }
+        } reset_trace{app};
+
+        app.auto_run_trace = [&](const char* stage)
+        {
+            trace.try_emplace(stage, GetTickCount64());
+        };
+        std::ofstream(native_file) << native_source << "\n// Warm timing sample " << sample << '\n';
+        host.await(
+            [&]
+            {
+                return trace.contains("restored") && app.session.process_id() != previous_id &&
+                       app.program_started && !app.restore_started && native_window() != nullptr;
+            },
+            "Warm timed Auto Run failed to restore its window",
+            90000);
+        app.auto_run_trace = {};
+        for (const auto* stage :
+            {"detect", "build", "shutdown", "old_stopped", "startup", "started", "restored"})
+        {
+            require(trace.contains(stage), "Warm timing lost a lifecycle event");
+        }
+        require(
+            app.session.running() && IsZoomed(native_window()), "Warm restart lost maximization");
+        std::cout << "AUTO_RUN_TIMING," << (baseline_worker_environment ? "before" : "after") << ','
+                  << sample << ",detect=" << trace.at("detect") - saved
+                  << ",debounce=" << trace.at("build") - trace.at("detect")
+                  << ",build=" << trace.at("shutdown") - trace.at("build")
+                  << ",shutdown=" << trace.at("old_stopped") - trace.at("shutdown")
+                  << ",preparation=" << trace.at("startup") - trace.at("old_stopped")
+                  << ",startup=" << trace.at("started") - trace.at("startup")
+                  << ",window=" << trace.at("restored") - trace.at("started")
+                  << ",total=" << trace.at("restored") - saved << "\n";
+    }
     app.command(StopButton);
     host.idle();
     const auto stopped_at = GetTickCount64();
@@ -942,7 +994,9 @@ int wmain(int argc, wchar_t** argv)
     try
     {
         workspace_test::Fixture isolated_state;
-        flow_tests::run(isolated_state.root, argc == 2 ? fs::path(argv[1]) : fs::path{});
+        flow_tests::baseline_worker_environment =
+            argc == 3 && std::wstring_view(argv[2]) == L"--baseline-sdk";
+        flow_tests::run(isolated_state.root, argc >= 2 ? fs::path(argv[1]) : fs::path{});
     }
     catch (const std::exception& error)
     {

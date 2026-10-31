@@ -1,4 +1,4 @@
-#include "../src/appearance.hpp"
+#include "appearance.hpp"
 #include "cpplivelab/libraries.hpp"
 #include "workspace_test_support.hpp"
 #include <fstream>

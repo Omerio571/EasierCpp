@@ -1,9 +1,12 @@
 #include "cpplivelab/process.hpp"
 #include "cpplivelab/projects.hpp"
 #include "cpplivelab/session.hpp"
-#include "../src/output_decoder.hpp"
-#include "../src/project_paths.hpp"
-#include "../src/windows_support.hpp"
+#include "output_decoder.hpp"
+#include "project_paths.hpp"
+#include "windows_support.hpp"
+#include "workspace_test_support.hpp"
+#include <fstream>
+#include <algorithm>
 
 #include <iostream>
 #include <stdexcept>
@@ -174,6 +177,42 @@ void test_argument_round_trip(const fs::path& fixture_executable)
     require_condition(session.exit_code() == 0, "GUI worker argument quoting changed");
     require_condition(captured_output.find("Argument round-trip passed") != std::string::npos,
         "Argument fixture output not captured");
+    workspace_test::Fixture owned;
+    const auto script = owned.root / L"VsDevCmd.bat";
+    std::ofstream(script) << "@echo off\n"
+                             "echo setup>>\"%~dp0counter.txt\"\n"
+                             "set VSCMD_ARG_TGT_ARCH=x64\n"
+                             "set VSCMD_ARG_HOST_ARCH=x64\n"
+                             "set INCLUDE=owned-fixture\n"
+                             "set LIB=owned-fixture\n";
+    auto prepared = cpplivelab::developer_environment(script);
+    const auto check_preparation = [&](size_t expected)
+    {
+        cpplivelab::ConsoleSession worker;
+        worker.start_worker(
+            fixture_executable, {L"prepared-environment", script.wstring()}, owned.root, prepared);
+        wait_for_session(worker);
+        require_condition(worker.exit_code() == 0, "Prepared SDK worker failed");
+        std::ifstream counter(owned.root / L"counter.txt");
+        // cmd /u also writes redirected ECHO as UTF-16LE. Count newline bytes,
+        // avoiding a phantom final line from the terminating UTF-16 NUL byte.
+        const std::string bytes{std::istreambuf_iterator<char>(counter), {}};
+        const auto lines = static_cast<size_t>(std::count(bytes.begin(), bytes.end(), '\n'));
+        require_condition(lines == expected, "Prepared SDK reuse/fallback ran setup incorrectly");
+    };
+    check_preparation(1);
+    const std::wstring contents(prepared.begin(), prepared.end());
+    const auto architecture = contents.find(L"VSCMD_ARG_TGT_ARCH=x64");
+    require_condition(architecture != contents.npos, "Owned SDK fixture lost its architecture");
+    prepared[architecture + std::wstring_view(L"VSCMD_ARG_TGT_ARCH=x").size()] = L'8';
+    prepared[architecture + std::wstring_view(L"VSCMD_ARG_TGT_ARCH=x8").size()] = L'6';
+    check_preparation(2);
+    prepared = cpplivelab::developer_environment(script);
+    const std::wstring corrected(prepared.begin(), prepared.end());
+    const auto marker = corrected.find(L"CPPLIVELAB_PREPARED_VS=");
+    require_condition(marker != corrected.npos, "Owned SDK block lost its setup identity");
+    prepared[marker + std::wstring_view(L"CPPLIVELAB_PREPARED_VS=").size()] = L'#';
+    check_preparation(4);
 }
 
 void test_unicode_project(const fs::path& cli_executable)

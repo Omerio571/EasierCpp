@@ -4,11 +4,11 @@
 #include "cpplivelab/session.hpp"
 #include "cpplivelab/projects.hpp"
 #include "workspace_test_support.hpp"
-#include "../src/auto_build.hpp"
-#include "../src/build_diagnostics.hpp"
-#include "../src/build_lease.hpp"
-#include "../src/directory_scan.hpp"
-#include "../src/project_templates.hpp"
+#include "auto_build.hpp"
+#include "build_diagnostics.hpp"
+#include "build_lease.hpp"
+#include "directory_scan.hpp"
+#include "project_templates.hpp"
 #include <fstream>
 #include <iostream>
 

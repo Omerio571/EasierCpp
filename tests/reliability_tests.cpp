@@ -1,11 +1,11 @@
 #include "cpplivelab/session.hpp"
 #include "cpplivelab/process.hpp"
 #include "cpplivelab/projects.hpp"
-#include "../src/auto_build.hpp"
-#include "../src/build_lease.hpp"
-#include "../src/build_freshness.hpp"
+#include "auto_build.hpp"
+#include "build_lease.hpp"
+#include "build_freshness.hpp"
 #include "cpplivelab/doctor.hpp"
-#include "../src/windows_support.hpp"
+#include "windows_support.hpp"
 #include <iostream>
 #include <stdexcept>
 #include <fstream>

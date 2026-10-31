@@ -1,7 +1,7 @@
 #include "cpplivelab/workspace.hpp"
 #include "cpplivelab/session.hpp"
-#include "../src/project_paths.hpp"
-#include "../src/tool_workflows.hpp"
+#include "project_paths.hpp"
+#include "tool_workflows.hpp"
 #include "workspace_test_support.hpp"
 #include <fstream>
 #include <algorithm>

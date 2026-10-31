@@ -10,6 +10,11 @@
 
 int wmain(int argc, wchar_t** argv)
 {
+    if (argc == 3 && std::wstring_view(argv[1]) == L"prepared-environment")
+    {
+        const auto environment = cpplivelab::developer_environment(argv[2]);
+        return environment.size() >= 2 ? 0 : 1;
+    }
     if (argc == 7 && std::wstring(argv[1]) == L"capture-editor-location")
     {
         std::ofstream output(std::filesystem::path(argv[2]), std::ios::binary);

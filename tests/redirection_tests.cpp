@@ -1,4 +1,4 @@
-#include "../src/application_windows.hpp"
+#include "application_windows.hpp"
 #include "cpplivelab/libraries.hpp"
 #include "cpplivelab/session.hpp"
 #include "cpplivelab/process.hpp"

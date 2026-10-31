@@ -37,7 +37,8 @@ public:
     // and removes owned background helpers; interactive programs use start/start_program.
     void start_worker(const std::filesystem::path& executable,
         const std::vector<std::wstring>& arguments,
-        const std::filesystem::path& directory);
+        const std::filesystem::path& directory,
+        const Environment& environment = {});
     // The GUI's program phase uses independent stdout/stderr pipes. Build workers
     // and the original start/poll API retain their approved merged-stream behavior.
     void start_program(const std::filesystem::path& executable,

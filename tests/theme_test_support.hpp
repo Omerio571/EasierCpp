@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../src/appearance.hpp"
+#include "appearance.hpp"
 #include <richedit.h>
 #include <algorithm>
 #include <cmath>

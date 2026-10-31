@@ -1,5 +1,5 @@
-#include "../src/library_compatibility.hpp"
-#include "../src/tool_workflows.hpp"
+#include "library_compatibility.hpp"
+#include "tool_workflows.hpp"
 #include "workspace_test_support.hpp"
 #include <fstream>
 #include <iostream>

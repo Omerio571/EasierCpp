@@ -2,7 +2,7 @@
 #include "cpplivelab/process.hpp"
 #include "cpplivelab/projects.hpp"
 #include "cpplivelab/session.hpp"
-#include "../src/auto_build.hpp"
+#include "auto_build.hpp"
 #include <algorithm>
 #include <chrono>
 #include <fstream>

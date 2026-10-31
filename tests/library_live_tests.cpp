@@ -1,4 +1,4 @@
-#include "../src/library_workflow.hpp"
+#include "library_workflow.hpp"
 #include "cpplivelab/process.hpp"
 #include "cpplivelab/session.hpp"
 #include "workspace_test_support.hpp"

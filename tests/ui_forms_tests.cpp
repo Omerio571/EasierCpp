@@ -1,8 +1,8 @@
-#include "../src/project_dialogs.hpp"
+#include "project_dialogs.hpp"
 #include "cpplivelab/workspace.hpp"
 #include "workspace_test_support.hpp"
 #include "ui_capture.hpp"
-#include "../src/tool_workflows.hpp"
+#include "tool_workflows.hpp"
 #include <fstream>
 #include <iostream>
 

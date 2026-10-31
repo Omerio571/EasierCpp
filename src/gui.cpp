@@ -191,6 +191,10 @@ public:
     bool probe_pending = false;
     std::string probe_output;
     bool environment_ready = false;
+#ifdef CPPLIVELAB_GUI_TEST
+    bool reuse_worker_environment = true;
+    std::function<void(const char*)> auto_run_trace;
+#endif
     bool error_line_start = true;
     fs::path active_project_directory;
     bool configure_writes = false;
@@ -1556,10 +1560,22 @@ public:
         const auto options = project_options();
         const auto working = options.working_directory.empty() ? active_project_directory
                                                                : options.working_directory;
+#ifdef CPPLIVELAB_GUI_TEST
+        if (auto_run_trace)
+        {
+            auto_run_trace("startup");
+        }
+#endif
         session.start_program(executable,
             options.arguments,
             working,
             cpplivelab::runtime_environment(program_environment, build_directory()));
+#ifdef CPPLIVELAB_GUI_TEST
+        if (auto_run_trace)
+        {
+            auto_run_trace("started");
+        }
+#endif
         launch_latest = false;
         restore_started = previous_windows.empty() ? 0 : GetTickCount64();
         restored_windows.clear();
@@ -2266,8 +2282,25 @@ public:
         {
             arguments.push_back(L"--allow-configure-writes");
         }
-        replacement_build.start_worker(
-            application_directory() / L"cpplivelab.exe", arguments, active_project_directory);
+        // The running program already required successful SDK preparation. Pass
+        // that in-memory block only to this owned build child; never change PATH.
+        const auto* worker_environment = &program_environment;
+#ifdef CPPLIVELAB_GUI_TEST
+        if (!reuse_worker_environment)
+        {
+            worker_environment = nullptr;
+        }
+#endif
+#ifdef CPPLIVELAB_GUI_TEST
+        if (auto_run_trace)
+        {
+            auto_run_trace("build");
+        }
+#endif
+        replacement_build.start_worker(application_directory() / L"cpplivelab.exe",
+            arguments,
+            active_project_directory,
+            worker_environment ? *worker_environment : cpplivelab::Environment{});
         replacement_building = true;
         replacement_ready = false;
         auto_build.begin_build();
@@ -2279,6 +2312,12 @@ public:
 
     void request_program_restart()
     {
+#ifdef CPPLIVELAB_GUI_TEST
+        if (auto_run_trace)
+        {
+            auto_run_trace("shutdown");
+        }
+#endif
         previous_windows =
             auto_run_preferences.restore_windows
                 ? cpplivelab::capture_application_windows(session.active_process_ids())
@@ -2294,6 +2333,12 @@ public:
 
     void complete_program_restart()
     {
+#ifdef CPPLIVELAB_GUI_TEST
+        if (auto_run_trace)
+        {
+            auto_run_trace("old_stopped");
+        }
+#endif
         replacement_stopping = false;
         if (replacement_ready)
         {
@@ -2431,6 +2476,12 @@ public:
                 session.active_process_ids(), previous_windows, restored_windows);
             if (restored >= previous_windows.size() || GetTickCount64() - restore_started > 15000)
             {
+#ifdef CPPLIVELAB_GUI_TEST
+                if (auto_run_trace && restored >= previous_windows.size())
+                {
+                    auto_run_trace("restored");
+                }
+#endif
                 log(restored >= previous_windows.size() ? cpplivelab::MessageKind::Success
                                                         : cpplivelab::MessageKind::Warning,
                     restored >= previous_windows.size()
@@ -2470,6 +2521,12 @@ public:
         }
         if (notified)
         {
+#ifdef CPPLIVELAB_GUI_TEST
+            if (auto_run_trace)
+            {
+                auto_run_trace("detect");
+            }
+#endif
             auto_build.notify(now);
         }
         if (auto_build.settled(now))
