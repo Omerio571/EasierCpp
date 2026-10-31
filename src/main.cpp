@@ -1,7 +1,7 @@
 #include "cpplivelab/doctor.hpp"
 #include "cpplivelab/projects.hpp"
-#include "build_lease.hpp"
-#include "workspace_cli.hpp"
+#include "build/build_lease.hpp"
+#include "cli/workspace_cli.hpp"
 #include <iostream>
 #include <string_view>
 #include <stdexcept>

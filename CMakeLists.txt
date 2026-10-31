@@ -15,23 +15,23 @@ project(
 # Shared functionality used by the CLI, GUI, and test executables.
 
 set(CPPLIVELAB_CORE_SOURCES
-    src/library_compatibility.cpp
-    src/application_windows.cpp
-    src/libraries.cpp
-    src/restart.cpp
-    src/tool_workflows.cpp
-    src/workspace.cpp
-    src/workspace_creation.cpp
-    src/editors.cpp
-    src/doctor.cpp
-    src/process.cpp
-    src/projects.cpp
-    src/session.cpp
-    src/auto_build.cpp
-    src/build_freshness.cpp
-    src/console_model.cpp
-    src/appearance.cpp
-    src/output_decoder.cpp
+    src/libraries/library_compatibility.cpp
+    src/process/application_windows.cpp
+    src/libraries/libraries.cpp
+    src/process/restart.cpp
+    src/tools/tool_workflows.cpp
+    src/projects/workspace.cpp
+    src/projects/workspace_creation.cpp
+    src/tools/editors.cpp
+    src/cli/doctor.cpp
+    src/process/process.cpp
+    src/projects/projects.cpp
+    src/process/session.cpp
+    src/build/auto_build.cpp
+    src/build/build_freshness.cpp
+    src/process/console_model.cpp
+    src/appearance/appearance.cpp
+    src/process/output_decoder.cpp
 )
 
 add_library(
@@ -108,7 +108,7 @@ endif()
 add_executable(
     cpplivelab
     src/main.cpp
-    src/workspace_cli.cpp
+    src/cli/workspace_cli.cpp
 )
 
 target_link_libraries(
@@ -129,12 +129,12 @@ target_compile_definitions(
 # =============================================================================
 
 set(CPPLIVELAB_GUI_SOURCES
-    src/gui.cpp
-    src/console_view.cpp
-    src/ui_theme.cpp
-    src/project_dialogs.cpp
-    src/library_workflow.cpp
-    src/library_manager.cpp
+    src/gui/gui.cpp
+    src/gui/console_view.cpp
+    src/appearance/ui_theme.cpp
+    src/gui/project_dialogs.cpp
+    src/gui/library_workflow.cpp
+    src/gui/library_manager.cpp
 )
 
 add_executable(
@@ -186,7 +186,7 @@ if(BUILD_TESTING)
 
     add_executable(
         library_compatibility_tests
-        tests/library_compatibility_tests.cpp
+        tests/libraries/library_compatibility_tests.cpp
     )
 
     target_link_libraries(
@@ -218,7 +218,7 @@ if(BUILD_TESTING)
 
     add_executable(
         redirection_tests
-        tests/redirection_tests.cpp
+        tests/process/redirection_tests.cpp
     )
 
     target_link_libraries(
@@ -261,7 +261,7 @@ if(BUILD_TESTING)
 
     add_executable(
         restart_gui_tests
-        tests/restart_gui_tests.cpp
+        tests/gui/restart_gui_tests.cpp
     )
 
     target_link_libraries(
@@ -292,7 +292,7 @@ if(BUILD_TESTING)
 
     add_executable(
         restart_tests
-        tests/restart_tests.cpp
+        tests/process/restart_tests.cpp
     )
 
     target_link_libraries(
@@ -319,7 +319,7 @@ if(BUILD_TESTING)
 
     add_executable(
         library_management_tests
-        tests/library_management_tests.cpp
+        tests/libraries/library_management_tests.cpp
     )
 
     target_link_libraries(
@@ -355,7 +355,7 @@ if(BUILD_TESTING)
 
     add_executable(
         unified_tests
-        tests/unified_tests.cpp
+        tests/projects/unified_tests.cpp
     )
 
     target_link_libraries(
@@ -407,12 +407,12 @@ if(BUILD_TESTING)
 
     add_executable(
         ui_audit_tests
-        tests/ui_audit_tests.cpp
-        src/console_view.cpp
-        src/ui_theme.cpp
-        src/project_dialogs.cpp
-        src/library_workflow.cpp
-        src/library_manager.cpp
+        tests/gui/ui_audit_tests.cpp
+        src/gui/console_view.cpp
+        src/appearance/ui_theme.cpp
+        src/gui/project_dialogs.cpp
+        src/gui/library_workflow.cpp
+        src/gui/library_manager.cpp
     )
 
     target_compile_definitions(
@@ -466,7 +466,7 @@ if(BUILD_TESTING)
 
     add_executable(
         workflow_probe
-        tests/workflow_probe.cpp
+        tests/tools/workflow_probe.cpp
     )
 
     target_link_libraries(
@@ -491,9 +491,9 @@ if(BUILD_TESTING)
 
     add_executable(
         ui_forms_tests
-        tests/ui_forms_tests.cpp
-        src/project_dialogs.cpp
-        src/ui_theme.cpp
+        tests/gui/ui_forms_tests.cpp
+        src/gui/project_dialogs.cpp
+        src/appearance/ui_theme.cpp
     )
 
     target_compile_definitions(
@@ -531,7 +531,7 @@ if(BUILD_TESTING)
 
     add_executable(
         stage5_tests
-        tests/stage5_tests.cpp
+        tests/projects/stage5_tests.cpp
     )
 
     target_link_libraries(
@@ -570,7 +570,7 @@ if(BUILD_TESTING)
 
     add_executable(
         performance_probe
-        tests/performance_probe.cpp
+        tests/build/performance_probe.cpp
     )
 
     target_link_libraries(
@@ -592,12 +592,12 @@ if(BUILD_TESTING)
 
     add_executable(
         gui_flow_tests
-        tests/gui_flow_tests.cpp
-        src/console_view.cpp
-        src/ui_theme.cpp
-        src/project_dialogs.cpp
-        src/library_workflow.cpp
-        src/library_manager.cpp
+        tests/gui/gui_flow_tests.cpp
+        src/gui/console_view.cpp
+        src/appearance/ui_theme.cpp
+        src/gui/project_dialogs.cpp
+        src/gui/library_workflow.cpp
+        src/gui/library_manager.cpp
     )
 
     target_compile_definitions(
@@ -647,7 +647,7 @@ if(BUILD_TESTING)
 
     add_executable(
         reliability_tests
-        tests/reliability_tests.cpp
+        tests/process/reliability_tests.cpp
     )
 
     target_link_libraries(
@@ -715,8 +715,8 @@ if(BUILD_TESTING)
 
     add_executable(
         console_view_tests
-        tests/console_view_tests.cpp
-        src/console_view.cpp
+        tests/gui/console_view_tests.cpp
+        src/gui/console_view.cpp
     )
 
     target_compile_definitions(
@@ -746,7 +746,7 @@ if(BUILD_TESTING)
 
     add_executable(
         stage4_tests
-        tests/stage4_tests.cpp
+        tests/build/stage4_tests.cpp
     )
 
     target_link_libraries(
@@ -785,7 +785,7 @@ if(BUILD_TESTING)
 
     add_executable(
         doctor_tests
-        tests/doctor_tests.cpp
+        tests/cli/doctor_tests.cpp
     )
 
     target_link_libraries(
@@ -806,7 +806,7 @@ if(BUILD_TESTING)
 
     add_executable(
         maintenance_tests
-        tests/maintenance_tests.cpp
+        tests/maintenance/maintenance_tests.cpp
     )
 
     target_link_libraries(
@@ -846,7 +846,7 @@ if(BUILD_TESTING)
 
     add_executable(
         session_fixture
-        tests/session_fixture.cpp
+        tests/process/session_fixture.cpp
     )
 
     target_link_libraries(
@@ -868,7 +868,7 @@ if(BUILD_TESTING)
 
     add_executable(
         session_tests
-        tests/session_tests.cpp
+        tests/process/session_tests.cpp
     )
 
     target_link_libraries(
@@ -1000,10 +1000,10 @@ if(BUILD_TESTING)
 
     add_executable(
         library_live_tests
-        tests/library_live_tests.cpp
-        src/project_dialogs.cpp
-        src/ui_theme.cpp
-        src/library_workflow.cpp
+        tests/libraries/library_live_tests.cpp
+        src/gui/project_dialogs.cpp
+        src/appearance/ui_theme.cpp
+        src/gui/library_workflow.cpp
     )
 
     target_compile_definitions(
