@@ -54,7 +54,8 @@ bool execute(HWND owner,
     const std::vector<std::wstring>& arguments,
     const fs::path& directory,
     const LibraryOutput& output,
-    ULONGLONG timeout_ms = 900000)
+    ULONGLONG timeout_ms = 900000,
+    const std::wstring& task_title = {})
 {
     std::vector<FormField> fields;
     FormOptions options;
@@ -63,6 +64,11 @@ bool execute(HWND owner,
     options.cancel_default = true;
     options.note = L"Working in a separate manager-owned folder. Detailed output is in Build & "
                    L"System. Cancel stops only this dependency task.";
+    if (!task_title.empty())
+    {
+        options.note = L"Benchmarking an isolated synthetic C++ workload. Progress is shown here "
+                       L"and in Build & System. Cancel preserves the current worker count.";
+    }
 
     struct RestoreOwner
     {
@@ -87,7 +93,9 @@ bool execute(HWND owner,
 
     // Declared after the restorer so the modal is destroyed before focus returns.
     ProjectFormWindow form(owner,
-        timeout_ms <= 5000 ? L"Quick library metadata check" : L"Library verification",
+        !task_title.empty()  ? task_title
+        : timeout_ms <= 5000 ? L"Quick library metadata check"
+                             : L"Library verification",
         fields,
         options);
     RECT parent{};
@@ -130,6 +138,18 @@ bool execute(HWND owner,
             if (!text.empty())
             {
                 output(text);
+                const auto progress = text.find(L"Optimize Workers:");
+                if (!task_title.empty() && progress != std::wstring::npos)
+                {
+                    auto line = text.substr(progress);
+                    line.resize(
+                        line.find(L'\n') == std::wstring::npos ? line.size() : line.find(L'\n'));
+                    SetDlgItemTextW(form.window,
+                        1001,
+                        (line + L"\nSynthetic estimate. Cancel preserves the current count.")
+                            .c_str());
+                    form.layout();
+                }
             }
             MSG message{};
             while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE))
@@ -155,8 +175,11 @@ bool execute(HWND owner,
             {
                 cancelled = true;
                 session.stop();
-                output(L"Unable to Verify: dependency task cancelled or its time limit reached. "
-                       L"No integration registered.\n");
+                output(
+                    task_title.empty()
+                        ? L"Unable to Verify: dependency task cancelled or its time limit reached. "
+                          L"No integration registered.\n"
+                        : L"Worker benchmark cancelled or timed out; worker setting unchanged.\n");
             }
             if (session.root_exited())
             {
@@ -174,7 +197,10 @@ bool execute(HWND owner,
     }
     catch (const std::exception& error)
     {
-        output(decode_console_text(std::string("Unable to Verify: ") + error.what() + "\n"));
+        output(decode_console_text(
+            std::string(task_title.empty() ? "Unable to Verify: "
+                                           : "Worker benchmark failed; count unchanged: ") +
+            error.what() + "\n"));
         return false;
     }
 }
@@ -277,9 +303,10 @@ bool run_library_task(HWND owner,
     const std::vector<std::wstring>& arguments,
     const fs::path& directory,
     const LibraryOutput& output,
-    ULONGLONG timeout_ms)
+    ULONGLONG timeout_ms,
+    const std::wstring& task_title)
 {
-    return execute(owner, theme, executable, arguments, directory, output, timeout_ms);
+    return execute(owner, theme, executable, arguments, directory, output, timeout_ms, task_title);
 }
 
 void initialize_uncertain_library_form(FormOptions& options)

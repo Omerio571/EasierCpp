@@ -15,6 +15,7 @@ project(
 # Shared functionality used by the CLI, GUI, and test executables.
 
 set(CPPLIVELAB_CORE_SOURCES
+    src/build/build_workers.cpp
     src/libraries/library_compatibility.cpp
     src/process/application_windows.cpp
     src/libraries/libraries.cpp
@@ -545,6 +546,7 @@ if(BUILD_TESTING)
         projects
         presets
         libraries
+        pch
     )
         add_test(
             NAME stage5_${case}
@@ -639,6 +641,11 @@ if(BUILD_TESTING)
         PROPERTIES
             TIMEOUT 180
     )
+
+    add_test(NAME window_management COMMAND gui_flow_tests --window-management)
+    set_tests_properties(window_management PROPERTIES TIMEOUT 240)
+    add_test(NAME compilation_workers COMMAND gui_flow_tests --compilation-workers)
+    set_tests_properties(compilation_workers PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
 
 
     # =========================================================================

@@ -16,6 +16,7 @@
 #include "tools/tool_workflows.hpp"
 #include "gui/library_workflow.hpp"
 #include "build/build_diagnostics.hpp"
+#include "build/build_workers.hpp"
 #include "process/restart.hpp"
 #include "gui/library_manager.hpp"
 #include <fstream>
@@ -84,6 +85,7 @@ enum ControlId
     AddLibraryButton = 146,
     LibrarySummary = 147,
     AutoRunButton = 148,
+    WindowPreferencesMenu = 149,
     WelcomeTitle = 150,
     WelcomeNote = 151,
     WelcomeRecent = 152,
@@ -193,6 +195,7 @@ public:
     bool environment_ready = false;
 #ifdef CPPLIVELAB_GUI_TEST
     bool reuse_worker_environment = true;
+    fs::path worker_benchmark_cli;
     std::function<void(const char*)> auto_run_trace;
 #endif
     bool error_line_start = true;
@@ -215,6 +218,17 @@ public:
     bool auto_launch_armed = true;
     bool automatic_program_pending = false;
     cpplivelab::ConsoleSession replacement_build;
+    cpplivelab::ConsoleSession candidate_session;
+    std::unique_ptr<cpplivelab::BuildLease> candidate_lease;
+    bool candidate_pending = false;
+    bool candidate_ready = false;
+    bool candidate_discarding = false;
+    bool candidate_needs_window = false;
+    ULONGLONG candidate_started = 0;
+    ULONGLONG candidate_visible = 0;
+    std::vector<cpplivelab::ApplicationWindow> candidate_placement;
+    std::vector<HWND> candidate_restored;
+    std::string candidate_stdout, candidate_stderr;
     cpplivelab::ProjectOptions replacement_options;
     cpplivelab::SourceFingerprints replacement_sources;
     bool replacement_building = false;
@@ -225,6 +239,11 @@ public:
     ULONGLONG shutdown_started = 0;
     ULONGLONG restore_started = 0;
     std::vector<cpplivelab::ApplicationWindow> previous_windows;
+    cpplivelab::WindowPlacementMemory placement_memory;
+    std::vector<cpplivelab::ApplicationWindow> placement_sample;
+    std::wstring running_configuration, running_target;
+    ULONGLONG placement_sampled = 0;
+    bool placement_warning = false;
     std::vector<HWND> restored_windows;
     bool restart_pending = false;
     bool restart_confirmation = false;
@@ -369,6 +388,7 @@ public:
                 {L"Restart Cpp Manager...", RestartButton}};
         }
         return {{L"Appearance...", AppearanceMenu},
+            {L"Preferences...", WindowPreferencesMenu},
             {L"Preferred Editor...", EditorSettingsMenu},
             {L"Build Preferences...", BuildPreferencesMenu}};
     }
@@ -460,13 +480,187 @@ public:
         }
     }
 
+    bool optimize_workers(HWND owner)
+    {
+        if (operation_in_progress || replacement_building || candidate_pending ||
+            cpplivelab::library_task_active())
+        {
+            throw std::runtime_error(
+                "Stop the current program/build before optimizing compilation workers.");
+        }
+        const auto parent = cpplivelab::manager_state_directory() / L"worker-benchmarks";
+        fs::create_directories(parent);
+        const auto directory = parent / (std::to_wstring(GetCurrentProcessId()) + L"-" +
+                                            std::to_wstring(GetTickCount64()));
+        if (!fs::create_directory(directory))
+        {
+            throw std::runtime_error("Cannot reserve worker benchmark directory.");
+        }
+
+        struct Cleanup
+        {
+            fs::path directory, parent;
+
+            ~Cleanup()
+            {
+                std::error_code error;
+                const auto resolved = fs::weakly_canonical(directory, error);
+                const auto expected = fs::weakly_canonical(parent, error);
+                if (!error && resolved.parent_path() == expected)
+                {
+                    fs::remove_all(resolved, error);
+                }
+            }
+        } cleanup{directory, parent};
+
+        const bool previous_dialog = project_dialog_open;
+        project_dialog_open = true;
+
+        struct RestoreDialog
+        {
+            bool& target;
+            bool previous;
+
+            ~RestoreDialog()
+            {
+                target = previous;
+            }
+        } restore{project_dialog_open, previous_dialog};
+
+        auto benchmark_cli = application_directory() / L"cpplivelab.exe";
+#ifdef CPPLIVELAB_GUI_TEST
+        if (!worker_benchmark_cli.empty())
+        {
+            benchmark_cli = worker_benchmark_cli;
+        }
+#endif
+        const bool completed = cpplivelab::run_library_task(
+            owner,
+            preferences.theme,
+            benchmark_cli,
+            {L"optimize-workers", directory.wstring()},
+            directory,
+            [&](const auto& text)
+            {
+                append(text);
+            },
+            600000,
+            L"Optimize Workers");
+        if (!completed || restart_pending || close_requested)
+        {
+            return false;
+        }
+        unsigned recommended = 0;
+        if (!(std::ifstream(directory / L"recommendation.txt") >> recommended) || !recommended ||
+            recommended > cpplivelab::maximum_build_workers())
+        {
+            throw std::runtime_error("Invalid worker recommendation; previous count retained.");
+        }
+        fs::copy_file(directory / L"results.csv",
+            cpplivelab::manager_state_directory() / L"worker-benchmark.csv",
+            fs::copy_options::overwrite_existing);
+        cpplivelab::save_build_workers({recommended, recommended});
+        log(cpplivelab::MessageKind::Success,
+            L"Recommended compilation workers: " + std::to_wstring(recommended) +
+                L". Synthetic estimate; manual override remains available.");
+        return true;
+    }
+
+    void window_preferences_dialog()
+    {
+        if (active_project_directory.empty())
+        {
+            append(L"Open a project to configure its window and replacement preferences.");
+            return;
+        }
+        const std::vector<std::wstring> placement{
+            L"Off", L"Remember During Session", L"Remember Between Sessions"};
+        const std::vector<std::wstring> modes{
+            L"Safe Replacement", L"Seamless Replacement (Experimental)"};
+        std::vector<cpplivelab::FormField> fields{
+            {L"Window Placement — Remember Window Placement",
+                placement[static_cast<unsigned>(auto_run_preferences.placement_memory)],
+                placement},
+            {L"Auto Run Replacement Mode",
+                modes[static_cast<unsigned>(auto_run_preferences.replacement_mode)],
+                modes}};
+        const auto workers = cpplivelab::load_build_workers();
+        const std::wstring inherited = L"Build-system default";
+        std::vector<std::wstring> counts{inherited};
+        for (unsigned count = 1; count <= cpplivelab::maximum_build_workers(); ++count)
+        {
+            counts.push_back(std::to_wstring(count));
+        }
+        if (workers.count > cpplivelab::maximum_build_workers())
+        {
+            counts.push_back(std::to_wstring(workers.count));
+        }
+        fields.push_back({L"Parallel Build Workers — Current Workers",
+            workers.count ? std::to_wstring(workers.count) : inherited,
+            counts});
+        fields.back().help =
+            L"Global compilation-job limit. 1 is sequential; higher counts are maximum "
+            L"concurrency. CPU/memory limits apply. Changes save immediately for future builds; "
+            L"existing native defaults remain until you select a number.";
+        fields.push_back({L"Recommended Workers",
+            workers.recommended ? std::to_wstring(workers.recommended) + L" (synthetic estimate)"
+                                : L"Not benchmarked"});
+        fields.back().read_only = true;
+        cpplivelab::FormOptions options;
+        options.theme = preferences.theme;
+        options.changed = [inherited, last = fields[2].value](auto& changed) mutable
+        {
+            if (changed[2].value != last)
+            {
+                auto selected = cpplivelab::load_build_workers();
+                selected.count = changed[2].value == inherited
+                                     ? 0
+                                     : static_cast<unsigned>(std::stoul(changed[2].value));
+                cpplivelab::save_build_workers(selected);
+                last = changed[2].value;
+            }
+        };
+        options.action_label = L"Optimize Workers";
+        options.action = [&](HWND owner, auto& changed)
+        {
+            if (optimize_workers(owner))
+            {
+                const auto result = cpplivelab::load_build_workers();
+                changed[2].value = std::to_wstring(result.count);
+                if (std::find(changed[2].choices.begin(),
+                        changed[2].choices.end(),
+                        changed[2].value) == changed[2].choices.end())
+                {
+                    changed[2].choices.push_back(changed[2].value);
+                }
+                changed[3].value = std::to_wstring(result.recommended) + L" (synthetic estimate)";
+            }
+        };
+        options.note =
+            L"Window/replacement settings apply to this project; compilation workers are global "
+            L"and save immediately. Seamless overlaps instances: use Safe for exclusive "
+            L"resources. Mode changes apply to the next replacement.";
+        if (show_project_form(L"Preferences", fields, options))
+        {
+            auto_run_preferences.placement_memory = static_cast<cpplivelab::PlacementMemory>(
+                std::find(placement.begin(), placement.end(), fields[0].value) - placement.begin());
+            auto_run_preferences.restore_windows =
+                auto_run_preferences.placement_memory != cpplivelab::PlacementMemory::Off;
+            if (!auto_run_preferences.restore_windows)
+            {
+                previous_windows.clear();
+                restore_started = 0;
+            }
+            auto_run_preferences.replacement_mode = static_cast<cpplivelab::ReplacementMode>(
+                std::find(modes.begin(), modes.end(), fields[1].value) - modes.begin());
+            cpplivelab::save_auto_run_preferences(active_project_directory, auto_run_preferences);
+        }
+    }
+
     void build_preferences_dialog()
     {
         std::vector<cpplivelab::FormField> fields{
             {L"Auto Run debounce (milliseconds)", std::to_wstring(preferences.debounce_ms)},
-            {L"Restore program windows",
-                auto_run_preferences.restore_windows ? L"Yes" : L"No",
-                {L"Yes", L"No"}},
             {L"Graceful shutdown timeout (milliseconds)",
                 std::to_wstring(auto_run_preferences.shutdown_ms)},
             {L"Force-stop owned program after timeout",
@@ -486,9 +680,9 @@ public:
                 size_t used = 0;
                 const auto value = std::stoul(values[0].value, &used);
                 size_t timeout_used = 0;
-                const auto timeout = std::stoul(values[2].value, &timeout_used);
+                const auto timeout = std::stoul(values[1].value, &timeout_used);
                 if (used == values[0].value.size() && value >= 100 && value <= 5000 &&
-                    timeout_used == values[2].value.size() && timeout >= 100 && timeout <= 30000)
+                    timeout_used == values[1].value.size() && timeout >= 100 && timeout <= 30000)
                 {
                     return L"";
                 }
@@ -501,9 +695,8 @@ public:
         if (show_project_form(L"Build Preferences", fields, options))
         {
             apply_build_preferences(static_cast<DWORD>(std::stoul(fields[0].value)));
-            auto_run_preferences.restore_windows = fields[1].value == L"Yes";
-            auto_run_preferences.shutdown_ms = std::stoul(fields[2].value);
-            auto_run_preferences.force_stop = fields[3].value == L"Yes";
+            auto_run_preferences.shutdown_ms = std::stoul(fields[1].value);
+            auto_run_preferences.force_stop = fields[2].value == L"Yes";
             if (!active_project_directory.empty())
             {
                 cpplivelab::save_auto_run_preferences(
@@ -550,6 +743,7 @@ public:
 
     void create()
     {
+        cpplivelab::initialize_build_workers();
         dpi = GetDpiForWindow(window_handle);
         update_fonts();
         auto_build.enable(false);
@@ -825,7 +1019,7 @@ public:
                 selected && !stop_requested);
         EnableWindow(find_control(AutoRunButton), selected);
         EnableWindow(find_control(ProgramRestartButton),
-            selected && !replacement_building && !replacement_stopping &&
+            selected && !replacement_building && !replacement_stopping && !candidate_pending &&
                 (program_started || (!operation_in_progress &&
                                         fs::is_regular_file(current_identity().executable))));
         EnableWindow(find_control(AddLibraryButton),
@@ -1494,6 +1688,7 @@ public:
 
     void finish_operation(const std::wstring& status)
     {
+        track_placement(true);
         if (!session.running() && !session.output_pending())
         {
             session.release_completed();
@@ -1507,7 +1702,7 @@ public:
         }
         phase = Phase::Idle;
         program_started = false;
-        operation_in_progress = false;
+        operation_in_progress = candidate_pending;
         stop_requested = false;
         automatic_program_pending = false;
         SetWindowTextW(find_control(StatusLabel), status.c_str());
@@ -1595,6 +1790,20 @@ public:
         }
 #endif
         launch_latest = false;
+        running_configuration = selected_configuration();
+        running_target = options.target;
+        placement_sample.clear();
+        if (!auto_run_preferences.restore_windows)
+        {
+            previous_windows.clear();
+        }
+        else if (previous_windows.empty())
+        {
+            previous_windows = placement_memory.recall(active_project_directory,
+                running_configuration,
+                running_target,
+                auto_run_preferences.placement_memory);
+        }
         restore_started = previous_windows.empty() ? 0 : GetTickCount64();
         restored_windows.clear();
         program_decoder.reset();
@@ -1869,6 +2078,7 @@ public:
         {
             return;
         }
+        track_placement();
         poll_watcher();
         poll_auto_run();
         if (phase == Phase::Idle && run_requested && !auto_build.pending() && !close_requested)
@@ -2151,6 +2361,11 @@ public:
 
     void stop()
     {
+        track_placement(true);
+        if (candidate_pending)
+        {
+            discard_candidate(L"Replacement cancelled by Stop.");
+        }
         auto_launch_armed = false;
         automatic_program_pending = false;
         update_automatic_controls();
@@ -2280,7 +2495,8 @@ public:
 
     void start_replacement_build()
     {
-        if (replacement_building || replacement_stopping || stop_requested || project_dialog_open)
+        if (replacement_building || replacement_stopping || candidate_pending || stop_requested ||
+            project_dialog_open)
         {
             return;
         }
@@ -2352,10 +2568,11 @@ public:
             auto_run_trace("shutdown");
         }
 #endif
-        previous_windows =
-            auto_run_preferences.restore_windows
-                ? cpplivelab::capture_application_windows(session.active_process_ids())
-                : std::vector<cpplivelab::ApplicationWindow>{};
+        track_placement(true);
+        previous_windows = placement_memory.recall(active_project_directory,
+            selected_configuration(),
+            replacement_options.target,
+            auto_run_preferences.placement_memory);
         cpplivelab::close_application_windows(session.active_process_ids());
         session.close_input();
         input_closed = true;
@@ -2367,6 +2584,11 @@ public:
 
     void complete_program_restart()
     {
+        if (candidate_pending && candidate_ready)
+        {
+            promote_candidate();
+            return;
+        }
 #ifdef CPPLIVELAB_GUI_TEST
         if (auto_run_trace)
         {
@@ -2406,8 +2628,307 @@ public:
         request_environment();
     }
 
+    void track_placement(bool flush = false)
+    {
+        if (!program_started || running_target.empty() || restore_started ||
+            !auto_run_preferences.restore_windows)
+        {
+            return;
+        }
+        const auto now = GetTickCount64();
+        if (!flush && now - placement_sampled < 500)
+        {
+            return;
+        }
+        placement_sampled = now;
+        const auto windows = cpplivelab::capture_application_windows(session.active_process_ids());
+        // Require two consecutive samples before accepting transient startup/resize
+        // geometry. Explicit Stop captures the latest valid geometry before WM_CLOSE.
+        const bool stable = windows.size() == placement_sample.size() &&
+                            std::equal(windows.begin(),
+                                windows.end(),
+                                placement_sample.begin(),
+                                [](const auto& first, const auto& second)
+                                {
+                                    return first.class_name == second.class_name &&
+                                           EqualRect(&first.bounds, &second.bounds) &&
+                                           first.placement.showCmd == second.placement.showCmd &&
+                                           first.minimized == second.minimized;
+                                });
+        placement_sample = windows;
+        try
+        {
+            placement_memory.remember(active_project_directory,
+                running_configuration,
+                running_target,
+                auto_run_preferences.placement_memory,
+                stable || flush ? windows : std::vector<cpplivelab::ApplicationWindow>{},
+                flush);
+        }
+        catch (const std::exception& error)
+        {
+            if (!placement_warning)
+            {
+                log(cpplivelab::MessageKind::Warning, decode_console_text(error.what()));
+                placement_warning = true;
+            }
+        }
+    }
+
+    void finish_candidate_discard()
+    {
+        if (candidate_session.running() || candidate_session.output_pending())
+        {
+            return;
+        }
+        candidate_session.release_completed();
+        candidate_lease.reset();
+        candidate_pending = candidate_discarding = false;
+        if (phase == Phase::Idle)
+        {
+            operation_in_progress = false;
+        }
+        refresh();
+    }
+
+    void discard_candidate(const std::wstring& reason)
+    {
+        candidate_session.stop();
+        // TerminateJobObject is asynchronous. Keep both the slot lease and async
+        // pipe buffers until the job is gone and output has drained on later ticks.
+        candidate_ready = false;
+        candidate_discarding = true;
+        replacement_ready = replacement_stopping = false;
+        candidate_restored.clear();
+        log(cpplivelab::MessageKind::Warning,
+            reason + L" Use Safe Replacement for incompatible applications.");
+        if (!candidate_stderr.empty())
+        {
+            log(cpplivelab::MessageKind::Error, decode_console_text(candidate_stderr));
+        }
+        if (!candidate_stdout.empty())
+        {
+            log(cpplivelab::MessageKind::System, decode_console_text(candidate_stdout));
+        }
+        finish_candidate_discard();
+        refresh();
+    }
+
+    void start_candidate(const fs::path& executable)
+    {
+        candidate_stdout.clear();
+        candidate_stderr.clear();
+        candidate_restored.clear();
+        candidate_ready = false;
+        candidate_discarding = false;
+        candidate_pending = true;
+        candidate_started = GetTickCount64();
+        candidate_visible = 0;
+        try
+        {
+            const auto directory = cpplivelab::managed_build_directory(
+                active_project_directory, selected_configuration(), replacement_options);
+            candidate_lease = std::make_unique<cpplivelab::BuildLease>(directory);
+            candidate_placement =
+                running_configuration == selected_configuration() &&
+                        running_target == replacement_options.target
+                    ? cpplivelab::capture_application_windows(session.active_process_ids())
+                    : std::vector<cpplivelab::ApplicationWindow>{};
+            // Historical GUI placement must not turn a console-only process into
+            // a GUI readiness requirement after a project changes executable type.
+            candidate_needs_window =
+                !candidate_placement.empty() || cpplivelab::expects_application_window(executable);
+            track_placement(true);
+            if (auto_run_preferences.restore_windows)
+            {
+                candidate_placement = placement_memory.recall(active_project_directory,
+                    selected_configuration(),
+                    replacement_options.target,
+                    auto_run_preferences.placement_memory);
+            }
+            candidate_session.start_program(executable,
+                replacement_options.arguments,
+                replacement_options.working_directory.empty()
+                    ? active_project_directory
+                    : replacement_options.working_directory,
+                cpplivelab::runtime_environment(program_environment, directory),
+                true);
+            log(cpplivelab::MessageKind::System,
+                L"Seamless: checking replacement startup; previous application retained.");
+        }
+        catch (const std::exception& error)
+        {
+            discard_candidate(L"Replacement launch failed: " + decode_console_text(error.what()));
+        }
+    }
+
+    void promote_candidate()
+    {
+        if (!candidate_session.running() || candidate_session.root_exited())
+        {
+            discard_candidate(L"Replacement exited before handoff.");
+            return;
+        }
+        // The candidate was already launched fresh. A later edit must not promote
+        // an obsolete result after the old application's graceful-close interval.
+        if (replacement_sources !=
+            cpplivelab::ProjectWatcher::source_fingerprints(active_project_directory))
+        {
+            discard_candidate(L"Newer source changes arrived before handoff.");
+            auto_build.notify(GetTickCount64());
+            return;
+        }
+        // Do not exchange ownership until the old job and its pipes are drained.
+        if (session.running() || session.output_pending())
+        {
+            return;
+        }
+        try
+        {
+            cpplivelab::activate_build_slot(
+                active_project_directory, selected_configuration(), replacement_options);
+            freshness.succeeded(current_identity(), replacement_sources);
+        }
+        catch (const std::exception& error)
+        {
+            discard_candidate(
+                L"Replacement activation failed: " + decode_console_text(error.what()));
+            return;
+        }
+        session.swap(candidate_session);
+        program_lease.swap(candidate_lease);
+        candidate_session.release_completed();
+        candidate_lease.reset();
+        candidate_pending = candidate_ready = replacement_ready = replacement_stopping = false;
+        program_started = operation_in_progress = true;
+        stop_requested = input_closed = false;
+        phase = Phase::Running;
+        running_configuration = selected_configuration();
+        running_target = replacement_options.target;
+        restore_started = 0;
+        previous_windows.clear();
+        restored_windows.clear();
+        placement_sample.clear();
+        program_decoder.reset();
+        error_decoder.reset();
+        error_line_start = true;
+        append_program_output(program_decoder.append(candidate_stdout), false);
+        append_program_output(error_decoder.append(candidate_stderr), true);
+        candidate_stdout.clear();
+        candidate_stderr.clear();
+        log(cpplivelab::MessageKind::Success,
+            L"Seamless replacement active; previous process closed.");
+        SetWindowTextW(find_control(StatusLabel), L"Running - input below");
+        refresh();
+    }
+
+    void poll_candidate()
+    {
+        if (!candidate_pending)
+        {
+            return;
+        }
+        for (const auto& chunk : candidate_session.poll_output())
+        {
+            auto& text = chunk.stream == cpplivelab::OutputStream::StandardError ? candidate_stderr
+                                                                                 : candidate_stdout;
+            text += chunk.bytes;
+            if (text.size() > 65536)
+            {
+                text.erase(0, text.size() - 65536);
+            }
+        }
+        if (candidate_discarding)
+        {
+            finish_candidate_discard();
+            return;
+        }
+        if (candidate_session.root_exited() || !candidate_session.running())
+        {
+            discard_candidate(L"Replacement startup exited (code " +
+                              std::to_wstring(candidate_session.exit_code()) +
+                              L"); previous application retained where available.");
+            return;
+        }
+        if (candidate_ready)
+        {
+            if (!session.running() && !session.output_pending())
+            {
+                promote_candidate();
+            }
+            return;
+        }
+        if (!automatic_launch_allowed())
+        {
+            discard_candidate(L"Automatic replacement disarmed.");
+            return;
+        }
+        const auto now = GetTickCount64();
+        const auto windows =
+            cpplivelab::capture_application_windows(candidate_session.active_process_ids());
+        if (!windows.empty() && !candidate_visible)
+        {
+            candidate_visible = now;
+        }
+        if (now - candidate_started >= 15000)
+        {
+            discard_candidate(L"Replacement readiness timed out; previous application retained.");
+            return;
+        }
+        // Placement is independent of startup readiness: use the first visible
+        // window, while retaining the old application through the safety interval.
+        if (auto_run_preferences.restore_windows && (candidate_needs_window || !windows.empty()))
+        {
+            track_placement();
+            const auto latest = placement_memory.recall(active_project_directory,
+                selected_configuration(),
+                replacement_options.target,
+                auto_run_preferences.placement_memory);
+            if (!latest.empty())
+            {
+                candidate_placement = latest;
+            }
+            if (cpplivelab::restore_application_windows(candidate_session.active_process_ids(),
+                    candidate_placement,
+                    candidate_restored,
+                    true) < candidate_placement.size())
+            {
+                return;
+            }
+        }
+        if (now - candidate_started < 1000 ||
+            (candidate_needs_window && (!candidate_visible || now - candidate_visible < 250)))
+        {
+            return;
+        }
+        if (replacement_sources !=
+            cpplivelab::ProjectWatcher::source_fingerprints(active_project_directory))
+        {
+            discard_candidate(L"Replacement superseded by a newer save.");
+            auto_build.notify(now);
+            return;
+        }
+        candidate_ready = true;
+        log(cpplivelab::MessageKind::Success,
+            L"Seamless replacement ready; closing previous process gracefully.");
+        if (session.running())
+        {
+            cpplivelab::close_application_windows(session.active_process_ids());
+            session.close_input();
+            input_closed = true;
+            replacement_stopping = true;
+            shutdown_started = now;
+            refresh();
+        }
+        else
+        {
+            promote_candidate();
+        }
+    }
+
     void poll_auto_run()
     {
+        poll_candidate();
         if (graceful_stop_pending && session.running() &&
             GetTickCount64() - shutdown_started >= auto_run_preferences.shutdown_ms)
         {
@@ -2489,7 +3010,15 @@ public:
                         replacement_ready = true;
                         if (program_started && session.running())
                         {
-                            request_program_restart();
+                            if (auto_run_preferences.replacement_mode ==
+                                cpplivelab::ReplacementMode::Seamless)
+                            {
+                                start_candidate(selected->artifact);
+                            }
+                            else
+                            {
+                                request_program_restart();
+                            }
                         }
                         else
                         {
@@ -2510,6 +3039,11 @@ public:
             }
             else
             {
+                if (candidate_pending)
+                {
+                    discard_candidate(
+                        L"Previous application refused graceful shutdown; replacement cancelled.");
+                }
                 replacement_stopping = false;
                 replacement_ready = false;
                 previous_windows.clear();
@@ -2617,7 +3151,8 @@ public:
                                 : build_id + L": Building; one follow-up Build Pending");
         }
         if (auto_run_preferences.enabled && program_started && phase == Phase::Running &&
-            auto_build.ready(now, replacement_building || replacement_stopping, true))
+            auto_build.ready(
+                now, replacement_building || replacement_stopping || candidate_pending, true))
         {
             try
             {
@@ -2855,6 +3390,11 @@ public:
             appearance_dialog();
             return;
         }
+        if (control_id == WindowPreferencesMenu)
+        {
+            window_preferences_dialog();
+            return;
+        }
         if (control_id == BuildPreferencesMenu)
         {
             build_preferences_dialog();
@@ -2968,6 +3508,10 @@ public:
         }
         if (control_id == ProgramRestartButton)
         {
+            if (candidate_pending)
+            {
+                return;
+            }
             auto_launch_armed = true;
             automatic_program_pending = false;
             if (program_started && !replacement_building && !replacement_stopping)

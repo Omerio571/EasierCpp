@@ -26,6 +26,8 @@ class ConsoleSession
 public:
     ConsoleSession();
     ~ConsoleSession();
+    // Exchange whole heap-owned jobs/pipes; pending async buffers keep their addresses.
+    void swap(ConsoleSession& other) noexcept;
     ConsoleSession(const ConsoleSession&) = delete;
     ConsoleSession& operator=(const ConsoleSession&) = delete;
     // Starts one suspended child, assigns it to an owned Windows job, then resumes it.
@@ -44,7 +46,8 @@ public:
     void start_program(const std::filesystem::path& executable,
         const std::vector<std::wstring>& arguments,
         const std::filesystem::path& directory,
-        const Environment& environment);
+        const Environment& environment,
+        bool avoid_activation = false);
     std::vector<ProcessOutput> poll_output();
     // Drain a bounded amount of available output without waiting for more bytes.
     // Call again on a later UI timer tick to keep the message loop responsive.
@@ -76,7 +79,8 @@ private:
         const std::vector<std::wstring>& arguments,
         const std::filesystem::path& directory,
         const Environment& environment,
-        bool separate_stderr);
+        bool separate_stderr,
+        bool avoid_activation = false);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

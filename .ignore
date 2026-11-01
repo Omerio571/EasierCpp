@@ -1,0 +1,4 @@
+# Search-only exclusions; keep historical evidence on disk and in Git.
+*.log
+docs/reports/**/phase*-measurements/
+docs/reports/**/measurements/

@@ -50,6 +50,8 @@ struct FormOptions
     std::function<void(const std::filesystem::path&)> forget_recent;
     std::function<std::wstring(const std::vector<FormField>&)> validate;
     std::function<void(std::vector<FormField>&)> changed;
+    std::wstring action_label;
+    std::function<void(HWND, std::vector<FormField>&)> action;
     std::function<std::optional<std::string>(HWND)> add_github_library;
 };
 

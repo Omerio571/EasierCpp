@@ -5,7 +5,8 @@ param(
     [ValidateRange(3,30)][int]$Samples = 10,
     [switch]$PrecompiledHeaders,
     [switch]$IncrementalAssets,
-    [switch]$FullLink
+    [switch]$FullLink,
+    [switch]$ProjectCmake
 )
 $ErrorActionPreference = 'Stop'
 $ExecutableDirectory = [IO.Path]::GetFullPath($ExecutableDirectory)
@@ -20,6 +21,9 @@ $originalHashes = @{}
 $inputs = @((Get-Item (Join-Path $FarmGameDirectory 'CMakeLists.txt')))
 foreach ($name in @('Source','Include','Assets')) {
     $inputs += Get-ChildItem -LiteralPath (Join-Path $FarmGameDirectory $name) -Recurse -File
+}
+if (Test-Path -LiteralPath (Join-Path $FarmGameDirectory 'cmake')) {
+    $inputs += Get-ChildItem -LiteralPath (Join-Path $FarmGameDirectory 'cmake') -Recurse -File
 }
 foreach ($file in $inputs) {
     if ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse-point input refused.' }
@@ -70,7 +74,15 @@ add_custom_command(TARGET FarmGame POST_BUILD
 '@
     $cmake = $cmake.Replace('@LIBRARY@',$library.Replace('\','/')).Replace('@HEADERS@',$headers.Replace('\','/'))
     $cmake = $cmake.Replace('@INCREMENTAL_ASSETS@',$(if ($IncrementalAssets) { 'ON' } else { 'OFF' }))
-    if ($PrecompiledHeaders) {
+    if ($ProjectCmake) {
+        $cmake = [IO.File]::ReadAllText((Join-Path $FarmGameDirectory 'CMakeLists.txt'))
+        $population = 'FetchContent_MakeAvailable(raylib)'
+        if (-not $cmake.Contains($population)) { throw 'Expected raylib population statement not found.' }
+        $import = "add_library(raylib STATIC IMPORTED)`nset_target_properties(raylib PROPERTIES IMPORTED_LOCATION `"$($library.Replace('\','/'))`" INTERFACE_INCLUDE_DIRECTORIES `"$($headers.Replace('\','/'))`")`nset_property(TARGET raylib PROPERTY INTERFACE_LINK_LIBRARIES opengl32 glu32 winmm)`n"
+        $import += "set(FARMGAME_USE_PCH $(if ($PrecompiledHeaders) { 'ON' } else { 'OFF' }) CACHE BOOL `"Benchmark configuration`" FORCE)`n"
+        $cmake = $cmake.Replace($population,$import)
+        $cmake += "`ntarget_link_options(FarmGame PRIVATE /VERBOSE:INCR)`n"
+    } elseif ($PrecompiledHeaders) {
         $cmake += "`ntarget_precompile_headers(FarmGame PRIVATE <string> <vector> <iostream> <cmath> <raylib.h> <raymath.h>)`n"
     }
     if ($FullLink) { $cmake += "`ntarget_link_options(FarmGame PRIVATE /INCREMENTAL:NO)`n" }

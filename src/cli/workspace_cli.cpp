@@ -14,7 +14,7 @@ std::optional<int> workspace_command(int argc, wchar_t** argv)
     const std::wstring command = argv[1];
     if (command != L"inspect" && command != L"manage-build" && command != L"manage-run" &&
         command != L"new" && command != L"targets" && command != L"edit" &&
-        command != L"manage-rebuild")
+        command != L"manage-rebuild" && command != L"pch-config")
     {
         return {};
     }
@@ -38,15 +38,20 @@ std::optional<int> workspace_command(int argc, wchar_t** argv)
         {
             throw std::invalid_argument("Missing option value or duplicate option.");
         }
-        if (option != L"--config" && option != L"--preset" && option != L"--target" &&
-            option != L"--working-dir" && option != L"--vcpkg" && option != L"--template" &&
-            option != L"--library" && option != L"--transaction" && option != L"--build-slot")
+        if (option != L"--recipe" && option != L"--config" && option != L"--preset" &&
+            option != L"--target" && option != L"--working-dir" && option != L"--vcpkg" &&
+            option != L"--template" && option != L"--library" && option != L"--transaction" &&
+            option != L"--build-slot")
         {
             throw std::invalid_argument("Unknown Stage 5 option.");
         }
         arguments.emplace(option, argv[index]);
     }
     const auto root = std::filesystem::path(argv[2]);
+    if (arguments.contains(L"--recipe") && command != L"pch-config")
+    {
+        throw std::invalid_argument("--recipe is only supported by pch-config.");
+    }
     const auto configuration = arguments.contains(L"--config") ? arguments[L"--config"] : L"Debug";
     if (command == L"new")
     {
@@ -58,6 +63,18 @@ std::optional<int> workspace_command(int argc, wchar_t** argv)
         return 0;
     }
     const auto inspected = inspect_project(root);
+    if (command == L"pch-config")
+    {
+        if (!arguments.contains(L"--recipe"))
+        {
+            throw std::invalid_argument("Use --recipe <trusted-file.cmake|off>.");
+        }
+        configure_project_pch(inspected.root,
+            configuration,
+            arguments[L"--recipe"] == L"off" ? std::filesystem::path{}
+                                             : std::filesystem::absolute(arguments[L"--recipe"]));
+        return 0;
+    }
     if (command == L"inspect")
     {
         std::cout << "Read-only CMake project: " << path_support::path_utf8(inspected.root)

@@ -2,6 +2,7 @@
 #include "projects/project_templates.hpp"
 #include "projects/project_paths.hpp"
 #include "build/build_lease.hpp"
+#include "build/build_workers.hpp"
 #include "cpplivelab/doctor.hpp"
 #include "cpplivelab/process.hpp"
 #define WIN32_LEAN_AND_MEAN
@@ -121,6 +122,8 @@ int build_project(const fs::path& input,
     const fs::path& executable,
     bool incremental)
 {
+    initialize_build_workers();
+    const auto build_workers = load_build_workers();
     if (configuration != "Debug" && configuration != "Release")
     {
         throw std::runtime_error("Configuration must be Debug or Release.");
@@ -233,10 +236,10 @@ int build_project(const fs::path& input,
             return exit_code;
         }
     }
-    exit_code = run_process(cmake_executable,
-        {L"--build", build_output_directory.wstring()},
-        cmake_source_directory,
-        child_environment);
+    std::vector<std::wstring> build_arguments{L"--build", build_output_directory.wstring()};
+    append_build_workers(build_arguments, build_workers);
+    exit_code =
+        run_process(cmake_executable, build_arguments, cmake_source_directory, child_environment);
     if (exit_code != 0)
     {
         std::cerr << "Compilation failed (exit " << exit_code << "). Program was not run.\n";

@@ -7,6 +7,7 @@
 #include "projects/directory_scan.hpp"
 #include "build/build_lease.hpp"
 #include "build/build_profile.hpp"
+#include "build/build_workers.hpp"
 #include "projects/project_paths.hpp"
 #include <algorithm>
 #include <fstream>
@@ -68,6 +69,16 @@ std::string key(const fs::path& path)
         character = static_cast<wchar_t>(std::towlower(character));
     }
     return text_key(canonical);
+}
+
+std::wstring profile_key(const ProjectOptions& options)
+{
+    auto identity = options.preset + L"|" + options.vcpkg.wstring();
+    if (!options.pch_config.empty())
+    {
+        identity += L"|pch:" + options.pch_config.wstring();
+    }
+    return wide(text_key(identity));
 }
 
 void write(const fs::path& path, const std::string& text)
@@ -379,9 +390,8 @@ fs::path managed_build_directory(
 {
     configuration_valid(configuration);
     // Presets/toolchains have distinct caches; never reuse an IDE's build directory.
-    const auto base = workspace_directory(root) /
-                      (L"build-" + configuration + L"-" +
-                          wide(text_key(options.preset + L"|" + options.vcpkg.wstring())));
+    const auto base =
+        workspace_directory(root) / (L"build-" + configuration + L"-" + profile_key(options));
     if (fs::weakly_canonical(base).parent_path() != fs::weakly_canonical(workspace_directory(root)))
     {
         throw std::runtime_error("Managed build directory redirects outside its owned workspace.");
@@ -468,9 +478,8 @@ int recover_managed_build(const fs::path& root,
         std::cerr << "Recovery failed; original active build and diagnostics preserved.\n";
         return result;
     }
-    const auto base = workspace_directory(root) /
-                      (L"build-" + configuration + L"-" +
-                          wide(text_key(options.preset + L"|" + options.vcpkg.wstring())));
+    const auto base =
+        workspace_directory(root) / (L"build-" + configuration + L"-" + profile_key(options));
     const auto temporary = fs::path(base.wstring() + L".active-new");
     write(temporary, narrow(fresh.recovery_slot));
     if (!MoveFileExW(temporary.c_str(),
@@ -514,6 +523,11 @@ ProjectOptions load_project_options(const fs::path& root, const std::wstring& co
             options.arguments.push_back(wide(argument));
         }
     }
+    std::string pch;
+    if (input >> std::quoted(pch))
+    {
+        options.pch_config = path_support::from_utf8(pch);
+    }
     // Authorization for configure-time writes is deliberately never persisted.
     return options;
 }
@@ -536,8 +550,51 @@ void save_project_options(
     {
         data << std::quoted(narrow(argument)) << '\n';
     }
+    data << std::quoted(path_support::path_utf8(options.pch_config)) << '\n';
     write(workspace_directory(root) / (configuration + L".settings"), data.str());
     write(workspace_directory(root) / L"last-config.txt", narrow(configuration));
+}
+
+void configure_project_pch(
+    const fs::path& root, const std::wstring& configuration, const fs::path& recipe)
+{
+    const auto project = inspect_project(root);
+    const BuildLease gate(workspace_directory(project.root) / L"library-mutation");
+    auto options = load_project_options(project.root, configuration);
+    // Configuration changes cannot race a running executable or active worker.
+    std::vector<std::unique_ptr<BuildLease>> leases;
+    const auto prefix = L"build-" + configuration + L"-" + profile_key(options);
+    for (const auto& entry : fs::directory_iterator(workspace_directory(project.root)))
+    {
+        const auto name = entry.path().filename().wstring();
+        if (entry.is_directory() && (name == prefix || name.starts_with(prefix + L"-")))
+        {
+            leases.push_back(std::make_unique<BuildLease>(entry.path()));
+        }
+    }
+    options.pch_config.clear();
+    if (!recipe.empty())
+    {
+        if (!fs::is_regular_file(recipe) || fs::file_size(recipe) > 1024 * 1024)
+        {
+            throw std::runtime_error("PCH recipe must be an existing CMake file below 1 MiB.");
+        }
+        const auto content = read(recipe);
+        const auto destination = workspace_directory(project.root) / L"pch" /
+                                 (wide(text_key(wide(content))) + L".cmake");
+        if (fs::exists(destination) && read(destination) != content)
+        {
+            throw std::runtime_error("PCH recipe snapshot collision; original retained.");
+        }
+        if (!fs::exists(destination))
+        {
+            write(destination, content);
+        }
+        options.pch_config = destination;
+    }
+    save_project_options(project.root, configuration, options);
+    std::cout << "PCH configuration " << (recipe.empty() ? "disabled" : "saved")
+              << ". Reopen the project before its next build.\n";
 }
 
 std::vector<ExecutableTarget> executable_targets(
@@ -584,6 +641,8 @@ int managed_build(const fs::path& root,
     bool incremental)
 {
     BuildProfile profile;
+    initialize_build_workers();
+    const auto build_workers = load_build_workers();
     const auto project = inspect_project(root);
     profile.checkpoint("project_inspection_ms");
     std::unique_ptr<BuildLease> project_gate;
@@ -719,6 +778,26 @@ int managed_build(const fs::path& root,
     // Windows long-path regeneration failure. Explicit project policy settings
     // still win. Older CMake simply has no such policy; project files stay intact.
     configure.push_back(L"-DCMAKE_POLICY_DEFAULT_CMP0168=NEW");
+    if (!options.pch_config.empty())
+    {
+        if (!options.preset.empty() && options.preset != L"-")
+        {
+            // Preset include hooks may carry package-manager/toolchain setup.
+            // Never replace them to install an optional optimization.
+            std::cout << "PCH overlay skipped for explicit preset; retain its own PCH/hooks.\n";
+        }
+        else
+        {
+            if (!fs::is_regular_file(options.pch_config))
+            {
+                throw std::runtime_error("PCH snapshot missing; disable or reapply pch-config.");
+            }
+            configure.push_back(L"-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=" +
+                                (fs::path(CPPLIVELAB_SOURCE_DIR) / L"cmake/EasierCppPchHook.cmake")
+                                    .generic_wstring());
+            configure.push_back(L"-DEASIERCPP_PCH_CONFIG=" + options.pch_config.generic_wstring());
+        }
+    }
     std::vector<std::unique_ptr<BuildLease>> source_leases;
     for (const auto& record : project_libraries(project.root, options.library_transaction))
     {
@@ -887,6 +966,7 @@ int managed_build(const fs::path& root,
     }
     profile.checkpoint("artifact_before_ms");
     profile.ninja_begin(directory);
+    append_build_workers(arguments, build_workers);
     result = run_process(cmake, arguments, project.root, environment);
     profile.checkpoint("ninja_wall_ms");
     profile.ninja_end();

@@ -1,4 +1,5 @@
 #include "cpplivelab/doctor.hpp"
+#include "build/build_workers.hpp"
 #include "cpplivelab/projects.hpp"
 #include "build/build_lease.hpp"
 #include "build/build_profile.hpp"
@@ -24,6 +25,8 @@ int wmain(int argc, wchar_t** argv)
                    "Run builds first, then launches with console input/output. Default "
                    "config: Debug.\n"
                    "Stage 5 isolated workflows:\n"
+                   "  pch-config <folder> --recipe <trusted-file.cmake|off> [--config "
+                   "Debug|Release]\n"
                    "  inspect <folder> | targets <folder> | edit <folder>\n"
                    "  new <folder> [--template empty|multi] [--library fmt,nlohmann_json]\n"
                    "  manage-build|manage-run <folder> [--config Debug|Release]\n"
@@ -36,6 +39,11 @@ int wmain(int argc, wchar_t** argv)
         if (const auto result = workspace_command(argc, argv))
         {
             return *result;
+        }
+        if (argc == 3 && command == L"optimize-workers")
+        {
+            cpplivelab::benchmark_build_workers(argv[2]);
+            return 0;
         }
         if (argc == 2 && command == L"--version")
         {

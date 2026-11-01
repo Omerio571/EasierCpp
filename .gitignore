@@ -36,6 +36,10 @@ build.ninja
 *.exp
 *.pdb
 *.ilk
+*.pch
+*.gch
+*.pchi
+_deps/
 
 # Visual Studio user-specific settings.
 *.user

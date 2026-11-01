@@ -9,10 +9,20 @@ and build recovery, follow [GENERATED_PROJECT_STANDARDS.md](GENERATED_PROJECT_ST
 All future templates inherit CODING_STYLE.md and .clang-format. Fresh GitHub Add
 fields start empty. Preserve imported projects and require explicit recovery approval.
 
-For ALL UI work, read and follow [UI_DESIGN_GUIDELINES.md](UI_DESIGN_GUIDELINES.md)
+For ALL UI work, read and follow [UI_DESIGN_GUIDELINES.md](docs/design/UI_DESIGN_GUIDELINES.md)
 before implementation. This applies to every future stage. Reuse shared Win32 styling,
 keep one settings destination and one action/state implementation, preserve customized
 palettes, and add relevant native-control and manual acceptance tests.
+
+## Efficient navigation
+
+Start with `git status --short` and [the architecture map](docs/development/ARCHITECTURE_MAP.md).
+Read only guidance/source sections relevant to the change; no full-repository or
+historical-report reading is required. Use targeted `rg -n` symbol searches, then small
+surrounding sections. Respect search ignores; use `--no-ignore` only on a specific
+generated/dependency path under investigation. Avoid unnecessary plugins and repeated
+documentation lookups. Save verbose output under build/ and show concise results or
+the relevant failure tail.
 
 ## Readable C++20
 
@@ -43,13 +53,17 @@ palettes, and add relevant native-control and manual acceptance tests.
 
 ## Verification and handoff
 
-- Apply formatting: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\format.ps1`.
-- Check it: use the same command with `-Check`.
+- Format changed maintained C++ with discovered clang-format (`-i`, then
+  `--dry-run --Werror` on those files). Full `scripts/format.ps1`/`-Check` remains
+  available for repository-wide work; do not reformat unrelated edits.
 - Build/test: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Doctor`.
   Close the manager GUI before rebuilding its executable; do not force-close Visual
   Studio or unrelated processes. If an owned operation is active, stop it safely first.
-- Run targeted regressions for behavior fixes, then the full existing suite. Never
-  claim an unexecuted test passed. Report failures and anything not verified.
+- Run focused regressions while iterating, Quick at component/integration boundaries,
+  and applicable Full at integration milestones or broad lifecycle/toolchain/build
+  changes. Do not repeat full suites for localized/docs-only follow-ups without a
+  concrete reason. Respect network-test approval restrictions and report filtered
+  scope precisely. Never claim an unexecuted test passed.
 - Check `git status`, generated-file ignores and `git diff --check`. Do not discard
   existing changes, delete `.vs`, or run destructive Git cleanup.
 - Give beginner-friendly manual checks and expected results. Leave the final review,

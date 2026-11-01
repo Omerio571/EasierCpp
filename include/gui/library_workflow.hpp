@@ -25,7 +25,8 @@ bool run_library_task(HWND owner,
     const std::vector<std::wstring>& arguments,
     const std::filesystem::path& directory,
     const LibraryOutput& output,
-    ULONGLONG timeout_ms = 900000);
+    ULONGLONG timeout_ms = 900000,
+    const std::wstring& task_title = {});
 // Discovery is passive. A separate confirmation is required before configuring
 // third-party CMake. Only a successful link probe registers an integration.
 std::optional<std::string> github_library_dialog(HWND owner,

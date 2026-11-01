@@ -396,6 +396,7 @@ int wmain(int argc, wchar_t** argv)
                         {EditorSettingsMenu, "editor"},
                         {ManageLibrariesMenu, "library-manager"},
                         {BuildPreferencesMenu, "build-preferences"},
+                        {WindowPreferencesMenu, "window-preferences"},
                         {AppearanceMenu, "appearance"},
                         {ReviewErrorsMenu, "build-errors"},
                         {RecoverBuildMenu, "fresh-build-recovery"},

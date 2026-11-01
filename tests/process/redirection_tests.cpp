@@ -2,6 +2,7 @@
 #include "cpplivelab/libraries.hpp"
 #include "cpplivelab/session.hpp"
 #include "cpplivelab/process.hpp"
+#include "build/build_workers.hpp"
 #include "../workspace_test_support.hpp"
 #include <fstream>
 #include <iostream>
@@ -27,6 +28,36 @@ void write(const fs::path& path, const std::string& text)
 
 void unit(const fs::path& root)
 {
+    require(load_build_workers().count == 0, "Missing worker preference changed native defaults");
+    initialize_build_workers();
+    require(load_build_workers().count && load_build_workers().count <= maximum_build_workers(),
+        "Fresh configuration did not select safe automatic workers");
+    fs::remove(manager_state_directory() / L"build-workers.settings");
+    fs::create_directories(manager_state_directory() / L"projects");
+    initialize_build_workers();
+    require(load_build_workers().count == 0,
+        "Legacy workspace default was changed before manual selection");
+    require(build_worker_limit(64, 64ull << 30) == 64 &&
+                build_worker_limit(128, 256ull << 30) == 128 &&
+                build_worker_limit(64, 2ull << 30) == 1 && build_worker_limit(0, 0) == 1,
+        "Compilation worker limits hardcode 16 or ignore CPU/memory safety");
+    require(worker_benchmark_units(1) == 12 && worker_benchmark_units(24) == 48 &&
+                worker_benchmark_units(32) == 64 && worker_benchmark_units(128) == 64,
+        "Synthetic workload does not support high-core candidates or lacks a work bound");
+    std::vector<std::wstring> worker_arguments{L"--build", L"fixture"};
+    append_build_workers(worker_arguments, {});
+    require(worker_arguments.size() == 2, "Legacy worker preference overrides native jobs");
+    save_build_workers({1, 0});
+    require(load_build_workers().count == 1, "Compilation workers did not persist");
+    append_build_workers(worker_arguments, load_build_workers());
+    require(worker_arguments[2] == L"--parallel" && worker_arguments[3] == L"1",
+        "One worker was not passed to CMake");
+    const auto multiple = (std::min)(2u, maximum_build_workers());
+    save_build_workers({multiple, multiple});
+    worker_arguments.clear();
+    append_build_workers(worker_arguments, load_build_workers());
+    require(worker_arguments == std::vector<std::wstring>{L"--parallel", std::to_wstring(multiple)},
+        "Multiple workers not passed to CMake");
     const RECT old_work{-1920, -1080, 0, 0};
     const RECT new_work{0, 0, 1280, 720};
     const auto moved = visible_window_bounds({-960, -1080, 0, 0}, old_work, new_work);
@@ -38,6 +69,80 @@ void unit(const fs::path& root)
     AutoRunPreferences settings{true, true, false, 1234};
     save_auto_run_preferences(root, settings);
     const auto loaded = load_auto_run_preferences(root);
+    require(loaded.placement_memory == PlacementMemory::Persistent &&
+                loaded.replacement_mode == ReplacementMode::Safe,
+        "New preference defaults or round trip failed");
+    write(workspace_directory(root / L"legacy") / L"auto-run.settings", "0 1 0 3000\n");
+    require(
+        load_auto_run_preferences(root / L"legacy").placement_memory == PlacementMemory::Session,
+        "Legacy window restoration preference was not migrated");
+    settings.placement_memory = PlacementMemory::Off;
+    settings.replacement_mode = ReplacementMode::Seamless;
+    save_auto_run_preferences(root / L"modes", settings);
+    const auto modes = load_auto_run_preferences(root / L"modes");
+    require(!modes.restore_windows && modes.replacement_mode == ReplacementMode::Seamless,
+        "Independent placement/replacement preferences did not persist");
+    for (const auto placement :
+        {PlacementMemory::Off, PlacementMemory::Session, PlacementMemory::Persistent})
+    {
+        for (const auto replacement : {ReplacementMode::Safe, ReplacementMode::Seamless})
+        {
+            AutoRunPreferences combination;
+            combination.placement_memory = placement;
+            combination.restore_windows = placement != PlacementMemory::Off;
+            combination.replacement_mode = replacement;
+            save_auto_run_preferences(root / L"combinations", combination);
+            const auto round_trip = load_auto_run_preferences(root / L"combinations");
+            require(round_trip.placement_memory == placement &&
+                        round_trip.replacement_mode == replacement,
+                "Placement/replacement preference combination changed during persistence");
+        }
+    }
+    ApplicationWindow remembered;
+    remembered.class_name = L"Memory fixture";
+    remembered.title = L"Unicode \u03bb";
+    remembered.monitor = L"Disconnected monitor";
+    remembered.bounds = {-800, -900, -200, -400};
+    remembered.placement.rcNormalPosition = remembered.bounds;
+    remembered.placement.showCmd = SW_SHOWMAXIMIZED;
+    remembered.work_area = old_work;
+    remembered.monitor_area = old_work;
+    WindowPlacementMemory memory;
+    memory.remember(root, L"Debug", L"app", PlacementMemory::Session, {remembered}, true);
+    require(memory.recall(root, L"Debug", L"app", PlacementMemory::Session).size() == 1 &&
+                WindowPlacementMemory{}
+                    .recall(root, L"Debug", L"app", PlacementMemory::Persistent)
+                    .empty(),
+        "Session-only placement was lost or written to disk");
+    memory.remember(root, L"Debug", L"app", PlacementMemory::Persistent, {remembered}, true);
+    WindowPlacementMemory reopened;
+    auto saved = reopened.recall(root, L"Debug", L"app", PlacementMemory::Persistent);
+    require(saved.size() == 1 && saved[0].title == remembered.title &&
+                saved[0].placement.showCmd == SW_SHOWMAXIMIZED &&
+                EqualRect(&saved[0].bounds, &remembered.bounds),
+        "Persistent Unicode/maximized/negative-coordinate placement did not round trip");
+    require(reopened.recall(root, L"Release", L"app", PlacementMemory::Persistent).empty() &&
+                reopened.recall(root, L"Debug", L"other", PlacementMemory::Persistent).empty() &&
+                reopened.recall(root / L"other", L"Debug", L"app", PlacementMemory::Persistent)
+                    .empty() &&
+                reopened.recall(root, L"Debug", L"app", PlacementMemory::Off).empty(),
+        "Placement leaked across configuration, target, project or Off mode");
+    auto minimized = remembered;
+    minimized.minimized = true;
+    minimized.bounds = {1, 1, 300, 200};
+    memory.remember(root, L"Debug", L"app", PlacementMemory::Persistent, {minimized}, true);
+    memory.remember(root, L"Debug", L"app", PlacementMemory::Persistent, {}, true);
+    require(EqualRect(&memory.recall(root, L"Debug", L"app", PlacementMemory::Persistent)[0].bounds,
+                &remembered.bounds),
+        "Minimized/destroyed capture overwrote valid placement");
+    const auto placement_folder = workspace_directory(root) / L"window-placement";
+    for (const auto& file : fs::directory_iterator(placement_folder))
+    {
+        write(file.path(), std::string(65538, 'x'));
+    }
+    require(
+        WindowPlacementMemory{}.recall(root, L"Debug", L"app", PlacementMemory::Persistent).empty(),
+        "Oversized/corrupt placement record was accepted");
     require(loaded.enabled && loaded.restore_windows && !loaded.force_stop &&
                 loaded.shutdown_ms == 1234,
         "Project Auto Run preferences did not round-trip");

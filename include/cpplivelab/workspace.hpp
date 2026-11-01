@@ -31,6 +31,8 @@ struct ProjectOptions
     std::string library_transaction;
     // Each argument is passed directly to CreateProcess, never through a shell.
     std::vector<std::wstring> arguments;
+    // Explicit, manager-owned immutable recipe snapshot; empty means no overlay.
+    std::filesystem::path pch_config;
 };
 
 struct ExecutableTarget
@@ -55,6 +57,9 @@ ProjectOptions load_project_options(
 void save_project_options(const std::filesystem::path& root,
     const std::wstring& configuration,
     const ProjectOptions& options);
+void configure_project_pch(const std::filesystem::path& root,
+    const std::wstring& configuration,
+    const std::filesystem::path& recipe);
 std::vector<ExecutableTarget> executable_targets(const std::filesystem::path& root,
     const std::wstring& configuration,
     const ProjectOptions& options);

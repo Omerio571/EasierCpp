@@ -15,6 +15,7 @@ namespace
 {
 constexpr int Heading = 1000, Note = 1001, HelpText = 1002, Advanced = 1500;
 constexpr int AddLibrary = 1600, RecentList = 1700, RemoveRecent = 1701;
+constexpr int CustomAction = 1800;
 
 std::wstring text(HWND control)
 {
@@ -223,6 +224,10 @@ ProjectFormWindow::ProjectFormWindow(
         refresh_recents();
     }
     add(L"BUTTON", options.accept_label, IDOK, WS_TABSTOP | BS_DEFPUSHBUTTON);
+    if (options.action)
+    {
+        add(L"BUTTON", options.action_label, CustomAction, WS_TABSTOP);
+    }
     add(L"BUTTON", L"Cancel", IDCANCEL, WS_TABSTOP);
     if (options.disable_invalid_accept && options.validate)
     {
@@ -459,6 +464,11 @@ void ProjectFormWindow::layout()
         place(RecentList, 20, y, content_width, 240);
         y += 252;
         place(RemoveRecent, 20, y, 208, 32);
+        y += 44;
+    }
+    if (options_.action)
+    {
+        place(CustomAction, 20, y, content_width, 34);
         y += 44;
     }
     const int help_height = wrapped_height(text(GetDlgItem(window, HelpText)), 64);
@@ -701,7 +711,35 @@ void ProjectFormWindow::command(int id, int notification)
         EnableWindow(GetDlgItem(window, IDOK), options_.validate(fields_).empty());
         return;
     }
-    if (id == IDCANCEL)
+    if (id == CustomAction && options_.action)
+    {
+        read_fields();
+        options_.action(window, fields_);
+        for (size_t index = 0; index < fields_.size(); ++index)
+        {
+            const auto control = GetDlgItem(window, 2000 + static_cast<int>(index));
+            if (fields_[index].choices.empty())
+            {
+                SetWindowTextW(control, fields_[index].value.c_str());
+            }
+            else
+            {
+                // An action can expand a resource-dependent selector's range.
+                SendMessageW(control, CB_RESETCONTENT, 0, 0);
+                for (const auto& choice : fields_[index].choices)
+                {
+                    SendMessageW(
+                        control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(choice.c_str()));
+                }
+                SendMessageW(control,
+                    CB_SELECTSTRING,
+                    static_cast<WPARAM>(-1),
+                    reinterpret_cast<LPARAM>(fields_[index].value.c_str()));
+            }
+        }
+        layout();
+    }
+    else if (id == IDCANCEL)
     {
         finished = true;
     }

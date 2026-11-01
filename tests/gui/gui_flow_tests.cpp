@@ -404,6 +404,9 @@ void benchmark_project(const fs::path& project, unsigned samples)
     SetEnvironmentVariableW(L"EASIERCPP_PROFILE_BUILD", L"1");
     Host host(project);
     auto& app = host.app;
+    // The script marks and owns this complete copy. Original source-generating
+    // CMake commands are approved only inside the disposable benchmark project.
+    app.configure_writes_authorized = true;
     const auto cold_started = GetTickCount64();
     app.command(RunButton);
     host.running();
@@ -457,6 +460,16 @@ void benchmark_project(const fs::path& project, unsigned samples)
         }
     };
     dump_profile("cold");
+    // GLFW can expose a visible HWND before its initial resize/centering finishes.
+    // Let startup settle before establishing the manual placement to restore.
+    // This is outside all timed save-to-window samples.
+    const auto initial_visible = GetTickCount64();
+    host.await(
+        [&]
+        {
+            return GetTickCount64() - initial_visible >= 500;
+        },
+        "FarmGame startup did not settle");
     SetWindowPos(find_window(), nullptr, 80, 80, 900, 650, SWP_NOZORDER | SWP_NOACTIVATE);
     RECT expected{};
     GetWindowRect(find_window(), &expected);
@@ -468,6 +481,18 @@ void benchmark_project(const fs::path& project, unsigned samples)
                  "startup,window,total,peak_worker_bytes\n";
     for (unsigned sample = 0; sample < samples + 3; ++sample)
     {
+        std::map<fs::path, fs::file_time_type> pch_times;
+        if (sample >= 2)
+        {
+            for (const auto& file :
+                fs::recursive_directory_iterator(cpplivelab::manager_state_directory()))
+            {
+                if (file.is_regular_file() && file.path().extension() == L".pch")
+                {
+                    pch_times.emplace(file.path(), file.last_write_time());
+                }
+            }
+        }
         const auto old_process = app.session.process_id();
         std::map<std::string, ULONGLONG> trace;
 
@@ -520,7 +545,18 @@ void benchmark_project(const fs::path& project, unsigned samples)
         app.auto_run_trace = {};
         RECT actual{};
         GetWindowRect(find_window(), &actual);
-        require(EqualRect(&expected, &actual), "FarmGame replacement lost window placement");
+        if (!EqualRect(&expected, &actual))
+        {
+            std::cerr << "Placement expected " << expected.left << ',' << expected.top << ','
+                      << expected.right << ',' << expected.bottom << "; actual " << actual.left
+                      << ',' << actual.top << ',' << actual.right << ',' << actual.bottom << '\n';
+            throw std::runtime_error("FarmGame replacement lost window placement");
+        }
+        for (const auto& [path, written] : pch_times)
+        {
+            require(fs::last_write_time(path) == written,
+                "An ordinary source/project-header edit unnecessarily regenerated stable PCH");
+        }
         if (sample < 2)
         {
             continue;
@@ -538,6 +574,7 @@ void benchmark_project(const fs::path& project, unsigned samples)
                   << trace.at("restored") - trace.at("started") << ','
                   << trace.at("restored") - saved << ',' << peak << '\n';
         dump_profile(index);
+        std::cout << "FARM_PCH_REUSE," << index << ",unchanged_files=" << pch_times.size() << '\n';
         std::cout << "FARM_WORKER_START," << index << ',' << trace.at("build") << '\n'
                   << std::flush;
     }
@@ -565,10 +602,694 @@ void benchmark_project(const fs::path& project, unsigned samples)
     std::cout << "FARM_DISK,pch=" << pch << ",ilk=" << ilk << ",pdb=" << pdb << '\n';
 }
 
+HWND process_window(DWORD process)
+{
+    struct Search
+    {
+        DWORD process;
+        HWND found = nullptr;
+    } search{process};
+
+    EnumWindows(
+        [](HWND window, LPARAM parameter) -> BOOL
+        {
+            auto& search = *reinterpret_cast<Search*>(parameter);
+            DWORD process = 0;
+            GetWindowThreadProcessId(window, &process);
+            if (process == search.process && IsWindowVisible(window) &&
+                !GetWindow(window, GW_OWNER))
+            {
+                search.found = window;
+                return FALSE;
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&search));
+    return search.found;
+}
+
+HWND managed_window(Application& app)
+{
+    return process_window(app.session.process_id());
+}
+
+void replacement_benchmark(const fs::path& fixtures)
+{
+    const auto project = fixtures / L"replacement benchmark";
+    fs::create_directories(project);
+    std::ofstream(project / L"CMakeLists.txt")
+        << "cmake_minimum_required(VERSION 3.20)\nproject(ReplacementBenchmark LANGUAGES "
+           "CXX)\nadd_executable(app main.cpp)\ntarget_compile_features(app PRIVATE "
+           "cxx_std_20)\ntarget_link_libraries(app PRIVATE user32)\n";
+    std::ifstream sample(
+        fs::path(__FILE__).parent_path().parent_path() / L"consumers/native_window.cpp");
+    const std::string source{std::istreambuf_iterator<char>(sample), {}};
+    require(!source.empty(), "Benchmark native fixture missing");
+    const auto file = project / L"main.cpp";
+    std::ofstream(file) << source;
+    Host host(project);
+    auto& app = host.app;
+    app.auto_run_preferences.placement_memory = cpplivelab::PlacementMemory::Session;
+    app.command(RunButton);
+    host.await(
+        [&]
+        {
+            return app.program_started && managed_window(app);
+        },
+        "Benchmark initial window missing");
+    SetWindowPos(managed_window(app), nullptr, 100, 120, 700, 450, SWP_NOZORDER | SWP_NOACTIVATE);
+    RECT expected{};
+    GetWindowRect(managed_window(app), &expected);
+    app.command(AutoRunButton);
+    std::cout << "REPLACEMENT_BENCH,mode,run,total_ms,save_to_window_ms,window_gap_ms,build_ms\n"
+              << std::flush;
+    for (unsigned index = 0; index < 22; ++index)
+    {
+        // Two excluded warmups configure both slots. Alternate modes, reversing
+        // order in each pair, to reduce cache/temperature ordering bias.
+        const unsigned measured = index >= 2 ? index - 2 : 0;
+        const bool seamless =
+            index >= 2 && ((measured / 2) % 2 ? measured % 2 == 0 : measured % 2 != 0);
+        app.auto_run_preferences.replacement_mode =
+            seamless ? cpplivelab::ReplacementMode::Seamless : cpplivelab::ReplacementMode::Safe;
+        const auto old_process = app.session.process_id();
+        const auto old_window = managed_window(app);
+        const auto start = std::chrono::steady_clock::now();
+
+        struct ResetTrace
+        {
+            Application& app;
+
+            ~ResetTrace()
+            {
+                app.auto_run_trace = {};
+            }
+        } reset_trace{app};
+
+        const auto elapsed = [&]
+        {
+            return std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - start)
+                .count();
+        };
+        double old_gone = -1, new_visible = -1, build_start = -1, build_end = -1;
+        app.auto_run_trace = [&](const char* stage)
+        {
+            if (std::string_view(stage) == "build")
+            {
+                build_start = elapsed();
+            }
+        };
+        std::ofstream(file) << source << "\n// benchmark source save " << index << '\n';
+        host.await(
+            [&]
+            {
+                const auto now = elapsed();
+                if (old_gone < 0 && (!IsWindow(old_window) || !IsWindowVisible(old_window)))
+                {
+                    old_gone = now;
+                }
+                const auto candidate = app.candidate_pending
+                                           ? process_window(app.candidate_session.process_id())
+                                           : nullptr;
+                const auto active =
+                    app.session.process_id() != old_process ? managed_window(app) : nullptr;
+                if (new_visible < 0 && (candidate || active))
+                {
+                    new_visible = now;
+                }
+                if (build_start >= 0 && build_end < 0 && !app.replacement_building)
+                {
+                    build_end = now;
+                }
+                return app.session.process_id() != old_process && app.program_started &&
+                       !app.candidate_pending && !app.restore_started && managed_window(app) &&
+                       old_gone >= 0;
+            },
+            "Replacement benchmark timed out",
+            90000);
+        const auto total = elapsed();
+        app.auto_run_trace = {};
+        RECT actual{};
+        GetWindowRect(managed_window(app), &actual);
+        require(EqualRect(&expected, &actual), "Benchmark replacement lost placement");
+        require(build_start >= 0 && build_end >= build_start && new_visible >= 0,
+            "Benchmark timing event missing");
+        std::cout << "REPLACEMENT_BENCH,"
+                  << (index < 2     ? "warmup"
+                         : seamless ? "Seamless"
+                                    : "Safe")
+                  << ',' << (index < 2 ? index + 1 : measured / 2 + 1) << ',' << total << ','
+                  << new_visible << ',' << (std::max)(0.0, new_visible - old_gone) << ','
+                  << build_end - build_start << '\n'
+                  << std::flush;
+    }
+    app.command(StopButton);
+    host.idle();
+}
+
+void placement_workflow(const fs::path& fixtures)
+{
+    const auto project = fixtures / L"placement";
+    fs::create_directories(project);
+    std::ofstream(project / L"CMakeLists.txt")
+        << "cmake_minimum_required(VERSION 3.20)\nproject(Placement LANGUAGES "
+           "CXX)\nadd_executable(app main.cpp)\ntarget_link_libraries(app PRIVATE "
+           "user32)\ntarget_compile_features(app PRIVATE cxx_std_20)\n";
+    fs::copy_file(fs::path(__FILE__).parent_path().parent_path() / L"consumers/native_window.cpp",
+        project / L"main.cpp");
+    RECT expected{};
+    {
+        Host host(project);
+        auto& app = host.app;
+        app.auto_run_preferences.placement_memory = cpplivelab::PlacementMemory::Session;
+        auto launch = [&]
+        {
+            app.command(RunButton);
+            host.await(
+                [&]
+                {
+                    return app.program_started && managed_window(app) && !app.restore_started;
+                },
+                "Manual placement launch failed");
+        };
+        auto check = [&]
+        {
+            RECT actual{};
+            GetWindowRect(managed_window(app), &actual);
+            require(EqualRect(&actual, &expected),
+                "Manual launch lost the last valid session placement");
+        };
+        launch();
+        SetWindowPos(
+            managed_window(app), nullptr, 120, 140, 700, 440, SWP_NOZORDER | SWP_NOACTIVATE);
+        GetWindowRect(managed_window(app), &expected);
+        app.command(StopButton);
+        host.idle();
+        launch();
+        check();
+        // Obtain two stable polling samples before abrupt window disappearance.
+        const auto stable_at = GetTickCount64();
+        host.await(
+            [&]
+            {
+                return GetTickCount64() - stable_at >= 1200;
+            },
+            "Placement sampling timer stalled");
+        PostMessageW(managed_window(app), WM_CLOSE, 0, 0);
+        host.idle();
+        launch();
+        check();
+        const auto crash_at = GetTickCount64();
+        host.await(
+            [&]
+            {
+                return GetTickCount64() - crash_at >= 1200;
+            },
+            "Crash sampling timer stalled");
+        app.session.stop();
+        host.idle();
+        launch();
+        check();
+        app.command(StopButton);
+        host.idle();
+        app.auto_run_preferences.placement_memory = cpplivelab::PlacementMemory::Off;
+        app.auto_run_preferences.restore_windows = false;
+        launch();
+        RECT natural{};
+        GetWindowRect(managed_window(app), &natural);
+        require(!EqualRect(&natural, &expected), "Off applied historical placement");
+        app.auto_run_preferences.placement_memory = cpplivelab::PlacementMemory::Persistent;
+        app.auto_run_preferences.restore_windows = true;
+        cpplivelab::save_auto_run_preferences(project, app.auto_run_preferences);
+        ShowWindow(managed_window(app), SW_SHOWMAXIMIZED);
+        app.command(StopButton);
+        host.idle();
+    }
+    {
+        Host reopened(project);
+        reopened.app.command(RunButton);
+        reopened.await(
+            [&]
+            {
+                return reopened.app.program_started && managed_window(reopened.app) &&
+                       !reopened.app.restore_started;
+            },
+            "Persistent relaunch failed");
+        require(IsZoomed(managed_window(reopened.app)),
+            "New manager instance lost persisted maximized placement");
+        reopened.app.command(StopButton);
+        reopened.idle();
+    }
+    std::cout << "Placement: Stop/Run, user close/Run, crash/Run, session, Off and persistent new "
+                 "manager/maximized passed\n";
+}
+
+void window_management(const fs::path& fixtures)
+{
+    const auto project = fixtures / L"replacement";
+    fs::create_directories(project);
+    std::ofstream(project / L"CMakeLists.txt")
+        << "cmake_minimum_required(VERSION 3.20)\nproject(Replacement LANGUAGES CXX)\n"
+           "add_executable(app main.cpp)\ntarget_compile_features(app PRIVATE cxx_std_20)\n"
+           "target_link_libraries(app PRIVATE user32)\n";
+    std::ifstream sample(
+        fs::path(__FILE__).parent_path().parent_path() / L"consumers/native_window.cpp");
+    std::string source{std::istreambuf_iterator<char>(sample), {}};
+    require(!source.empty(), "Native replacement fixture is missing");
+    source.insert(source.find("const auto window = CreateWindowW"), "Sleep(600);\n    ");
+    const auto file = project / L"main.cpp";
+    std::ofstream(file) << source;
+    Host host(project);
+    auto& app = host.app;
+    app.command(RunButton);
+    host.running();
+    auto windows = [&]
+    {
+        return cpplivelab::capture_application_windows(app.session.active_process_ids());
+    };
+    host.await(
+        [&]
+        {
+            return !windows().empty();
+        },
+        "Initial native window missing");
+    app.auto_run_preferences.replacement_mode = cpplivelab::ReplacementMode::Seamless;
+    SetWindowPos(managed_window(app), nullptr, 100, 140, 720, 460, SWP_NOZORDER | SWP_NOACTIVATE);
+    RECT expected_early{};
+    GetWindowRect(managed_window(app), &expected_early);
+    app.command(AutoRunButton);
+    for (int cycle = 0; cycle < 2; ++cycle)
+    {
+        const auto old = app.session.process_id();
+        std::ofstream(file) << source << "\n// replacement " << cycle << '\n';
+        host.await(
+            [&]
+            {
+                return app.candidate_pending;
+            },
+            "Candidate was never launched",
+            90000);
+        require(app.session.running() && app.session.process_id() == old,
+            "Old application closed before candidate startup readiness");
+        require(!IsWindowEnabled(app.find_control(ProgramRestartButton)),
+            "Manual Restart remained enabled during candidate handoff");
+        const auto pending_slot = app.replacement_options.recovery_slot;
+        host.await(
+            [&]
+            {
+                return !app.candidate_restored.empty() && !app.candidate_ready;
+            },
+            "Candidate was not positioned before readiness");
+        RECT early{};
+        const auto replacement_window = process_window(app.candidate_session.process_id());
+        GetWindowRect(replacement_window, &early);
+        require(EqualRect(&early, &expected_early) && app.session.running(),
+            "Early placement did not precede old-process shutdown");
+        std::cout << "EARLY_PLACEMENT,cycle=" << cycle
+                  << ",visible_to_position_ms=" << GetTickCount64() - app.candidate_visible << '\n';
+        SetWindowPos(
+            replacement_window, nullptr, 420, 340, 500, 350, SWP_NOZORDER | SWP_NOACTIVATE);
+        host.await(
+            [&]
+            {
+                RECT corrected{};
+                GetWindowRect(replacement_window, &corrected);
+                return EqualRect(&corrected, &expected_early);
+            },
+            "Application startup recentering was not corrected");
+        app.command(ProgramRestartButton);
+        require(app.replacement_options.recovery_slot == pending_slot && !app.replacement_stopping,
+            "Manual Restart interfered with candidate startup");
+        host.await(
+            [&]
+            {
+                return !app.candidate_pending && app.session.process_id() != old &&
+                       app.session.running();
+            },
+            "Seamless handoff did not complete",
+            30000);
+        require(!app.candidate_session.running(), "Old process job survived completed handoff");
+    }
+    const auto healthy = app.session.process_id();
+    std::ofstream(file) << "deliberately invalid C++\n";
+    host.await(
+        [&]
+        {
+            return read_control_text(app.system_console.window)
+                       .find(L"Build failed — previous application is still running.") !=
+                   std::wstring::npos;
+        },
+        "Compilation failure not reported",
+        90000);
+    require(app.session.running() && app.session.process_id() == healthy,
+        "Failed build replaced healthy process");
+    auto crash = source;
+    crash.insert(crash.find("const auto instance = GetModuleHandleW"), "return 7;\n    ");
+    std::ofstream(file) << crash;
+    host.await(
+        [&]
+        {
+            return read_control_text(app.system_console.window)
+                       .find(L"Replacement startup exited (code 7)") != std::wstring::npos;
+        },
+        "Startup crash not diagnosed",
+        90000);
+    require(app.session.running() && app.session.process_id() == healthy &&
+                !app.candidate_session.running(),
+        "Startup crash killed previous application or leaked candidate");
+    // A failed CreateProcess must preserve the current job as well.
+    app.start_candidate(project / L"missing.exe");
+    require(!app.candidate_pending && app.session.running() && app.session.process_id() == healthy,
+        "Launch failure did not retain the previous process");
+    std::ofstream(file) << source << "\n// recovered\n";
+    host.await(
+        [&]
+        {
+            return app.session.process_id() != healthy && app.session.running() &&
+                   !app.candidate_pending;
+        },
+        "Replacement did not recover after startup failure",
+        90000);
+    auto mutex_source = source;
+    mutex_source.insert(mutex_source.find("const auto instance = GetModuleHandleW"),
+        "const auto mutex = CreateMutexW(nullptr, TRUE, L\"Local\\\\EasierCppReplacementTest" +
+            std::to_string(GetCurrentProcessId()) +
+            "\");\nif (GetLastError() == ERROR_ALREADY_EXISTS) return 9;\n");
+    auto replace = [&](const std::string& contents)
+    {
+        const auto previous = app.session.process_id();
+        std::ofstream(file) << contents;
+        host.await(
+            [&]
+            {
+                return app.session.process_id() != previous && app.session.running() &&
+                       !app.candidate_pending;
+            },
+            "Expected replacement did not complete",
+            90000);
+    };
+    replace(mutex_source);
+    const auto exclusive = app.session.process_id();
+    std::ofstream(file) << mutex_source << "\n// single-instance replacement\n";
+    host.await(
+        [&]
+        {
+            return read_control_text(app.system_console.window)
+                       .find(L"Replacement startup exited (code 9)") != std::wstring::npos;
+        },
+        "Single-instance conflict was not diagnosed",
+        90000);
+    require(app.session.process_id() == exclusive && app.session.running(),
+        "Single-instance conflict killed previous application");
+    app.auto_run_preferences.replacement_mode = cpplivelab::ReplacementMode::Safe;
+    replace(mutex_source + "\n// Safe compatibility fallback\n");
+    app.auto_run_preferences.replacement_mode = cpplivelab::ReplacementMode::Seamless;
+    const auto before_timeout = app.session.process_id();
+    std::ofstream(file) << "#include <windows.h>\nint main(){Sleep(30000);}\n";
+    host.await(
+        [&]
+        {
+            return read_control_text(app.system_console.window)
+                       .find(L"Replacement readiness timed out") != std::wstring::npos;
+        },
+        "Missing native window did not time out",
+        90000);
+    host.await(
+        [&]
+        {
+            return !app.candidate_pending;
+        },
+        "Timed-out candidate cleanup did not drain");
+    require(app.session.process_id() == before_timeout && app.session.running() &&
+                !app.candidate_session.running(),
+        "Readiness timeout killed previous application or leaked candidate");
+    std::ofstream(file) << source << "\n// first rapid save\n";
+    host.await(
+        [&]
+        {
+            return app.candidate_pending;
+        },
+        "Rapid-save candidate not started",
+        90000);
+    const auto obsolete = app.candidate_session.process_id();
+    std::ofstream(file) << source << "\n// latest rapid save\n";
+    host.await(
+        [&]
+        {
+            return app.session.process_id() != before_timeout &&
+                   app.session.process_id() != obsolete && app.session.running() &&
+                   !app.candidate_pending;
+        },
+        "Latest rapid save was lost or obsolete candidate promoted",
+        90000);
+    std::ofstream(file) << source << "\n// Stop during candidate startup\n";
+    host.await(
+        [&]
+        {
+            return app.candidate_pending;
+        },
+        "Stop-during-startup candidate not launched",
+        90000);
+    app.command(StopButton);
+    host.idle();
+    require(!app.candidate_session.running(), "Stop leaked replacement job");
+    app.command(AutoRunButton);
+    // Console readiness must not require a native window; candidate output and input
+    // become the active console only after ownership is exchanged.
+    const std::string console =
+        "#include <iostream>\n#include <string>\nint main(){std::string s; std::cout << \"Ready:\" "
+        "<< std::flush; while(std::getline(std::cin,s)) std::cout << s << std::endl;}\n";
+    std::ofstream(file) << console;
+    app.command(RunButton);
+    host.running();
+    host.prompt(L"Ready:");
+    const auto old_console = app.session.process_id();
+    app.command(AutoRunButton);
+    std::ofstream(file) << console << "\n// console replacement\n";
+    host.await(
+        [&]
+        {
+            return app.session.process_id() != old_console && app.session.running() &&
+                   !app.candidate_pending;
+        },
+        "Console replacement waited for a GUI window",
+        90000);
+    host.send(L"replacement input");
+    host.prompt(L"replacement input");
+    for (const auto placement :
+        {cpplivelab::PlacementMemory::Session, cpplivelab::PlacementMemory::Off})
+    {
+        for (const auto mode :
+            {cpplivelab::ReplacementMode::Safe, cpplivelab::ReplacementMode::Seamless})
+        {
+            app.auto_run_preferences.placement_memory = placement;
+            app.auto_run_preferences.restore_windows =
+                placement != cpplivelab::PlacementMemory::Off;
+            app.auto_run_preferences.replacement_mode = mode;
+            replace(console + "\n// preference combination " +
+                    std::to_string(static_cast<int>(placement)) + " " +
+                    std::to_string(static_cast<int>(mode)) + "\n");
+            host.send(L"combination input");
+            host.prompt(L"combination input");
+        }
+    }
+    app.command(StopButton);
+    host.idle();
+    std::cout << "Seamless: slow native startup, repeated swaps, compile/launch/startup failure "
+                 "retention, recovery, console I/O and Stop passed\n";
+}
+
+struct WorkerDialogDriver
+{
+    bool optimize = false;
+    bool cancel_benchmark = false;
+    bool acted = false;
+    bool finished = false;
+    bool snapshot_failed = false;
+    ULONGLONG compilation_seen = 0;
+    std::wstring selection = L"1";
+    ULONGLONG started = GetTickCount64();
+};
+
+WorkerDialogDriver* worker_dialog_driver = nullptr;
+
+BOOL CALLBACK drive_worker_window(HWND window, LPARAM)
+{
+    auto& driver = *worker_dialog_driver;
+    const auto title = read_control_text(window);
+    if (driver.cancel_benchmark && title == L"Optimize Workers")
+    {
+        const auto progress = read_control_text(GetDlgItem(window, 1001));
+        if (!driver.compilation_seen && progress.find(L"jobs, trial") != std::wstring::npos)
+        {
+            driver.compilation_seen = GetTickCount64();
+        }
+        if (driver.compilation_seen && GetTickCount64() - driver.compilation_seen >= 300)
+        {
+            if (!driver.acted)
+            {
+                try
+                {
+                    ui_test::capture(
+                        window, application_directory() / L"worker-optimizer-progress.png");
+                }
+                catch (...)
+                {
+                    driver.snapshot_failed = true;
+                }
+            }
+            driver.acted = true;
+            PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
+        }
+    }
+    if (title == L"Preferences")
+    {
+        if (!driver.acted)
+        {
+            try
+            {
+                ui_test::capture(window, application_directory() / L"worker-preferences.png");
+            }
+            catch (...)
+            {
+                driver.snapshot_failed = true;
+            }
+            driver.acted = true;
+            if (driver.optimize)
+            {
+                PostMessageW(window, WM_COMMAND, 1800, 0);
+            }
+            else
+            {
+                SendDlgItemMessageW(window,
+                    2002,
+                    CB_SELECTSTRING,
+                    static_cast<WPARAM>(-1),
+                    reinterpret_cast<LPARAM>(driver.selection.c_str()));
+                SendMessageW(window, WM_COMMAND, MAKEWPARAM(2002, CBN_SELCHANGE), 0);
+                PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
+            }
+        }
+        else if (driver.optimize && !cpplivelab::library_task_active() &&
+                 cpplivelab::load_build_workers().recommended)
+        {
+            driver.finished = read_control_text(GetDlgItem(window, 2002)) ==
+                              std::to_wstring(cpplivelab::load_build_workers().recommended);
+            try
+            {
+                ui_test::capture(
+                    window, application_directory() / L"worker-preferences-recommended.png");
+            }
+            catch (...)
+            {
+                driver.snapshot_failed = true;
+            }
+            PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
+        }
+        if (GetTickCount64() - driver.started > 240000)
+        {
+            PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
+        }
+    }
+    return TRUE;
+}
+
+void CALLBACK worker_dialog_timer(HWND, UINT, UINT_PTR, DWORD)
+{
+    if (worker_dialog_driver)
+    {
+        EnumThreadWindows(GetCurrentThreadId(), drive_worker_window, 0);
+    }
+}
+
+void compilation_workers(const fs::path& fixtures)
+{
+    Project project;
+    Host host(project.root);
+    auto& app = host.app;
+    WorkerDialogDriver manual;
+    worker_dialog_driver = &manual;
+    auto timer = SetTimer(nullptr, 0, 20, worker_dialog_timer);
+    app.command(WindowPreferencesMenu);
+    KillTimer(nullptr, timer);
+    worker_dialog_driver = nullptr;
+    require(manual.acted && cpplivelab::load_build_workers().count == 1,
+        "Native worker selector did not persist immediately after Cancel");
+    WorkerDialogDriver inherited;
+    inherited.selection = L"Build-system default";
+    worker_dialog_driver = &inherited;
+    timer = SetTimer(nullptr, 0, 20, worker_dialog_timer);
+    app.command(WindowPreferencesMenu);
+    KillTimer(nullptr, timer);
+    worker_dialog_driver = nullptr;
+    require(cpplivelab::load_build_workers().count == 0,
+        "Native-default selector did not restore build-system behavior");
+    cpplivelab::save_build_workers({1, 0});
+    WorkerDialogDriver cancel;
+    cancel.cancel_benchmark = true;
+    worker_dialog_driver = &cancel;
+    timer = SetTimer(nullptr, 0, 20, worker_dialog_timer);
+    const bool cancelled_result = app.optimize_workers(app.window_handle);
+    KillTimer(nullptr, timer);
+    worker_dialog_driver = nullptr;
+    require(cancel.acted && cancel.compilation_seen && !cancel.snapshot_failed &&
+                !cancelled_result && cpplivelab::load_build_workers().count == 1 &&
+                !cpplivelab::library_task_active(),
+        "Benchmark cancellation changed the setting or leaked its task");
+    app.worker_benchmark_cli = application_directory() / L"session_fixture.exe";
+    require(!app.optimize_workers(app.window_handle) && cpplivelab::load_build_workers().count == 1,
+        "Benchmark process failure changed previous compilation workers");
+    app.worker_benchmark_cli.clear();
+    WorkerDialogDriver optimize;
+    optimize.optimize = true;
+    worker_dialog_driver = &optimize;
+    timer = SetTimer(nullptr, 0, 20, worker_dialog_timer);
+    app.command(WindowPreferencesMenu);
+    KillTimer(nullptr, timer);
+    worker_dialog_driver = nullptr;
+    const auto result = cpplivelab::load_build_workers();
+    require(optimize.finished && !optimize.snapshot_failed && !manual.snapshot_failed &&
+                result.count && result.count == result.recommended &&
+                result.count <= cpplivelab::maximum_build_workers(),
+        "Optimize Workers button did not apply measured recommendation");
+    const auto results = cpplivelab::manager_state_directory() / L"worker-benchmark.csv";
+    require(fs::is_regular_file(results), "Worker measurements were not saved");
+    fs::copy_file(results,
+        application_directory() / L"worker-benchmark-test.csv",
+        fs::copy_options::overwrite_existing);
+    std::cout << "WORKER_RECOMMENDATION," << result.count
+              << ",maximum=" << cpplivelab::maximum_build_workers() << '\n';
+    std::ifstream measurements(results);
+    std::cout << measurements.rdbuf();
+    WorkerDialogDriver override_count;
+    worker_dialog_driver = &override_count;
+    timer = SetTimer(nullptr, 0, 20, worker_dialog_timer);
+    app.command(WindowPreferencesMenu);
+    KillTimer(nullptr, timer);
+    worker_dialog_driver = nullptr;
+    require(cpplivelab::load_build_workers().count == 1 &&
+                cpplivelab::load_build_workers().recommended == result.recommended,
+        "Manual override failed after optimization");
+    require(fs::is_empty(cpplivelab::manager_state_directory() / L"worker-benchmarks"),
+        "Benchmark temporary directories were not cleaned");
+    std::cout << "Compilation workers: native preferences, cancellation, failure, synthetic "
+                 "optimization, recommendation and override passed\n";
+}
+
 void run(const fs::path& fixtures, const fs::path& snapshots = {})
 {
+    cpplivelab::save_build_workers({1, 0});
     SetEnvironmentVariableW(L"CPPLIVELAB_TEST_RUNTIME", L"owned-runtime-value");
     Project project;
+    const auto pch_recipe = fixtures / L"console-pch.cmake";
+    const auto pch_header = project.root / L"stable_pch.hpp";
+    const std::string pch_bytes = "#pragma once\n#include <iostream>\n#include <string>\n";
+    std::ofstream(pch_header) << pch_bytes;
+    std::ofstream(pch_recipe)
+        << "easiercpp_target_pch(app HEADERS stable_pch.hpp <iostream> <string>)\n";
+    cpplivelab::configure_project_pch(project.root, L"Release", pch_recipe);
+    cpplivelab::configure_project_pch(project.root, L"Debug", pch_recipe);
     Host host(project.root, snapshots);
     require(read_control_text(host.app.window_handle).find(L"Cpp \u2014 Make Your Life Easier") !=
                 std::wstring::npos,
@@ -668,6 +1389,9 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     host.idle();
     require(read_control_text(app.find_control(StatusLabel)) == L"Build Successful",
         "GUI initial build did not succeed");
+    require(read_control_text(app.system_console.window).find(L"Compilation workers: 1") !=
+                std::wstring::npos,
+        "Manual Debug build did not use sequential compilation");
     const auto builds = app.build_sequence;
     app.command(RunButton);
     host.running();
@@ -792,6 +1516,8 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     check_layout(app);
     const auto debug_program = app.current_identity().executable;
     const auto debug_written = fs::last_write_time(debug_program);
+    const auto selected_workers = (std::min)(2u, cpplivelab::maximum_build_workers());
+    cpplivelab::save_build_workers({selected_workers, 0});
     SendMessageW(app.find_control(ConfigurationSelector), CB_SETCURSEL, 1, 0);
     app.command(BuildButton);
     host.idle();
@@ -802,6 +1528,10 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
                 fs::last_write_time(debug_program) == debug_written,
         "GUI Release selection did not build independently of Debug");
     const auto release_builds = app.build_sequence;
+    require(read_control_text(app.system_console.window)
+                    .find(L"Compilation workers: " + std::to_wstring(selected_workers)) !=
+                std::wstring::npos,
+        "Release build did not use updated compilation workers");
     app.command(ClearProgram);
     app.command(RunButton);
     host.running();
@@ -878,6 +1608,28 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
                    app.session.process_id() != before_error;
         },
         "Fixed source did not build and restart automatically",
+        90000);
+    const auto pch_failure_id = app.session.process_id();
+    std::ofstream(pch_header) << pch_bytes << "\n#error EASIERCPP_EXPECTED_PCH_FAILURE\n";
+    host.await(
+        [&]
+        {
+            return !app.replacement_building &&
+                   read_control_text(app.system_console.window)
+                           .find(L"EASIERCPP_EXPECTED_PCH_FAILURE") != std::wstring::npos;
+        },
+        "Failed PCH replacement was not reported",
+        90000);
+    require(app.session.running() && app.session.process_id() == pch_failure_id,
+        "PCH compilation failure terminated the working application");
+    std::ofstream(pch_header) << pch_bytes;
+    host.await(
+        [&]
+        {
+            return app.phase == Application::Phase::Running &&
+                   app.session.process_id() != pch_failure_id;
+        },
+        "PCH header repair did not restart automatically",
         90000);
     const auto replacement_id = app.session.process_id();
     const auto replacement_time = fs::last_write_time(app.current_identity().executable);
@@ -1009,6 +1761,10 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     cpplivelab::save_project_options(window_project, L"Debug", runtime_options);
     const auto native_file = window_project / L"main.cpp";
     std::ofstream(native_file) << native_source;
+    const auto native_pch = fixtures / L"native-pch.cmake";
+    std::ofstream(native_pch) << "easiercpp_target_pch(app HEADERS <string> <fstream>)\n"
+                                 "easiercpp_target_pch(runtime_dependency HEADERS <vector>)\n";
+    cpplivelab::configure_project_pch(window_project, L"Debug", native_pch);
     app.open(window_project);
     app.command(RunButton);
     host.running();
@@ -1109,6 +1865,18 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     app.reuse_worker_environment = !baseline_worker_environment;
     for (int sample = 0; sample < 3; ++sample)
     {
+        const auto compile_count =
+            sample % 2 ? 1u : (std::min)(2u, cpplivelab::maximum_build_workers());
+        cpplivelab::save_build_workers({compile_count, 0});
+        std::map<fs::path, fs::file_time_type> cached_pch;
+        for (const auto& item :
+            fs::recursive_directory_iterator(cpplivelab::manager_state_directory()))
+        {
+            if (item.is_regular_file() && item.path().extension() == L".pch")
+            {
+                cached_pch.emplace(item.path(), item.last_write_time());
+            }
+        }
         const auto previous_id = app.session.process_id();
         const auto saved = GetTickCount64();
         std::map<std::string, ULONGLONG> trace;
@@ -1137,6 +1905,11 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
             "Warm timed Auto Run failed to restore its window",
             90000);
         app.auto_run_trace = {};
+        for (const auto& [path, written] : cached_pch)
+        {
+            require(fs::last_write_time(path) == written,
+                "Changing compilation workers unnecessarily regenerated PCH");
+        }
         for (const auto* stage :
             {"detect", "build", "shutdown", "old_stopped", "startup", "started", "restored"})
         {
@@ -1318,6 +2091,19 @@ int wmain(int argc, wchar_t** argv)
         if (argc == 4 && std::wstring_view(argv[1]) == L"--benchmark-project")
         {
             flow_tests::benchmark_project(argv[2], static_cast<unsigned>(std::stoul(argv[3])));
+        }
+        else if (argc == 2 && std::wstring_view(argv[1]) == L"--compilation-workers")
+        {
+            flow_tests::compilation_workers(isolated_state.root);
+        }
+        else if (argc == 2 && std::wstring_view(argv[1]) == L"--benchmark-replacement")
+        {
+            flow_tests::replacement_benchmark(isolated_state.root);
+        }
+        else if (argc == 2 && std::wstring_view(argv[1]) == L"--window-management")
+        {
+            flow_tests::window_management(isolated_state.root);
+            flow_tests::placement_workflow(isolated_state.root);
         }
         else
         {

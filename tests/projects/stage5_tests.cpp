@@ -1,5 +1,7 @@
 #include "cpplivelab/workspace.hpp"
 #include "cpplivelab/session.hpp"
+#include "cpplivelab/doctor.hpp"
+#include "build/build_lease.hpp"
 #include "projects/project_paths.hpp"
 #include "tools/tool_workflows.hpp"
 #include "../workspace_test_support.hpp"
@@ -532,6 +534,223 @@ void projects(const fs::path& parent, const fs::path& cli)
         "Failed dependency setup modified source or launched a program");
 }
 
+void pch(const fs::path& parent, const fs::path& cli)
+{
+    // Prepare once in this disposable test process, never persist/log the block.
+    const auto tools = discover_toolchain(system_discovery_inputs());
+    const auto environment = developer_environment(tools.developer_command);
+    for (const wchar_t* entry = environment.data(); *entry; entry += std::wcslen(entry) + 1)
+    {
+        const std::wstring value(entry);
+        const auto equal = value.find(L'=');
+        if (equal != value.npos && equal > 0)
+        {
+            SetEnvironmentVariableW(
+                value.substr(0, equal).c_str(), value.substr(equal + 1).c_str());
+        }
+    }
+    const auto project = parent / L"Different layout";
+    write(project / L"CMakeLists.txt",
+        "cmake_minimum_required(VERSION 3.24)\nproject(Pch LANGUAGES C CXX)\n"
+        "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\nadd_subdirectory(library)\n"
+        "add_executable(app entry.cpp cpart.c)\n"
+        "target_compile_features(app PRIVATE cxx_std_20)\n"
+        "target_link_libraries(app PRIVATE helper)\n"
+        "add_library(iface INTERFACE)\nadd_library(c_only STATIC cpart.c)\n"
+        "add_library(alias ALIAS helper)\nadd_library(imported STATIC IMPORTED)\n");
+    write(project / L"library/CMakeLists.txt",
+        "add_library(helper STATIC helper.cpp)\n"
+        "target_compile_features(helper PUBLIC cxx_std_20)\n"
+        "target_include_directories(helper PUBLIC include)\n");
+    write(project / L"library/include/stable.hpp",
+        "#pragma once\n#include <vector>\n#include <string>\ninline constexpr int number = 7;\n");
+    write(project / L"library/helper.cpp",
+        "#include \"stable.hpp\"\nint value()\n{\n    return number;\n}\n");
+    write(project / L"cpart.c", "int c_value(void)\n{\n    return 0;\n}\n");
+    const std::string main =
+        "#include <iostream>\n#include \"stable.hpp\"\nint value();\n"
+        "extern \"C\" int c_value(void);\nint main()\n{\n    std::cout << value();\n"
+        "    return value() == number && c_value() == 0 ? 0 : 1;\n}\n";
+    write(project / L"entry.cpp", main);
+    const auto recipe = parent / L"trusted-recipe.cmake";
+    write(recipe,
+        "easiercpp_target_pch(helper HEADERS include/stable.hpp <vector> <string>)\n"
+        "easiercpp_target_pch(app HEADERS <iostream> <vector> <string>)\n"
+        "easiercpp_target_pch(iface HEADERS <vector>)\n"
+        "easiercpp_target_pch(c_only HEADERS <vector>)\n"
+        "easiercpp_target_pch(alias HEADERS <vector>)\n"
+        "easiercpp_target_pch(imported HEADERS <vector>)\n");
+    auto before = snapshot(project);
+    const auto build = [&](const wchar_t* configuration, const wchar_t* slot, bool run = false)
+    {
+        return execute(cli,
+            {run ? L"manage-run" : L"manage-build",
+                project.wstring(),
+                L"--config",
+                configuration,
+                L"--target",
+                L"app",
+                L"--build-slot",
+                slot,
+                L"--incremental"},
+            parent);
+    };
+    const auto pch_times = [&](const fs::path& directory)
+    {
+        std::map<fs::path, fs::file_time_type> result;
+        for (const auto& file : fs::recursive_directory_iterator(directory))
+        {
+            if (file.is_regular_file() && file.path().extension() == L".pch")
+            {
+                result.emplace(file.path(), file.last_write_time());
+            }
+        }
+        return result;
+    };
+    for (const bool enabled : {false, true})
+    {
+        configure_project_pch(project, L"Debug", enabled ? recipe : fs::path{});
+        const auto options = load_project_options(project, L"Debug");
+        require(options.pch_config.empty() != enabled, "PCH setting did not persist");
+        for (const auto* slot : {L"fresh-auto-a", L"fresh-auto-b"})
+        {
+            const auto start = GetTickCount64();
+            const auto result = build(L"Debug", slot);
+            require(result.code == 0, "PCH cold slot failed: " + result.output);
+            std::cout << "PCH_COLD," << enabled << ',' << path_support::path_utf8(slot) << ','
+                      << GetTickCount64() - start << '\n';
+        }
+        const auto times = pch_times(workspace_directory(project));
+        require(
+            !enabled || times.size() >= 4, "Separate library/application/slot PCH not generated");
+        for (unsigned sample = 0; sample < 6; ++sample)
+        {
+            write(project / L"entry.cpp", main + "\n// sample " + std::to_string(sample) + '\n');
+            const auto start = GetTickCount64();
+            const auto result =
+                build(L"Debug", sample % 2 ? L"fresh-auto-b" : L"fresh-auto-a", true);
+            require(result.code == 0 && result.output.find("Running:") != std::string::npos,
+                "PCH incremental runtime failed: " + result.output);
+            require(!enabled || pch_times(workspace_directory(project)) == times,
+                "Source-only build regenerated PCH or crossed slot ownership");
+            std::cout << "PCH_WARM," << enabled << ',' << sample << ',' << GetTickCount64() - start
+                      << '\n';
+        }
+        write(project / L"entry.cpp", main);
+        require(snapshot(project) == before, "PCH configuration modified imported project inputs");
+    }
+    ProjectOptions options = load_project_options(project, L"Debug");
+    options.recovery_slot = L"fresh-auto-a";
+    const auto directory = managed_build_directory(project, L"Debug", options);
+    const auto old_times = pch_times(directory);
+    write(project / L"library/include/stable.hpp",
+        "#pragma once\n#include <vector>\n#include <string>\ninline constexpr int number = 8;\n");
+    auto result = build(L"Debug", L"fresh-auto-a", true);
+    require(result.code == 0 && pch_times(directory) != old_times,
+        "Included header did not rebuild PCH and consumers: " + result.output);
+    const auto current_times = pch_times(directory);
+    result = build(L"Debug", L"fresh-auto-a");
+    require(result.code == 0 && current_times == pch_times(directory), "No-op regenerated PCH");
+    write(project / L"CMakeLists.txt",
+        read(project / L"CMakeLists.txt") +
+            "target_compile_definitions(helper PRIVATE PCH_CONFIGURATION_CHANGED=1)\n");
+    result = build(L"Debug", L"fresh-auto-a", true);
+    require(result.code == 0 && current_times != pch_times(directory),
+        "Changed compiler configuration reused stale PCH: " + result.output);
+    {
+        const BuildLease active(directory);
+        refuses(
+            [&]
+            {
+                configure_project_pch(project, L"Debug", {});
+            },
+            "PCH configuration changed while a build/program lease was active");
+    }
+    const auto recipe_bytes = read(recipe);
+    write(recipe, recipe_bytes + "# new configuration\n");
+    configure_project_pch(project, L"Debug", recipe);
+    require(load_project_options(project, L"Debug").pch_config != options.pch_config,
+        "Changed recipe reused an incompatible configuration snapshot");
+    write(recipe, recipe_bytes);
+    configure_project_pch(project, L"Debug", recipe);
+    require(load_project_options(project, L"Debug").pch_config == options.pch_config,
+        "Unchanged recipe created a needless new PCH configuration");
+    configure_project_pch(project, L"Release", recipe);
+    result = build(L"Release", L"fresh-auto-a", true);
+    require(result.code == 0, "Release PCH failed: " + result.output);
+    for (const auto& tool : tools.tools)
+    {
+        const auto compiler = tool.installed_path.parent_path() / L"clang-cl.exe";
+        if (tool.name != "clang++" || !fs::is_regular_file(compiler))
+        {
+            continue;
+        }
+        const auto clang_project = parent / L"Clang layout";
+        for (const auto& [relative, bytes] : snapshot(project).files)
+        {
+            write(clang_project / relative, bytes);
+        }
+        wchar_t previous[32768]{};
+        wchar_t previous_c[32768]{};
+        GetEnvironmentVariableW(L"CXX", previous, 32768);
+        GetEnvironmentVariableW(L"CC", previous_c, 32768);
+
+        struct RestoreCompiler
+        {
+            std::wstring value;
+            std::wstring c_value;
+
+            ~RestoreCompiler()
+            {
+                SetEnvironmentVariableW(L"CXX", value.empty() ? nullptr : value.c_str());
+                SetEnvironmentVariableW(L"CC", c_value.empty() ? nullptr : c_value.c_str());
+            }
+        } restore{previous, previous_c};
+
+        SetEnvironmentVariableW(L"CXX", compiler.c_str());
+        SetEnvironmentVariableW(L"CC", compiler.c_str());
+        configure_project_pch(clang_project, L"Debug", recipe);
+        result =
+            execute(cli, {L"manage-run", clang_project.wstring(), L"--target", L"app"}, parent);
+        require(result.code == 0 && pch_times(workspace_directory(clang_project)).size() >= 2,
+            "Clang-cl library/application PCH failed: " + result.output);
+        std::cout << "PCH_CLANG,passed\n";
+        break;
+    }
+    write(project / L"CMakeLists.txt",
+        read(project / L"CMakeLists.txt") +
+            "set_source_files_properties(helper.cpp TARGET_DIRECTORY helper PROPERTIES "
+            "COMPILE_DEFINITIONS SOURCE_VARIANT=1)\n"
+            "target_precompile_headers(app PRIVATE "
+            "\"$<$<COMPILE_LANGUAGE:CXX>:<string$<ANGLE-R>>\")\n");
+    result = build(L"Debug", L"fresh-auto-a", true);
+    require(result.code == 0 &&
+                result.output.find("source-specific compile settings") != result.output.npos &&
+                read(directory / L"CMakeFiles/app.dir/cmake_pch.hxx").find("<vector>") ==
+                    std::string::npos,
+        "Unsafe source flags or existing project PCH were overridden: " + result.output);
+    const auto hook = parent / L"original-hook.cmake";
+    write(hook, "file(WRITE \"${CMAKE_BINARY_DIR}/hook-preserved.txt\" \"yes\")\n");
+    write(project / L"CMakePresets.json",
+        "{\"version\":3,\"configurePresets\":[{\"name\":\"keep\",\"generator\":\"Ninja\","
+        "\"cacheVariables\":{\"CMAKE_PROJECT_TOP_LEVEL_INCLUDES\":\"" +
+            hook.generic_string() + "\"}}]}");
+    auto preset_options = load_project_options(project, L"Debug");
+    preset_options.preset = L"keep";
+    save_project_options(project, L"Debug", preset_options);
+    result = execute(
+        cli, {L"manage-run", project.wstring(), L"--target", L"app", L"--preset", L"keep"}, parent);
+    require(result.code == 0 && result.output.find("PCH overlay skipped") != result.output.npos &&
+                read(managed_build_directory(project, L"Debug", preset_options) /
+                     L"hook-preserved.txt") == "yes",
+        "Preset configuration hooks were overwritten: " + result.output);
+    const auto disabled = load_project_options(project, L"Debug");
+    configure_project_pch(project, L"Debug", {});
+    require(managed_build_directory(project, L"Debug", load_project_options(project, L"Debug")) !=
+                managed_build_directory(project, L"Debug", disabled),
+        "PCH and non-PCH configurations shared a build tree");
+}
+
 void presets(const fs::path& parent, const fs::path& cli)
 {
     struct RestorePath
@@ -667,6 +886,10 @@ int wmain(int argc, wchar_t** argv)
         else if (mode == L"presets")
         {
             presets(fixture.root, argv[2]);
+        }
+        else if (mode == L"pch")
+        {
+            pch(fixture.root, argv[2]);
         }
         else if (mode == L"libraries")
         {

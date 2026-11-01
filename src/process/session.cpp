@@ -111,6 +111,11 @@ ConsoleSession::~ConsoleSession()
     stop();
 }
 
+void ConsoleSession::swap(ConsoleSession& other) noexcept
+{
+    impl_.swap(other.impl_);
+}
+
 bool ConsoleSession::running() const
 {
     if (!impl_->has_launched)
@@ -227,9 +232,10 @@ void ConsoleSession::start(const std::filesystem::path& executable,
 void ConsoleSession::start_program(const std::filesystem::path& executable,
     const std::vector<std::wstring>& arguments,
     const std::filesystem::path& directory,
-    const Environment& environment)
+    const Environment& environment,
+    bool avoid_activation)
 {
-    start_impl(executable, arguments, directory, environment, true);
+    start_impl(executable, arguments, directory, environment, true, avoid_activation);
 }
 
 void ConsoleSession::start_worker(const std::filesystem::path& executable,
@@ -245,7 +251,8 @@ void ConsoleSession::start_impl(const std::filesystem::path& executable,
     const std::vector<std::wstring>& arguments,
     const std::filesystem::path& directory,
     const Environment& environment,
-    bool separate_stderr)
+    bool separate_stderr,
+    bool avoid_activation)
 {
     if (running())
     {
@@ -286,6 +293,12 @@ void ConsoleSession::start_impl(const std::filesystem::path& executable,
     windows_support::ChildStartup startup(child_stdin_read_handle.value,
         child_stdout_write_handle.value,
         separate_stderr ? child_stderr_write_handle.value : child_stdout_write_handle.value);
+    // Advisory only: applications can explicitly activate their own windows.
+    if (avoid_activation)
+    {
+        startup.information.StartupInfo.dwFlags |= STARTF_USESHOWWINDOW;
+        startup.information.StartupInfo.wShowWindow = SW_SHOWNOACTIVATE;
+    }
     PROCESS_INFORMATION process_information{};
     auto process_command_line = make_command_line(executable, arguments);
 
