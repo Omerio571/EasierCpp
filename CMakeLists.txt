@@ -17,6 +17,7 @@ project(
 set(CPPLIVELAB_CORE_SOURCES
     src/build/build_workers.cpp
     src/libraries/library_compatibility.cpp
+    src/libraries/library_detection.cpp
     src/process/application_windows.cpp
     src/libraries/libraries.cpp
     src/process/restart.cpp
@@ -335,6 +336,7 @@ if(BUILD_TESTING)
         caches
         discovery
         consumers
+        gitlab
     )
         add_test(
             NAME stage5_library_${case}
@@ -474,6 +476,24 @@ if(BUILD_TESTING)
         workflow_probe
         PRIVATE
             cpplivelab_core
+    )
+
+    add_test(
+        NAME stage5_library_detection
+        COMMAND powershell.exe
+            -NoProfile
+            -ExecutionPolicy Bypass
+            -File ${CMAKE_SOURCE_DIR}/tests/library_detection.ps1
+            -Script ${CMAKE_SOURCE_DIR}/scripts/detect-project-libraries.ps1
+    )
+
+    add_test(
+        NAME stage5_gitlab_versions
+        COMMAND powershell.exe
+            -NoProfile
+            -ExecutionPolicy Bypass
+            -File ${CMAKE_SOURCE_DIR}/tests/gitlab_library.ps1
+            -Script ${CMAKE_SOURCE_DIR}/scripts/github-library.ps1
     )
 
     add_test(
@@ -1063,6 +1083,8 @@ if(BUILD_TESTING)
     # Excludes expensive tests that repeatedly configure or build projects.
 
     set(quick_tests
+        stage5_library_detection
+        stage5_gitlab_versions
         library_compatibility_unit
         redirection_unit
         redirection_windows

@@ -52,6 +52,42 @@ struct DependencyCache
     std::string issue;
 };
 
+enum class LibraryOwnership
+{
+    Managed,
+    External,
+    Unknown
+};
+
+enum class LibraryDetectionConfidence
+{
+    Declaration,
+    ConfiguredSnapshot,
+    StaleSnapshot,
+    Unavailable
+};
+
+// Passive evidence is deliberately separate from editable managed metadata and
+// from compatibility results. Observations must never enter a project manifest.
+struct LibraryObservation
+{
+    std::string identity;
+    std::string name;
+    std::string source;
+    std::string version;
+    LibraryOwnership ownership = LibraryOwnership::Unknown;
+    std::string evidence;
+    std::string target;
+    LibraryDetectionConfidence confidence = LibraryDetectionConfidence::Declaration;
+};
+
+std::vector<LibraryObservation> detect_project_libraries(const std::filesystem::path& project,
+    const std::filesystem::path& build,
+    const std::wstring& configuration,
+    const std::wstring& target = L"");
+bool library_observation_conflicts(
+    const LibraryRecord& record, const LibraryObservation& observation);
+
 std::string library_key(const std::string& text);
 std::vector<LibraryTarget> discovered_library_targets(const std::filesystem::path& probe);
 std::vector<std::string> parse_library_targets(const std::string& text);

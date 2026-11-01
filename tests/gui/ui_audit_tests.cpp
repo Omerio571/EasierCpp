@@ -22,6 +22,54 @@ struct UncertainFlow
 
 UncertainFlow* uncertain_flow = nullptr;
 
+bool external_actions_verified = false;
+ULONGLONG library_deadline = 0;
+
+void CALLBACK drive_detected_library(HWND, UINT, UINT_PTR, DWORD)
+{
+    EnumThreadWindows(
+        GetCurrentThreadId(),
+        [](HWND window, LPARAM) -> BOOL
+        {
+            wchar_t title[128]{};
+            GetWindowTextW(window, title, 128);
+            if (std::wstring_view(title) == L"Manage Libraries")
+            {
+                const auto libraries = GetDlgItem(window, 2000);
+                const auto selected = SendMessageW(libraries,
+                    CB_FINDSTRING,
+                    static_cast<WPARAM>(-1),
+                    reinterpret_cast<LPARAM>(L"External"));
+                if (selected != CB_ERR)
+                {
+                    SendMessageW(libraries, CB_SETCURSEL, selected, 0);
+                    SendMessageW(window,
+                        WM_COMMAND,
+                        MAKEWPARAM(2000, CBN_SELCHANGE),
+                        reinterpret_cast<LPARAM>(libraries));
+                    const auto actions = GetDlgItem(window, 2001);
+                    external_actions_verified =
+                        SendMessageW(actions, CB_GETCOUNT, 0, 0) == 3 &&
+                        SendMessageW(actions,
+                            CB_FINDSTRINGEXACT,
+                            static_cast<WPARAM>(-1),
+                            reinterpret_cast<LPARAM>(L"Remove from Project")) == CB_ERR &&
+                        SendMessageW(actions,
+                            CB_FINDSTRINGEXACT,
+                            static_cast<WPARAM>(-1),
+                            reinterpret_cast<LPARAM>(L"Refresh")) != CB_ERR;
+                }
+                PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
+            }
+            else if (GetTickCount64() > library_deadline)
+            {
+                PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
+            }
+            return TRUE;
+        },
+        0);
+}
+
 void CALLBACK drive_uncertain_flow(HWND, UINT, UINT_PTR, DWORD)
 {
     EnumThreadWindows(
@@ -35,7 +83,7 @@ void CALLBACK drive_uncertain_flow(HWND, UINT, UINT_PTR, DWORD)
             {
                 PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
             }
-            else if (flow.step == 0 && std::wstring_view(title) == L"GitHub Repository")
+            else if (flow.step == 0 && std::wstring_view(title) == L"GitHub / GitLab Repository")
             {
                 SetDlgItemTextW(window, 2000, L"https://github.com/example/library");
                 ++flow.step;
@@ -248,6 +296,45 @@ int wmain(int argc, wchar_t** argv)
     try
     {
         workspace_test::Fixture fixture;
+        cpplivelab::LibraryRecord package_record;
+        package_record.integration = "package";
+        const auto package_actions =
+            cpplivelab::library_manager_actions(false, true, package_record);
+        audit::require(
+            std::find(package_actions.begin(), package_actions.end(), L"Update Version") ==
+                package_actions.end(),
+            "Package integration exposed an unsupported automatic version-update action");
+        const auto imported_libraries = fixture.root / L"read-only-library-project";
+        fs::create_directories(imported_libraries);
+        const std::string original_cmake = "cmake_minimum_required(VERSION 3.20)\n"
+                                           "project(Imported)\nfind_package(External CONFIG)\n";
+        std::ofstream(imported_libraries / L"CMakeLists.txt") << original_cmake;
+        cpplivelab::LibraryManagerContext libraries_context;
+        libraries_context.project = imported_libraries;
+        libraries_context.output = [](const auto&)
+        {
+        };
+        libraries_context.changed = []
+        {
+        };
+        libraries_context.busy = []
+        {
+            return false;
+        };
+        libraries_context.restarting = []
+        {
+            return false;
+        };
+        audit::library_deadline = GetTickCount64() + 15000;
+        const auto library_timer = SetTimer(nullptr, 0, 30, audit::drive_detected_library);
+        cpplivelab::manage_libraries_dialog(libraries_context);
+        KillTimer(nullptr, library_timer);
+        audit::require(audit::external_actions_verified,
+            "Detected library retained destructive actions or dependent action ComboBox was stale");
+        std::ifstream unchanged_input(imported_libraries / L"CMakeLists.txt");
+        const std::string unchanged{std::istreambuf_iterator<char>(unchanged_input), {}};
+        audit::require(
+            unchanged == original_cmake, "Opening Library Manager changed imported CMake");
         const auto metadata = cpplivelab::manager_state_directory() / L"github-metadata";
         fs::create_directories(metadata);
         std::ofstream(metadata / L"example--library.json")
@@ -311,13 +398,23 @@ int wmain(int argc, wchar_t** argv)
             cpplivelab::initialize_github_repository_form(repository, options);
             audit::require(repository.size() == 1 && repository.front().value.empty(),
                 "Fresh GitHub Add retained repository/version state");
-            cpplivelab::ProjectFormWindow form(nullptr, L"GitHub Repository", repository, options);
+            cpplivelab::ProjectFormWindow form(
+                nullptr, L"GitHub / GitLab Repository", repository, options);
             audit::require(GetWindowTextLengthW(GetDlgItem(form.window, 2000)) == 0 &&
                                !IsWindowEnabled(GetDlgItem(form.window, IDOK)),
                 "GitHub placeholder counted as input or empty URL enabled retrieval");
             SetDlgItemTextW(form.window, 2000, L"https://github.com/raysan5/raylib");
             audit::require(IsWindowEnabled(GetDlgItem(form.window, IDOK)),
                 "Valid GitHub URL did not enable retrieval");
+            SetDlgItemTextW(form.window, 2000, L"https://gitlab.com/group/sub/library.git");
+            audit::require(IsWindowEnabled(GetDlgItem(form.window, IDOK)),
+                "Valid nested GitLab URL did not enable retrieval");
+            SetDlgItemTextW(form.window, 2000, L"gitlab.com/group/library");
+            audit::require(IsWindowEnabled(GetDlgItem(form.window, IDOK)),
+                "GitLab project path did not enable retrieval");
+            SetDlgItemTextW(form.window, 2000, L"https://gitlab.com/group/library?token=invalid");
+            audit::require(!IsWindowEnabled(GetDlgItem(form.window, IDOK)),
+                "Invalid GitLab URL enabled retrieval");
             SetDlgItemTextW(form.window, 2000, L"https://github.com/user/repo?token=invalid");
             audit::require(!IsWindowEnabled(GetDlgItem(form.window, IDOK)),
                 "Invalid GitHub URL enabled retrieval");

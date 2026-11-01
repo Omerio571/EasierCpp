@@ -765,8 +765,9 @@ void ProjectFormWindow::command(int id, int notification)
     {
         if (options_.add_github_library)
         {
-            std::vector<FormField> source{
-                {L"Library source", L"Known Library", {L"Known Library", L"GitHub Repository"}}};
+            std::vector<FormField> source{{L"Library source",
+                L"Known Library",
+                {L"Known Library", L"GitHub / GitLab Repository"}}};
             FormOptions choice;
             choice.theme = options_.theme;
             choice.accept_label = L"Continue";
@@ -774,7 +775,7 @@ void ProjectFormWindow::command(int id, int notification)
             {
                 return;
             }
-            if (source[0].value == L"GitHub Repository")
+            if (source[0].value == L"GitHub / GitLab Repository")
             {
                 if (const auto selected = options_.add_github_library(window))
                 {
@@ -880,6 +881,7 @@ void ProjectFormWindow::command(int id, int notification)
         if (options_.changed)
         {
             read_fields();
+            const auto previous_fields = fields_;
             options_.changed(fields_);
             for (size_t index = 0; index < fields_.size(); ++index)
             {
@@ -887,6 +889,24 @@ void ProjectFormWindow::command(int id, int notification)
                 {
                     SetDlgItemTextW(
                         window, 2000 + static_cast<int>(index), fields_[index].value.c_str());
+                }
+                else if (!fields_[index].choices.empty() && !fields_[index].multiple_selection &&
+                         (fields_[index].choices != previous_fields[index].choices ||
+                             fields_[index].value != previous_fields[index].value))
+                {
+                    // Dependent action lists must reflect ownership immediately,
+                    // rather than leaving a stale destructive action selectable.
+                    const auto control = GetDlgItem(window, 2000 + static_cast<int>(index));
+                    SendMessageW(control, CB_RESETCONTENT, 0, 0);
+                    for (const auto& choice : fields_[index].choices)
+                    {
+                        SendMessageW(
+                            control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(choice.c_str()));
+                    }
+                    SendMessageW(control,
+                        CB_SELECTSTRING,
+                        static_cast<WPARAM>(-1),
+                        reinterpret_cast<LPARAM>(fields_[index].value.c_str()));
                 }
             }
         }

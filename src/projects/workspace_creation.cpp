@@ -38,7 +38,7 @@ const std::vector<LibraryIntegration>& supported_libraries()
             continue;
         }
         const auto id = entry->path().stem().string();
-        if (!id.starts_with("github-") ||
+        if ((!id.starts_with("github-") && !id.starts_with("gitlab-")) ||
             id.find_first_not_of(
                 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.+-") != id.npos ||
             !std::filesystem::is_regular_file(registry / (id + ".cmake")))
@@ -54,7 +54,7 @@ const std::vector<LibraryIntegration>& supported_libraries()
         std::getline(input, name);
         libraries.push_back({id,
             path_support::from_utf8(name).wstring(),
-            L"Pinned GitHub integration; configure/link probe passed. Project build still "
+            L"Pinned repository integration; configure/link probe passed. Project build still "
             L"required."});
     }
     return libraries;
@@ -101,7 +101,17 @@ std::string github_dependency_cmake(const std::string& repository,
     const std::string& library_target,
     const std::string& include_directory)
 {
-    if (!std::regex_match(repository, std::regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) ||
+    const bool gitlab = repository.starts_with("gitlab.com/");
+    const auto project = gitlab ? repository.substr(11) : repository;
+    const auto path_pattern =
+        gitlab ? "[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+" : "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+";
+    bool invalid_segment = false;
+    std::istringstream segments(project);
+    for (std::string segment; std::getline(segments, segment, '/');)
+    {
+        invalid_segment = invalid_segment || segment == "." || segment == ".." || segment == "-";
+    }
+    if (!std::regex_match(project, std::regex(path_pattern)) || invalid_segment ||
         !std::regex_match(commit, std::regex("[a-fA-F0-9]{40}")) ||
         !std::regex_match(archive_hash, std::regex("[a-fA-F0-9]{64}")) ||
         (!library_target.empty() &&
@@ -112,13 +122,22 @@ std::string github_dependency_cmake(const std::string& repository,
                 include_directory.find("..") != std::string::npos ||
                 std::filesystem::path(include_directory).is_absolute())))
     {
-        throw std::runtime_error("Invalid pinned GitHub integration metadata.");
+        throw std::runtime_error("Invalid pinned repository integration metadata.");
     }
     const auto name = "cpplivelab_" + commit.substr(0, 12);
+    // Both providers use the same hash-pinned FetchContent and compatibility workflow.
+    std::string encoded_project;
+    for (const auto character : project)
+    {
+        encoded_project += character == '/' ? "%2F" : std::string(1, character);
+    }
+    const auto archive_url = gitlab
+                                 ? "https://gitlab.com/api/v4/projects/" + encoded_project +
+                                       "/repository/archive.zip?sha=" + commit
+                                 : "https://codeload.github.com/" + repository + "/zip/" + commit;
     std::string result = "\n# Pinned verified probe: " + repository + " " + commit +
-                         "\ninclude(FetchContent)\nFetchContent_Declare(" + name +
-                         "\n    URL https://codeload.github.com/" + repository + "/zip/" + commit +
-                         "\n    URL_HASH SHA256=" + archive_hash +
+                         "\ninclude(FetchContent)\nFetchContent_Declare(" + name + "\n    URL " +
+                         archive_url + "\n    URL_HASH SHA256=" + archive_hash +
                          "\n    DOWNLOAD_EXTRACT_TIMESTAMP FALSE\n)\n";
     if (!library_target.empty())
     {
@@ -157,7 +176,7 @@ std::string dependency_cmake(const std::string& libraries, const std::string& ta
     }
     for (const auto& id : selected)
     {
-        if (id.starts_with("github-"))
+        if (id.starts_with("github-") || id.starts_with("gitlab-"))
         {
             std::ifstream input(
                 manager_state_directory() / L"integrations" / (id + ".cmake"), std::ios::binary);

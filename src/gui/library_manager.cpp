@@ -8,6 +8,37 @@
 
 namespace cpplivelab
 {
+std::vector<std::wstring> library_manager_actions(
+    bool read_only, bool attached, const LibraryRecord& record)
+{
+    std::vector<std::wstring> actions{L"Inspect", L"Add Library", L"Refresh"};
+    if (read_only)
+    {
+        return actions;
+    }
+    if (attached && !record.builtin)
+    {
+        actions.push_back(L"Edit Integration");
+        if (record.integration == "fetch")
+        {
+            actions.push_back(L"Update Version");
+            actions.push_back(L"Change Target");
+        }
+    }
+    if (attached)
+    {
+        actions.push_back(L"Remove from Project");
+        actions.push_back(L"Reinstall / Repair");
+    }
+    actions.insert(actions.end(),
+        {L"Delete Known Library / Hide Built-in",
+            L"Show Hidden Built-in",
+            L"Delete Cache",
+            L"All Managed Caches",
+            L"Recover Interrupted Change"});
+    return actions;
+}
+
 namespace
 {
 namespace fs = std::filesystem;
@@ -23,10 +54,12 @@ struct Snapshot
     std::vector<LibraryRecord> project_records;
     std::vector<DependencyCache> caches;
     std::map<std::string, std::vector<fs::path>> references;
+    std::map<std::string, LibraryObservation> observations;
 };
 
-Snapshot snapshot(const fs::path& project)
+Snapshot snapshot(const LibraryManagerContext& context)
 {
+    const auto& project = context.project;
     Snapshot result;
     for (const auto& item : supported_libraries())
     {
@@ -45,6 +78,21 @@ Snapshot snapshot(const fs::path& project)
     if (!project.empty())
     {
         result.project_records = project_libraries(project);
+        const bool manifest =
+            fs::is_regular_file(workspace_directory(project) / L"libraries.manifest");
+        if (!manifest)
+        {
+            // Legacy source matching is useful evidence, not management authority.
+            // Explicit owned sections remain manageable through the existing preview.
+            std::ifstream input(project / L"cmake/Dependencies.cmake", std::ios::binary);
+            const std::string bytes{std::istreambuf_iterator<char>(input), {}};
+            std::erase_if(result.project_records,
+                [&](const auto& record)
+                {
+                    return bytes.find("# BEGIN CppLiveLab library " + record.id + "\n") ==
+                           std::string::npos;
+                });
+        }
         for (const auto& record : result.project_records)
         {
             const auto entry = std::find_if(result.libraries.begin(),
@@ -62,6 +110,48 @@ Snapshot snapshot(const fs::path& project)
                 *entry = record;
             }
         }
+        const auto build = managed_build_directory(project, context.configuration, context.options);
+        std::vector<LibraryObservation> observations;
+        try
+        {
+            observations = detect_project_libraries(
+                project, build, context.configuration, context.options.target);
+        }
+        catch (const std::exception& error)
+        {
+            observations.push_back({"inspection-error",
+                "Dependency inspection unavailable",
+                "Passive reader",
+                "Unknown",
+                LibraryOwnership::Unknown,
+                error.what(),
+                "",
+                LibraryDetectionConfidence::Unavailable});
+        }
+        for (const auto& observation : observations)
+        {
+            const bool managed = std::any_of(result.project_records.begin(),
+                result.project_records.end(),
+                [&](const auto& record)
+                {
+                    return (!observation.target.empty() &&
+                               std::find(record.targets.begin(),
+                                   record.targets.end(),
+                                   observation.target) != record.targets.end()) ||
+                           (record.integration == "package" && record.package == observation.name);
+                });
+            if (managed)
+            {
+                continue;
+            }
+            LibraryRecord entry;
+            entry.id = "detected-" + library_key(observation.identity);
+            entry.name = observation.name;
+            entry.version = observation.version;
+            entry.integration = "observation";
+            result.observations[entry.id] = observation;
+            result.libraries.push_back(entry);
+        }
     }
     result.caches = dependency_caches();
     for (const auto& cache : result.caches)
@@ -73,13 +163,37 @@ Snapshot snapshot(const fs::path& project)
     }
     for (const auto& record : result.libraries)
     {
-        result.references[record.id] = library_references(record);
+        if (!result.observations.contains(record.id))
+        {
+            result.references[record.id] = library_references(record);
+        }
     }
     return result;
 }
 
 std::wstring details(const Snapshot& state, const LibraryRecord& record)
 {
+    if (const auto found = state.observations.find(record.id); found != state.observations.end())
+    {
+        const auto& observation = found->second;
+        const auto confidence =
+            observation.confidence == LibraryDetectionConfidence::ConfiguredSnapshot
+                ? L"Configured snapshot (not a current build result)"
+            : observation.confidence == LibraryDetectionConfidence::StaleSnapshot
+                ? L"Stale snapshot"
+            : observation.confidence == LibraryDetectionConfidence::Unavailable
+                ? L"Unavailable"
+                : L"Unevaluated declaration";
+        return wide(observation.name) + L"\r\nSource: " + wide(observation.source) +
+               L"\r\nVersion: " + wide(observation.version) + L"\r\nManagement: " +
+               (observation.ownership == LibraryOwnership::External
+                       ? L"Externally Managed"
+                       : L"Unverified (ownership unknown)") +
+               L"\r\nDetection confidence: " + confidence +
+               L"\r\nCompatibility: Unable to Verify (not tested by detection)\r\nEvidence: " +
+               wide(observation.evidence) +
+               L"\r\nRead-only. Edit its existing CMake or package configuration to make changes.";
+    }
     std::wstring text =
         wide(record.name) + L"\r\nRepository: " + wide(record.repository) + L"\r\nVersion: " +
         wide(record.version) + L"\r\nPinned commit: " +
@@ -103,7 +217,7 @@ std::wstring details(const Snapshot& state, const LibraryRecord& record)
         {
             return item.id == record.id;
         });
-    text += attached ? L"\r\nOwnership: managed by Cpp for the selected project."
+    text += attached ? L"\r\nOwnership: managed by EasierCPP for the selected project."
                      : L"\r\nOwnership: catalog entry, not attached to the selected project.";
     text += L"\r\nKnown project references (not an exhaustive disk scan):";
     if (const auto references = state.references.find(record.id);
@@ -177,6 +291,82 @@ bool apply_library_change(const LibraryManagerContext& context,
             "Stop the active build/program/test before changing project libraries.");
     }
     const auto target = executable_target(context);
+    const auto previous = project_libraries(context.project);
+    if (!fs::is_regular_file(workspace_directory(context.project) / L"libraries.manifest") &&
+        !previous.empty())
+    {
+        std::ifstream input(context.project / L"cmake/Dependencies.cmake", std::ios::binary);
+        const std::string bytes{std::istreambuf_iterator<char>(input), {}};
+        for (const auto& record : previous)
+        {
+            if (bytes.find("# BEGIN CppLiveLab library " + record.id + "\n") == std::string::npos)
+            {
+                throw std::runtime_error(
+                    "Existing dependency declarations lack ownership metadata. "
+                    "They remain read-only; automatic adoption or migration is not performed.");
+            }
+        }
+    }
+    std::vector<LibraryRecord> additions;
+    for (auto record : records)
+    {
+        const auto old = std::find_if(previous.begin(),
+            previous.end(),
+            [&](const auto& item)
+            {
+                return item.id == record.id;
+            });
+        if (old != previous.end())
+        {
+            std::erase_if(record.targets,
+                [&](const auto& name)
+                {
+                    return std::find(old->targets.begin(), old->targets.end(), name) !=
+                           old->targets.end();
+                });
+            if (record.package == old->package)
+            {
+                record.package.clear();
+            }
+        }
+        if (!record.targets.empty() || !record.package.empty())
+        {
+            additions.push_back(record);
+        }
+    }
+    if (!additions.empty())
+    {
+        std::vector<LibraryObservation> observed;
+        if (!run_library_work(context.owner,
+                context.theme,
+                L"Checking existing dependency conflicts",
+                [&]
+                {
+                    observed = detect_project_libraries(context.project,
+                        managed_build_directory(
+                            context.project, context.configuration, context.options),
+                        context.configuration,
+                        context.options.target);
+                }) ||
+            context.restarting())
+        {
+            return false;
+        }
+        for (const auto& record : additions)
+        {
+            for (const auto& observation : observed)
+            {
+                if (library_observation_conflicts(record, observation))
+                {
+                    throw std::runtime_error(
+                        "Existing dependency evidence conflicts with this addition: " +
+                        observation.name +
+                        ". Inspect its existing CMake/package configuration. No project files "
+                        "changed.");
+                }
+            }
+        }
+    }
     const auto change = preview_library_change(context.project, records, target);
     std::vector<FormField> preview{
         {L"Current root CMakeLists.txt", wide(change.old_root), {}, true},
@@ -245,8 +435,8 @@ void add(const LibraryManagerContext& context, const Snapshot& state)
         L"Precompiled libraries need a CMake package with imported targets. Local CMake code "
         L"executes only after the separate preview approval.";
     std::vector<FormField> method{{L"Integration method",
-        L"Known / GitHub library",
-        {L"Known / GitHub library",
+        L"Known / GitHub / GitLab library",
+        {L"Known / GitHub / GitLab library",
             L"Installed CMake package",
             L"Local CMake source",
             L"Local header-only directory"}}};
@@ -254,7 +444,7 @@ void add(const LibraryManagerContext& context, const Snapshot& state)
     {
         return;
     }
-    if (method[0].value != L"Known / GitHub library")
+    if (method[0].value != L"Known / GitHub / GitLab library")
     {
         LibraryRecord record;
         record.integration = method[0].value == L"Installed CMake package" ? "package"
@@ -475,7 +665,7 @@ void caches(const LibraryManagerContext& context,
 
 void add_project_libraries_dialog(const LibraryManagerContext& context)
 {
-    add(context, snapshot(context.project));
+    add(context, snapshot(context));
 }
 
 void manage_libraries_dialog(const LibraryManagerContext& context)
@@ -488,7 +678,7 @@ void manage_libraries_dialog(const LibraryManagerContext& context)
                 L"Inspecting managed libraries",
                 [&]
                 {
-                    state = snapshot(context.project);
+                    state = snapshot(context);
                 }) ||
             context.restarting())
         {
@@ -497,8 +687,22 @@ void manage_libraries_dialog(const LibraryManagerContext& context)
         std::vector<std::wstring> labels;
         for (const auto& record : state.libraries)
         {
+            const auto found = state.observations.find(record.id);
+            const bool attached = std::any_of(state.project_records.begin(),
+                state.project_records.end(),
+                [&](const auto& item)
+                {
+                    return item.id == record.id;
+                });
+            const auto ownership =
+                found != state.observations.end()
+                    ? (found->second.confidence == LibraryDetectionConfidence::ConfiguredSnapshot
+                              ? L" [external snapshot]"
+                              : L" [unverified]")
+                : attached ? L" [managed]"
+                           : L" [catalog]";
             labels.push_back(wide(record.name) + (record.builtin ? L" [built-in]" : L"") +
-                             (library_hidden(record.id) ? L" [hidden]" : L""));
+                             (library_hidden(record.id) ? L" [hidden]" : L"") + ownership);
         }
         if (labels.empty())
         {
@@ -513,21 +717,8 @@ void manage_libraries_dialog(const LibraryManagerContext& context)
             L"Project-specific pins survive catalog deletion. Cache actions require separate "
             L"confirmation. "
             L"Alt+R requests a safe application restart, including during background tasks.";
-        std::vector<FormField> fields{{L"Known or project library", labels.front(), labels},
-            {L"Action",
-                L"Inspect",
-                {L"Inspect",
-                    L"Add Library",
-                    L"Edit Integration",
-                    L"Update Version",
-                    L"Change Target",
-                    L"Remove from Project",
-                    L"Delete Known Library / Hide Built-in",
-                    L"Show Hidden Built-in",
-                    L"Delete Cache",
-                    L"Reinstall / Repair",
-                    L"All Managed Caches",
-                    L"Recover Interrupted Change"}},
+        std::vector<FormField> fields{{L"Project libraries and catalog", labels.front(), labels},
+            {L"Action", L"Inspect", {}},
             {L"Selected library details", details(state, state.libraries.front()), {}, true}};
         fields[2].read_only = true;
         fields[2].multiline_height = 150;
@@ -538,8 +729,24 @@ void manage_libraries_dialog(const LibraryManagerContext& context)
             if (index < state.libraries.size())
             {
                 values[2].value = details(state, state.libraries[index]);
+                const auto& record = state.libraries[index];
+                const bool attached = std::any_of(state.project_records.begin(),
+                    state.project_records.end(),
+                    [&](const auto& item)
+                    {
+                        return item.id == record.id;
+                    });
+                values[1].choices = library_manager_actions(
+                    state.observations.contains(record.id), attached, record);
+                if (std::find(values[1].choices.begin(),
+                        values[1].choices.end(),
+                        values[1].value) == values[1].choices.end())
+                {
+                    values[1].value = L"Inspect";
+                }
             }
         };
+        options.changed(fields);
         if (!project_form(context.owner, L"Manage Libraries", fields, options) ||
             context.restarting())
         {
@@ -551,13 +758,18 @@ void manage_libraries_dialog(const LibraryManagerContext& context)
         const auto action = fields[1].value;
         try
         {
-            if (action == L"Inspect")
+            if (action == L"Inspect" || action == L"Refresh")
             {
                 continue;
             }
             if (action == L"Add Library")
             {
                 add(context, state);
+            }
+            else if (state.observations.contains(record.id))
+            {
+                throw std::runtime_error("Detected dependencies are read-only; edit the existing "
+                                         "CMake or package configuration.");
             }
             else if (action == L"All Managed Caches" || action == L"Delete Cache")
             {

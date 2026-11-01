@@ -17,10 +17,21 @@ if ($PSVersionTable.PSEdition -eq 'Desktop') {
     $env:PSModulePath = (Join-Path $PSHOME 'Modules') + ';' + $env:PSModulePath
 }
 # Passive discovery never configures or builds downloaded code.
-if ($Repository -notmatch '^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$') {
-    throw 'Enter a public https://github.com/owner/repository URL without credentials or query parameters.'
+$provider = 'GitHub'
+if ($Repository -match '^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$') {
+    $repo = "$($matches[1])/$($matches[2])".ToLowerInvariant()
+} elseif ($Repository -match '^(?:https://)?gitlab\.com/([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+?)(?:\.git)?/?$') {
+    $provider = 'GitLab'
+    $projectPath = $matches[1]
+    $projectPath = $projectPath -replace '\.git$', ''
+    if (@($projectPath.Split('/') | Where-Object { $_ -in @('', '.', '..', '-') }).Count) {
+        throw 'Invalid GitLab project path.'
+    }
+    # Provider-qualified identity avoids collisions with existing GitHub records.
+    $repo = 'gitlab.com/' + $projectPath
+} else {
+    throw 'Enter a public https://github.com/owner/repository or https://gitlab.com/group/project URL without credentials or query parameters.'
 }
-$repo = "$($matches[1])/$($matches[2])".ToLowerInvariant()
 [IO.Directory]::CreateDirectory($OutputDirectory) | Out-Null
 $utf8 = New-Object Text.UTF8Encoding($false)
 $metadataClock = [Diagnostics.Stopwatch]::StartNew()
@@ -54,22 +65,41 @@ function Request-GitHub([string]$Path) {
         # Invoke-RestMethod emits a JSON array as one pipeline object on Windows
         # PowerShell. Returning the captured value enumerates its release entries,
         # so draft/prerelease filtering evaluates each release rather than arrays.
-        $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/$Path" -Headers @{
-            Accept='application/vnd.github+json'; 'User-Agent'='CppLiveLab'; 'X-GitHub-Api-Version'='2022-11-28'
-        } -TimeoutSec $timeout
+        if ($provider -eq 'GitLab') {
+            $resource = $Path
+            if ($Path.StartsWith('tags?') -or $Path.StartsWith('commits/')) {
+                $resource = 'repository/' + $Path
+            }
+            $projectId = [Uri]::EscapeDataString($projectPath)
+            $response = Invoke-RestMethod -Uri "https://gitlab.com/api/v4/projects/$projectId/$resource" -Headers @{
+                Accept='application/json'; 'User-Agent'='EasierCPP'
+            } -TimeoutSec $timeout
+            if ($Path.StartsWith('commits/')) {
+                return [pscustomobject]@{ sha = $response.id }
+            }
+        } else {
+            $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/$Path" -Headers @{
+                Accept='application/vnd.github+json'; 'User-Agent'='CppLiveLab'; 'X-GitHub-Api-Version'='2022-11-28'
+            } -TimeoutSec $timeout
+        }
         return $response
     } catch {
         $status = 0
         if ($_.Exception.Response) { $status = [int]$_.Exception.Response.StatusCode }
         if (($status -eq 404 -or $status -eq 422) -and $Path.StartsWith('commits/')) { throw "Version '$Version' was not found or could not be accessed in $repo (HTTP $status). Available alternatives are shown in the version dialog. Private repositories are unsupported." }
-        if ($status -eq 404) { throw "GitHub repository/resource not found (404): $repo/$Path. Check the repository URL; private repositories are unsupported." }
-        if ($status -eq 403 -or $status -eq 429) { throw "GitHub refused this request (HTTP $status, possibly API rate limit). Version existence could not be checked. Retry later." }
-        throw "GitHub network/API failure (HTTP $status). Version existence could not be checked. $($_.Exception.Message)"
+        if ($status -eq 404) { throw "$provider repository/resource not found (404): $repo/$Path. Check the repository URL; private repositories are unsupported." }
+        if ($status -eq 401) { throw "$provider repository is inaccessible (401). Private repositories are unsupported." }
+        if ($status -eq 403 -or $status -eq 429) { throw "$provider refused this request (HTTP $status, possibly API rate limit). Version existence could not be checked. Retry later." }
+        throw "$provider network/API failure (HTTP $status). Version existence could not be checked. $($_.Exception.Message)"
     }
 }
 if ($Action -eq 'Discover' -or ($Action -eq 'Resolve' -and $Version -eq 'Latest Stable')) {
     $releases = @(Request-GitHub 'releases?per_page=100')
-    $stable = @($releases | Where-Object { -not $_.draft -and -not $_.prerelease })
+    $stable = @($releases | Where-Object {
+        -not $_.draft -and -not $_.prerelease -and
+        ($provider -ne 'GitLab' -or ($_.tag_name -match '^v?\d+(?:\.\d+)+(?:\+[^\r\n]+)?$' -and
+            -not $_.upcoming_release -and [DateTimeOffset]$_.released_at -le [DateTimeOffset]::UtcNow))
+    })
     if ($Action -eq 'Discover') {
         $tags = @(Request-GitHub 'tags?per_page=100')
         $versions = @()
@@ -94,7 +124,7 @@ if ($Action -eq 'Discover' -or ($Action -eq 'Resolve' -and $Version -eq 'Latest 
 if ($Action -eq 'Resolve') {
     if (-not $Version -or $Version -match '[\r\n]') { throw 'Enter a release tag or commit.' }
     $commit = Request-GitHub ('commits/' + [Uri]::EscapeDataString($Version))
-    if ($commit.sha -notmatch '^[0-9a-f]{40}$') { throw 'GitHub returned an invalid commit identity.' }
+    if ($commit.sha -notmatch '^[0-9a-f]{40}$') { throw "$provider returned an invalid commit identity." }
     [IO.File]::WriteAllLines((Join-Path $OutputDirectory 'resolved.txt'), [string[]]@($repo, $commit.sha, $Version), $utf8)
     Write-Output "Resolved $repo $Version to exact commit $($commit.sha). No third-party code executed."
     exit 0
@@ -129,7 +159,11 @@ if ($Action -eq 'Download') {
     if ($reuseArchive) {
         [IO.File]::Copy($archive, $stagedArchive)
     } else {
-        Invoke-WebRequest -UseBasicParsing -Uri "https://codeload.github.com/$repo/zip/$($resolved[1])" -OutFile $stagedArchive -TimeoutSec 60
+        $archiveUrl = "https://codeload.github.com/$repo/zip/$($resolved[1])"
+        if ($provider -eq 'GitLab') {
+            $archiveUrl = 'https://gitlab.com/api/v4/projects/' + [Uri]::EscapeDataString($projectPath) + '/repository/archive.zip?sha=' + $resolved[1]
+        }
+        Invoke-WebRequest -UseBasicParsing -Uri $archiveUrl -OutFile $stagedArchive -TimeoutSec 60
     }
     $hash = (Get-FileHash -LiteralPath $stagedArchive -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($ExpectedArchiveHash -and $hash -ne $ExpectedArchiveHash) {
@@ -161,7 +195,7 @@ if ($Action -eq 'Download') {
         [IO.Compression.ZipFile]::ExtractToDirectory($stagedArchive, $destination)
     }
     $root = @(Get-ChildItem -LiteralPath $destination -Directory)
-    if ($root.Count -ne 1) { throw 'Expected one GitHub archive root directory.' }
+    if ($root.Count -ne 1) { throw 'Expected one repository archive root directory.' }
     # Ninja 1.12's Windows header checks can reject cwd + relative paths over
     # MAX_PATH even when the normalized absolute path is short. Avoid repeating
     # GitHub's full commit directory in every header dependency. Retain previous

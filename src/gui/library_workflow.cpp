@@ -322,17 +322,19 @@ void initialize_github_repository_form(std::vector<FormField>& repository, FormO
     // Fresh Add sessions carry no repository, version, result or validation state.
     options = FormOptions{};
     options.accept_label = L"Retrieve Versions";
-    options.note = L"Public GitHub repositories only. Version discovery does not execute "
-                   L"downloaded code. Not every C++ repository is an installable library.";
+    options.note =
+        L"Public GitHub and gitlab.com repositories only. Version discovery does not execute "
+        L"downloaded code. Not every C++ repository is an installable library.";
     options.disable_invalid_accept = true;
-    repository = {{L"GitHub repository URL", L""}};
+    repository = {{L"Repository URL (GitHub or GitLab)", L""}};
     repository.front().placeholder = L"https://github.com/owner/repository";
     options.validate = [](const auto& fields) -> std::wstring
     {
         return std::regex_match(path_support::path_utf8(fields[0].value),
-                   std::regex("https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?"))
+                   std::regex("(https://github\\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?|"
+                              "(https://)?gitlab\\.com/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)+/?)"))
                    ? L""
-                   : L"Enter https://github.com/owner/repository without credentials or query "
+                   : L"Enter a GitHub or gitlab.com repository URL without credentials or query "
                      L"parameters.";
     };
 }
@@ -352,9 +354,11 @@ std::optional<std::string> github_library_dialog(HWND owner,
     if (existing)
     {
         repository[0].value =
-            L"https://github.com/" + path_support::from_utf8(existing->repository).wstring();
+            (existing->repository.starts_with("gitlab.com/") ? L"https://"
+                                                             : L"https://github.com/") +
+            path_support::from_utf8(existing->repository).wstring();
     }
-    if (!existing && !project_form(owner, L"GitHub Repository", repository, options))
+    if (!existing && !project_form(owner, L"GitHub / GitLab Repository", repository, options))
     {
         return {};
     }
@@ -520,7 +524,8 @@ std::optional<std::string> github_library_dialog(HWND owner,
     record.version = resolved[2];
     auto repository_id = record.repository;
     std::replace(repository_id.begin(), repository_id.end(), '/', '-');
-    record.id = "github-" + repository_id + "-" + record.revision;
+    record.id = (record.repository.starts_with("gitlab.com/") ? "gitlab-" : "github-") +
+                repository_id + "-" + record.revision;
     if (existing && existing->revision == record.revision && !existing->builtin)
     {
         record.id = existing->id;

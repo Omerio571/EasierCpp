@@ -67,7 +67,7 @@ BOOL CALLBACK drive(HWND window, LPARAM)
     }
     try
     {
-        if (title == L"GitHub Repository")
+        if (title == L"GitHub / GitLab Repository")
         {
             require(GetWindowTextLengthW(GetDlgItem(window, 2000)) == 0,
                 "Fresh Add reused the previous repository URL");

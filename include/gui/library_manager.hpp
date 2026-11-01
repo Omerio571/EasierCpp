@@ -20,4 +20,6 @@ struct LibraryManagerContext
 
 void manage_libraries_dialog(const LibraryManagerContext& context);
 void add_project_libraries_dialog(const LibraryManagerContext& context);
+std::vector<std::wstring> library_manager_actions(
+    bool read_only, bool attached, const LibraryRecord& record);
 } // namespace cpplivelab

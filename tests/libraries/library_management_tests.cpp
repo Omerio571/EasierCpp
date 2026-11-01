@@ -60,6 +60,56 @@ LibraryRecord custom()
 
 void metadata(const fs::path& root)
 {
+    const auto imported = root / L"passive-import";
+    const std::string imported_cmake = "find_package(External CONFIG REQUIRED)\n";
+    write(imported / L"CMakeLists.txt", imported_cmake);
+    const auto observations = detect_project_libraries(imported, {}, L"Debug");
+    require(observations.size() == 1 && observations.front().name == "External" &&
+                observations.front().ownership == LibraryOwnership::Unknown &&
+                read(imported / L"CMakeLists.txt") == imported_cmake,
+        "Passive detection changed project files or claimed unevaluated ownership");
+    auto package = custom();
+    package.integration = "package";
+    package.package = "External";
+    require(library_observation_conflicts(package, observations.front()),
+        "Exact external package conflict was not identified");
+    package.package = "ExternalSimilar";
+    require(!library_observation_conflicts(package, observations.front()),
+        "Similar display name was incorrectly treated as a dependency identity");
+    auto configured_target = observations.front();
+    configured_target.target = "Fixture::Core";
+    require(library_observation_conflicts(custom(), configured_target),
+        "Configured exact CMake target conflict was not identified");
+    auto gitlab = custom();
+    gitlab.id = "gitlab-fixture";
+    gitlab.repository = "gitlab.com/group/sub/library";
+    save_known_library(gitlab);
+    const auto gitlab_recipe = github_dependency_cmake(
+        gitlab.repository, gitlab.revision, gitlab.archive_hash, "Fixture::Core");
+    require(gitlab_recipe.find("https://gitlab.com/api/v4/projects/group%2Fsub%2Flibrary/"
+                               "repository/archive.zip?sha=" +
+                               gitlab.revision) != std::string::npos &&
+                gitlab_recipe.find("SHA256=" + gitlab.archive_hash) != std::string::npos,
+        "GitLab recipe must use the same exact archive URL and hash as the download worker");
+    const auto& catalog = supported_libraries();
+    require(std::any_of(catalog.begin(),
+                catalog.end(),
+                [&](const auto& entry)
+                {
+                    return entry.id == gitlab.id;
+                }),
+        "GitLab library missing from shared catalog");
+    require(parse_libraries(gitlab.id).at(0) == gitlab.id,
+        "GitLab library was rejected by existing project generation");
+    refuses(
+        [&]
+        {
+            github_dependency_cmake("gitlab.com/group/../library",
+                gitlab.revision,
+                gitlab.archive_hash,
+                "Fixture::Core");
+        },
+        "GitLab traversal path was accepted");
     auto record = custom();
     require(parse_library_targets("Fixture::Core;Fixture::Headers").size() == 2,
         "Multi-target parsing lost exact identifiers");
@@ -573,9 +623,14 @@ void discovery(const fs::path& root)
     require(refreshed.size() == 2, "Refresh retained targets from the previous CMake graph");
 }
 
-void consumers(const fs::path& root)
+void consumers(const fs::path& root, bool gitlab = false)
 {
     auto first = custom();
+    if (gitlab)
+    {
+        first.id = "gitlab-fixture";
+        first.repository = "gitlab.com/group/sub/library";
+    }
     save_known_library(first);
     const auto prepare = [&](const LibraryRecord& record, bool configure_ok, bool link_ok)
     {
@@ -626,6 +681,14 @@ void consumers(const fs::path& root)
     require(managed_build(project, L"Debug", options, true, true) == 0,
         "Actually linked offline consumer did not execute");
     const auto usable = managed_build_directory(project, L"Debug", options);
+    const auto detected = detect_project_libraries(project, usable, L"Debug", L"app");
+    require(std::any_of(detected.begin(),
+                detected.end(),
+                [](const auto& observation)
+                {
+                    return observation.target == "core";
+                }),
+        "Actual configured dependency target was not found without reconfiguration");
     const auto original_dependencies = read(project / L"cmake/Dependencies.cmake");
     auto second = first;
     second.version = "2";
@@ -702,6 +765,10 @@ int wmain(int argc, wchar_t** argv)
         else if (mode == L"consumers")
         {
             consumers(fixture.root);
+        }
+        else if (mode == L"gitlab")
+        {
+            consumers(fixture.root, true);
         }
         else
         {
