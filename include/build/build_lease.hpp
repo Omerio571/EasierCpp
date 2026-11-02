@@ -40,7 +40,7 @@ public:
                     "Cannot write build lock (Windows error " + std::to_string(error) + ")");
             }
             throw BuildDeferredError(
-                "This configuration is already building or running in CppLiveLab. Stop it first.");
+                "This configuration is already building or running in EasierCpp. Stop it first.");
         }
     }
 

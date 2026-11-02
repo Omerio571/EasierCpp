@@ -9,7 +9,7 @@ namespace cpplivelab
 struct RestartState
 {
     std::filesystem::path project;
-    std::wstring preference_store = L"Software\\CppLiveLab";
+    std::wstring preference_store = L"Software\\EasierCpp\\Preferences";
     WINDOWPLACEMENT placement{sizeof(WINDOWPLACEMENT)};
 };
 

@@ -44,8 +44,8 @@ try {
     foreach ($config in @('Debug', 'Release')) {
         $out = Invoke-Lab @('run', $hello, '--config', $config)
         Assert ($out -match 'Hello from C\+\+20!') "Generated project failed in $config"
-        Assert (Test-Path "$hello/.cpplivelab/build-$config/app.exe") 'Configuration executable missing'
-        Assert ((Get-Content "$hello/.cpplivelab/build-$config/CMakeCache.txt" -Raw) -match "CMAKE_BUILD_TYPE:STRING=$config") 'Wrong config'
+        Assert (Test-Path "$hello/.easiercpp/build-$config/app.exe") 'Configuration executable missing'
+        Assert ((Get-Content "$hello/.easiercpp/build-$config/CMakeCache.txt" -Raw) -match "CMAKE_BUILD_TYPE:STRING=$config") 'Wrong config'
     }
     $calc = Join-Path $root 'Calculator Demo'
     Invoke-Lab @('create', $calc, '--demo', 'calculator') | Out-Null

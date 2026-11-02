@@ -4,9 +4,11 @@
 
 # Manager and user-project build artifacts, never the source/configuration files.
 build/
+/dist/
 out/
 cmake-build-*/
 .cpplivelab/
+.easiercpp/
 
 # These are maintained modules after source organization, not build outputs.
 !src/build/

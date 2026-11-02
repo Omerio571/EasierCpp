@@ -1,4 +1,4 @@
-# CppLiveLab development instructions
+# EasierCpp development instructions
 
 Work only on the stage or maintenance task the user has approved. Preserve approved
 Stage 1–3 behavior. Do not start another stage, commit, or push without the user's

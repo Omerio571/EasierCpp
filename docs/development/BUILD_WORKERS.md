@@ -11,7 +11,7 @@ continue to control CTest only.
 
 ## Defaults and persistence
 
-Settings are global in `%LOCALAPPDATA%/CppLiveLab/build-workers.settings`, or the existing
+Settings are global in `%LOCALAPPDATA%/EasierCpp/build-workers.settings`, or the existing
 `CPPLIVELAB_STATE_HOME` override. The file stores selected and last-recommended counts.
 It is replaced atomically; imported source/CMake files are not changed.
 
@@ -64,15 +64,15 @@ Configure time and cleanup are outside measured build intervals; compile/link/CM
 build-process overhead are inside them. Warm samples rebuild one changed source file.
 
 Success applies the count and retains a CSV at
-`%LOCALAPPDATA%/CppLiveLab/worker-benchmark.csv`. Temporary sources/builds are removed
+`%LOCALAPPDATA%/EasierCpp/worker-benchmark.csv`. Temporary sources/builds are removed
 after success, failure or cancellation once owned processes drain. The GUI's run is
 bounded to ten minutes. Manual selection remains available afterward and retains the
 last recommendation for reference.
 
 ## Manual acceptance
 
-1. Close the previous EasierCPP instance when ready and run
-   `build/compile-workers/cpplivelab-gui.exe`. Open a disposable CMake project.
+1. Close the previous EasierCpp instance when ready and run
+   `build/compile-workers/EasierCpp-Gui.exe`. Open a disposable CMake project.
 2. Settings → Preferences: verify the three requested sections, numerical worker
    choices, recommendation and Optimize Workers button. Choose **1**, then Cancel.
    Reopen Preferences: expect **1** still selected.
@@ -88,7 +88,7 @@ last recommendation for reference.
    candidate/trial counts. Cancel: expect the previous count and recommendation.
 7. Run optimization to completion. Expect a numeric recommendation applied immediately,
    its synthetic-estimate label, and the CSV. Change to **1** afterward to verify override.
-8. Close/reopen EasierCPP and the project. Expect selected and recommended counts retained.
+8. Close/reopen EasierCpp and the project. Expect selected and recommended counts retained.
    Build-system default should restore inherited native/preset/environment parallelism.
 
 These changes do not alter Seamless placement/readiness, introduce another replacement

@@ -20,11 +20,13 @@ struct Preferences
 
 // Automatic-mode ownership is per project; this stores appearance and debounce only.
 // Tests pass a separate temporary key instead of changing the user's preferences.
-Preferences load_preferences(const std::wstring& key = L"Software\\CppLiveLab");
+// Atomic copy of supported values only; an existing destination key wins intact.
+bool migrate_preference_store(const std::wstring& legacy, const std::wstring& destination);
+Preferences load_preferences(const std::wstring& key = L"Software\\EasierCpp\\Preferences");
 bool save_preferences(
-    const Preferences& preferences, const std::wstring& key = L"Software\\CppLiveLab");
+    const Preferences& preferences, const std::wstring& key = L"Software\\EasierCpp\\Preferences");
 // Read-only compatibility input. An explicit project Auto Run setting takes priority.
-bool legacy_auto_build_enabled(const std::wstring& key = L"Software\\CppLiveLab");
+bool legacy_auto_build_enabled(const std::wstring& key = L"Software\\EasierCpp\\Preferences");
 bool windows_uses_dark_theme();
 
 struct ConsoleColors

@@ -1,0 +1,5 @@
+"process","read_bytes_avg","write_bytes_avg","cpu_ms_avg"
+"cmd.exe","549","0","31.25"
+"link.exe","1378091","227422.4","56.25"
+"mt.exe","787","0","18.75"
+"rc.exe","3306","2292","6.25"

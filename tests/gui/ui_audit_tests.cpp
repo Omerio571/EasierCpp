@@ -346,7 +346,7 @@ int wmain(int argc, wchar_t** argv)
             const auto timer = SetTimer(nullptr, 0, 20, audit::drive_uncertain_flow);
             const auto result = cpplivelab::github_library_dialog(nullptr,
                 cpplivelab::ThemeChoice::Dark,
-                application_directory() / L"cpplivelab.exe",
+                application_directory() / L"EasierCpp.exe",
                 [](const auto&)
                 {
                 });

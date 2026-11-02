@@ -23,10 +23,10 @@ avoid frequently edited project headers or headers with source-specific macro re
 Run in ordinary PowerShell (use your actual project/recipe paths):
 
 ```powershell
-$cli = 'C:\Users\omer2\OneDrive\Desktop\Projects\EasierCpp\build\universal-pch\cpplivelab.exe'
+$cli = 'C:\Users\omer2\OneDrive\Desktop\Projects\EasierCpp\build\universal-pch\EasierCpp.exe'
 & $cli pch-config 'C:\Projects\MyProject' --recipe 'C:\Recipes\my-project.cmake' --config Debug
 & $cli manage-build 'C:\Projects\MyProject' --config Debug
-& 'C:\Users\omer2\OneDrive\Desktop\Projects\EasierCpp\build\universal-pch\cpplivelab-gui.exe' 'C:\Projects\MyProject'
+& 'C:\Users\omer2\OneDrive\Desktop\Projects\EasierCpp\build\universal-pch\EasierCpp-Gui.exe' 'C:\Projects\MyProject'
 ```
 
 The recipe is executable CMake configuration: review it before opting in. It is copied
@@ -38,7 +38,7 @@ Do not rely on relative `include()` paths from the recipe's original location.
 
 Reopen the project after changing the setting. Its normal Build and Auto Run workers
 load the saved setting. No separate automatic mode or new build scheduler exists.
-Look for `EasierCPP PCH: enabled for ...` in Build & System during configuration.
+Look for `EasierCpp PCH: enabled for ...` in Build & System during configuration.
 
 Debug and Release are independent; opt in separately if wanted. Disable the manager
 overlay with:

@@ -108,9 +108,10 @@ bool ProjectWatcher::configuration_changed(
 bool ProjectWatcher::ignored_directory(const fs::path& component)
 {
     const auto name = lowercase(component.wstring());
-    return name == L".git" || name == L".vs" || name == L".cpplivelab" || name == L"build" ||
-           name == L"out" || name == L"_deps" || name == L"cmakefiles" || name == L"debug" ||
-           name == L"release" || name.starts_with(L"cmake-build-") || name.starts_with(L"build-");
+    return name == L".git" || name == L".vs" || name == L".cpplivelab" || name == L".easiercpp" ||
+           name == L"build" || name == L"out" || name == L"_deps" || name == L"cmakefiles" ||
+           name == L"debug" || name == L"release" || name.starts_with(L"cmake-build-") ||
+           name.starts_with(L"build-");
 }
 
 bool ProjectWatcher::relevant(const fs::path& relative_path)

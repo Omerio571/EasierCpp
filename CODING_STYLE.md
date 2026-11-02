@@ -1,4 +1,4 @@
-# CppLiveLab coding style
+# EasierCpp coding style
 
 Readable code is a product requirement. A longer, clear implementation is preferable
 to a short expression that obscures ownership or control flow.

@@ -256,7 +256,7 @@ std::vector<std::unique_ptr<BuildLease>> lock_project_builds(const fs::path& pro
 
 std::string managed_text(const std::vector<LibraryRecord>& records, const std::string& target)
 {
-    std::string result = "# CppLiveLab-managed pinned dependencies.\n";
+    std::string result = "# EasierCpp-managed pinned dependencies.\n";
     std::set<std::string> identities;
     for (const auto& record : records)
     {
@@ -269,10 +269,10 @@ std::string managed_text(const std::vector<LibraryRecord>& records, const std::s
         {
             throw std::runtime_error("The same library repository is selected more than once.");
         }
-        result += "\n# BEGIN CppLiveLab library " + record.id + "\n" +
+        result += "\n# BEGIN EasierCpp library " + record.id + "\n" +
                   library_snippet(
                       record, record.consumer_target.empty() ? target : record.consumer_target) +
-                  "# END CppLiveLab library " + record.id + "\n";
+                  "# END EasierCpp library " + record.id + "\n";
     }
     return result;
 }
@@ -715,7 +715,8 @@ std::vector<LibraryRecord> project_libraries(
     {
         const auto content =
             read(project / L"CMakeLists.txt") + read(project / L"cmake/Dependencies.cmake");
-        if (content.starts_with("# CppLiveLab dependency target discovery\n"))
+        if (content.starts_with("# CppLiveLab dependency target discovery\n") ||
+            content.starts_with("# EasierCpp dependency target discovery\n"))
         {
             return result;
         }
@@ -850,8 +851,13 @@ LibraryChange preview_library_change(
     // dependency file, remains byte-for-byte intact. Edited managed blocks refuse.
     for (const auto& record : previous)
     {
-        const auto begin = "# BEGIN CppLiveLab library " + record.id + "\n";
-        const auto end = "# END CppLiveLab library " + record.id + "\n";
+        const std::string brand =
+            change.new_dependencies.find("# BEGIN EasierCpp library " + record.id + "\n") !=
+                    std::string::npos
+                ? "EasierCpp"
+                : "CppLiveLab";
+        const auto begin = "# BEGIN " + brand + " library " + record.id + "\n";
+        const auto end = "# END " + brand + " library " + record.id + "\n";
         const auto start = change.new_dependencies.find(begin);
         const auto finish = change.new_dependencies.find(end, start);
         if (start == std::string::npos || finish == std::string::npos)
@@ -909,7 +915,8 @@ LibraryChange preview_library_change(
         change.new_dependencies.erase(start, finish + end.size() - start);
     }
     if (previous.empty() && change.dependencies_existed &&
-        change.old_dependencies != "# CppLiveLab-managed pinned dependencies.\n")
+        change.old_dependencies != "# CppLiveLab-managed pinned dependencies.\n" &&
+        change.old_dependencies != "# EasierCpp-managed pinned dependencies.\n")
     {
         // Imported or older generated files have no ownership ledger. Retain
         // them rather than assuming their declarations are ours to remove.
@@ -951,14 +958,14 @@ LibraryChange preview_library_change(
     change.new_dependencies += generated.substr(generated.find('\n') + 1);
     if (!change.dependencies_existed)
     {
-        change.new_dependencies.insert(0, "# CppLiveLab-managed pinned dependencies.\n");
+        change.new_dependencies.insert(0, "# EasierCpp-managed pinned dependencies.\n");
     }
     if (change.new_root.find("cmake/Dependencies.cmake") == change.new_root.npos &&
         !records.empty())
     {
-        change.new_root += "\n# BEGIN CppLiveLab dependency module\n"
+        change.new_root += "\n# BEGIN EasierCpp dependency module\n"
                            "include(\"${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake\")\n"
-                           "# END CppLiveLab dependency module\n";
+                           "# END EasierCpp dependency module\n";
     }
     return change;
 }

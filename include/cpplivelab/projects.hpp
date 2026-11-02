@@ -9,7 +9,7 @@ namespace cpplivelab
 void create_project(const std::filesystem::path& folder, bool calculator);
 
 // Configure/build with discovered absolute tool paths. A per-configuration file lock
-// remains owned through execution, so a second CppLiveLab cannot rebuild a running app.
+// remains owned through execution, so a second EasierCpp cannot rebuild a running app.
 // executable is optional and relative to the build directory unless it is absolute.
 int build_project(const std::filesystem::path& input,
     const std::string& configuration,

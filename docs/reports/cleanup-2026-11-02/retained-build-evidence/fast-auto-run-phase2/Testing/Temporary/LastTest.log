@@ -1,0 +1,625 @@
+Start testing: Oct 31 18:11 Eastern Daylight Time
+----------------------------------------------------------
+53/54 Testing: test_selection
+53/54 Test: test_selection
+Command: "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" "-DCTEST=C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/ctest.exe" "-DBUILD_DIR=C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2" "-DSCRIPT=C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/scripts/build.ps1" "-DTEST_CONFIG=Debug" "-P" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/tests/test_selection.cmake"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"test_selection" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+-- Selection verified: Quick=35; Full=53; default=Full
+<end of output>
+Test time =   2.71 sec
+----------------------------------------------------------
+Test Passed.
+"test_selection" end time: Oct 31 18:11 Eastern Daylight Time
+"test_selection" time elapsed: 00:00:02
+----------------------------------------------------------
+
+26/54 Testing: reliability_lifecycle
+26/54 Test: reliability_lifecycle
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/reliability_tests.exe" "lifecycle" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/session_fixture.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"reliability_lifecycle" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Reliability test passed
+<end of output>
+Test time =   2.83 sec
+----------------------------------------------------------
+Test Passed.
+"reliability_lifecycle" end time: Oct 31 18:11 Eastern Daylight Time
+"reliability_lifecycle" time elapsed: 00:00:02
+----------------------------------------------------------
+
+18/54 Testing: stage5_github_versions
+18/54 Test: stage5_github_versions
+Command: "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe" "-NoProfile" "-ExecutionPolicy" "Bypass" "-File" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/tests/github_library.ps1" "-Script" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/scripts/github-library.ps1"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage5_github_versions" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Retrieved 5 published releases/tags (first 100 of each). A valid older tag or commit can also be entered.
+Reused cached published-version metadata. Compatibility still requires a supported integration.
+Controlled cached metadata check: 56 ms
+Retrieved 5 published releases/tags (first 100 of each). A valid older tag or commit can also be entered.
+Resolved example/library v2.0 to exact commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa. No third-party code executed.
+Resolved example/library v0.5 to exact commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa. No third-party code executed.
+Resolved example/library v1.0 to exact commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa. No third-party code executed.
+Downloaded pinned source; SHA256 7fdb77c8c63a04a1756af6a2e2142a56f5e1b9b877bbc3990182d5ea75e6fe41. Download alone is not verified integration.
+Reused pinned downloaded source; SHA256 7fdb77c8c63a04a1756af6a2e2142a56f5e1b9b877bbc3990182d5ea75e6fe41.
+Downloaded pinned source; SHA256 7fdb77c8c63a04a1756af6a2e2142a56f5e1b9b877bbc3990182d5ea75e6fe41. Download alone is not verified integration.
+Downloaded pinned source; SHA256 7fdb77c8c63a04a1756af6a2e2142a56f5e1b9b877bbc3990182d5ea75e6fe41. Download alone is not verified integration.
+Downloaded pinned source; SHA256 7e25bce6c907a619033b554fb28c38679d4da5915ca926df9e9e80a436a2bbba. Download alone is not verified integration.
+GitHub offline fixtures passed: releases, tags, prerelease exclusion, exact pin, older release, URL validation, missing version, rate limit, disconnected network.
+<end of output>
+Test time =   3.33 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_github_versions" end time: Oct 31 18:11 Eastern Daylight Time
+"stage5_github_versions" time elapsed: 00:00:03
+----------------------------------------------------------
+
+20/54 Testing: stage5_unit
+20/54 Test: stage5_unit
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/stage5_tests.exe" "unit" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/session_fixture.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage5_unit" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-15848-827330937-0\.cpplivelab-new-15848
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-15848-827330937-0\Empty. Dependencies will be verified during Build.
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-15848-827330937-0\.cpplivelab-new-15848
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-15848-827330937-0\Multi. Dependencies will be verified during Build.
+Stage 5 fixture checks passed
+<end of output>
+Test time =   1.34 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_unit" end time: Oct 31 18:11 Eastern Daylight Time
+"stage5_unit" time elapsed: 00:00:01
+----------------------------------------------------------
+
+17/54 Testing: stage5_ui_layout
+17/54 Test: stage5_ui_layout
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/ui_audit_tests.exe" "--quick"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage5_ui_layout" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-19668-827327625-0\Audit calculator
+UI layout: welcome/system console and workspace bounds passed
+<end of output>
+Test time =   4.92 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_ui_layout" end time: Oct 31 18:11 Eastern Daylight Time
+"stage5_ui_layout" time elapsed: 00:00:04
+----------------------------------------------------------
+
+29/54 Testing: stage4_console_view
+29/54 Test: stage4_console_view
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/console_view_tests.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage4_console_view" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Native console: prompt, separation, severity, clear, selection, scroll, bounded history and recolor passed
+<end of output>
+Test time =   2.16 sec
+----------------------------------------------------------
+Test Passed.
+"stage4_console_view" end time: Oct 31 18:11 Eastern Daylight Time
+"stage4_console_view" time elapsed: 00:00:02
+----------------------------------------------------------
+
+30/54 Testing: stage4_watcher
+30/54 Test: stage4_watcher
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/stage4_tests.exe" "watcher" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage4_watcher" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Stage 4 watcher: 57 checks passed
+<end of output>
+Test time =   2.27 sec
+----------------------------------------------------------
+Test Passed.
+"stage4_watcher" end time: Oct 31 18:11 Eastern Daylight Time
+"stage4_watcher" time elapsed: 00:00:02
+----------------------------------------------------------
+
+7/54 Testing: stage5_restart
+7/54 Test: stage5_restart
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/restart_tests.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage5_restart" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Restart: real parent/child handover, project/preferences/window state, failed relaunch passed
+<end of output>
+Test time =   0.24 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_restart" end time: Oct 31 18:11 Eastern Daylight Time
+"stage5_restart" time elapsed: 00:00:00
+----------------------------------------------------------
+
+13/54 Testing: stage5_unified_unit
+13/54 Test: stage5_unified_unit
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/unified_tests.exe" "unit"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage5_unified_unit" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-19604-827332500-0\.cpplivelab-new-19604
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-19604-827332500-0\Named Project. Dependencies will be verified during Build.
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-19604-827332500-0\Calculator
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-19604-827332500-0\.cpplivelab-new-19604
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-19604-827332500-0\Empty Starter. Dependencies will be verified during Build.
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-19604-827332500-0\.cpplivelab-new-19604
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-19604-827332500-0\Two Libraries. Dependencies will be verified during Build.
+Unified unit: formatting, names, modular dependencies, diagnostics, editor argv, long paths, ignored dependencies, disappearing/missing scans and approval passed
+<end of output>
+Test time =   0.96 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_unified_unit" end time: Oct 31 18:11 Eastern Daylight Time
+"stage5_unified_unit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+19/54 Testing: stage5_ui_forms
+19/54 Test: stage5_ui_forms
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/ui_forms_tests.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage5_ui_forms" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Shared forms: themes, multiple libraries, Browse/help, advanced options, validation and recents passed
+<end of output>
+Test time =   1.33 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_ui_forms" end time: Oct 31 18:11 Eastern Daylight Time
+"stage5_ui_forms" time elapsed: 00:00:01
+----------------------------------------------------------
+
+9/54 Testing: stage5_library_transactions
+9/54 Test: stage5_library_transactions
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/library_management_tests.exe" "transactions"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage5_library_transactions" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-23196-827332906-0\.cpplivelab-new-23196
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-23196-827332906-0\transaction. Dependencies will be verified during Build.
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-23196-827332906-0\.cpplivelab-new-23196
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-23196-827332906-0\concurrent-edit. Dependencies will be verified during Build.
+Library management checks passed
+<end of output>
+Test time =   0.83 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_library_transactions" end time: Oct 31 18:11 Eastern Daylight Time
+"stage5_library_transactions" time elapsed: 00:00:00
+----------------------------------------------------------
+
+41/54 Testing: maintenance_arguments
+41/54 Test: maintenance_arguments
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/maintenance_tests.exe" "arguments" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/session_fixture.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"maintenance_arguments" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Argument round-trip passed
+Maintenance arguments: 11 checks passed
+<end of output>
+Test time =   1.12 sec
+----------------------------------------------------------
+Test Passed.
+"maintenance_arguments" end time: Oct 31 18:11 Eastern Daylight Time
+"maintenance_arguments" time elapsed: 00:00:01
+----------------------------------------------------------
+
+8/54 Testing: stage5_library_metadata
+8/54 Test: stage5_library_metadata
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/library_management_tests.exe" "metadata"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage5_library_metadata" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-15512-827333734-0\.cpplivelab-new-15512
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-15512-827333734-0\first. Dependencies will be verified during Build.
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-15512-827333734-0\.cpplivelab-new-15512
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-15512-827333734-0\second. Dependencies will be verified during Build.
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-15512-827333734-0\.cpplivelab-new-15512
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-15512-827333734-0\raylib-starter. Dependencies will be verified during Build.
+Library management checks passed
+<end of output>
+Test time =   0.19 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_library_metadata" end time: Oct 31 18:11 Eastern Daylight Time
+"stage5_library_metadata" time elapsed: 00:00:00
+----------------------------------------------------------
+
+47/54 Testing: doctor_without_path
+47/54 Test: doctor_without_path
+Command: "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" "-DAPP=C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe" "-P" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/tests/doctor_no_path.cmake"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"doctor_without_path" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+-- Cpp environment doctor
+cmake: Installed: Yes | Available in current terminal: No
+  Path: C:\Program Files\Microsoft Visual Studio\2022\Community\Common7/IDE/CommonExtensions/Microsoft/CMake\CMake/bin\cmake.exe
+ninja: Installed: Yes | Available in current terminal: No
+  Path: C:\Program Files\Microsoft Visual Studio\2022\Community\Common7/IDE/CommonExtensions/Microsoft/CMake\Ninja\ninja.exe
+cl: Installed: Yes | Available in current terminal: No
+  Path: C:\Program Files\Microsoft Visual Studio\2022\Community\VC/Tools/MSVC\14.44.35207\bin/Hostx64/x64\cl.exe
+clang++: Installed: Yes | Available in current terminal: No
+  Path: C:\Program Files\Microsoft Visual Studio\2022\Community\VC/Tools/Llvm/x64/bin\clang++.exe
+g++: Installed: No | Available in current terminal: No
+MSVC build environment: C:\Program Files\Microsoft Visual Studio\2022\Community\Common7/Tools/VsDevCmd.bat -arch=x64 -host_arch=x64
+Build tools found.
+Use scripts/build.ps1 to initialize the build environment automatically.
+Discovery checks files, not compiler/SDK compatibility; a build verifies usability.
+
+<end of output>
+Test time =   0.19 sec
+----------------------------------------------------------
+Test Passed.
+"doctor_without_path" end time: Oct 31 18:11 Eastern Daylight Time
+"doctor_without_path" time elapsed: 00:00:00
+----------------------------------------------------------
+
+44/54 Testing: stage3_tree
+44/54 Test: stage3_tree
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/session_tests.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/session_fixture.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe" "tree"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage3_tree" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Stage 3 tree: 5 checks passed
+<end of output>
+Test time =   0.40 sec
+----------------------------------------------------------
+Test Passed.
+"stage3_tree" end time: Oct 31 18:11 Eastern Daylight Time
+"stage3_tree" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/54 Testing: redirection_unit
+3/54 Test: redirection_unit
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/redirection_tests.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"redirection_unit" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+PASS geometry, project settings, multi-target packages, schema, injection rejection
+<end of output>
+Test time =   0.10 sec
+----------------------------------------------------------
+Test Passed.
+"redirection_unit" end time: Oct 31 18:11 Eastern Daylight Time
+"redirection_unit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+43/54 Testing: stage3_session
+43/54 Test: stage3_session
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/session_tests.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/session_fixture.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe" "session"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage3_session" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Stage 3 session: 13 checks passed
+<end of output>
+Test time =   0.58 sec
+----------------------------------------------------------
+Test Passed.
+"stage3_session" end time: Oct 31 18:11 Eastern Daylight Time
+"stage3_session" time elapsed: 00:00:00
+----------------------------------------------------------
+
+1/54 Testing: library_compatibility_unit
+1/54 Test: library_compatibility_unit
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/library_compatibility_tests.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"library_compatibility_unit" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Compatibility statuses, metadata failure, native/header/non-C++ separation and arguments passed
+<end of output>
+Test time =   0.13 sec
+----------------------------------------------------------
+Test Passed.
+"library_compatibility_unit" end time: Oct 31 18:11 Eastern Daylight Time
+"library_compatibility_unit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+25/54 Testing: reliability_inheritance
+25/54 Test: reliability_inheritance
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/reliability_tests.exe" "inheritance" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/session_fixture.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"reliability_inheritance" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Reliability test passed
+<end of output>
+Test time =   0.17 sec
+----------------------------------------------------------
+Test Passed.
+"reliability_inheritance" end time: Oct 31 18:11 Eastern Daylight Time
+"reliability_inheritance" time elapsed: 00:00:00
+----------------------------------------------------------
+
+52/54 Testing: cli_doctor
+52/54 Test: cli_doctor
+Command: "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" "-DAPP=C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe" "-DCASE=doctor" "-P" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/tests/cli.cmake"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"cli_doctor" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.20 sec
+----------------------------------------------------------
+Test Passed.
+"cli_doctor" end time: Oct 31 18:11 Eastern Daylight Time
+"cli_doctor" time elapsed: 00:00:00
+----------------------------------------------------------
+
+34/54 Testing: stage4_channels
+34/54 Test: stage4_channels
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/stage4_tests.exe" "channels" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage4_channels" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Stage 4 channels: 8 checks passed
+<end of output>
+Test time =   0.21 sec
+----------------------------------------------------------
+Test Passed.
+"stage4_channels" end time: Oct 31 18:11 Eastern Daylight Time
+"stage4_channels" time elapsed: 00:00:00
+----------------------------------------------------------
+
+50/54 Testing: cli_unknown
+50/54 Test: cli_unknown
+Command: "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" "-DAPP=C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe" "-DCASE=unknown" "-P" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/tests/cli.cmake"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"cli_unknown" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.15 sec
+----------------------------------------------------------
+Test Passed.
+"cli_unknown" end time: Oct 31 18:11 Eastern Daylight Time
+"cli_unknown" time elapsed: 00:00:00
+----------------------------------------------------------
+
+31/54 Testing: stage4_scheduler
+31/54 Test: stage4_scheduler
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/stage4_tests.exe" "scheduler" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage4_scheduler" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Stage 4 scheduler: 27 checks passed
+<end of output>
+Test time =   0.11 sec
+----------------------------------------------------------
+Test Passed.
+"stage4_scheduler" end time: Oct 31 18:11 Eastern Daylight Time
+"stage4_scheduler" time elapsed: 00:00:00
+----------------------------------------------------------
+
+10/54 Testing: stage5_library_caches
+10/54 Test: stage5_library_caches
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/library_management_tests.exe" "caches"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage5_library_caches" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-21152-827334078-0\.cpplivelab-new-21152
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-21152-827334078-0\shared-one. Dependencies will be verified during Build.
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-21152-827334078-0\.cpplivelab-new-21152
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-21152-827334078-0\shared-two. Dependencies will be verified during Build.
+Library management checks passed
+<end of output>
+Test time =   0.35 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_library_caches" end time: Oct 31 18:11 Eastern Daylight Time
+"stage5_library_caches" time elapsed: 00:00:00
+----------------------------------------------------------
+
+38/54 Testing: maintenance_paths
+38/54 Test: maintenance_paths
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/maintenance_tests.exe" "paths" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/session_fixture.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"maintenance_paths" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Maintenance paths: 9 checks passed
+<end of output>
+Test time =   0.11 sec
+----------------------------------------------------------
+Test Passed.
+"maintenance_paths" end time: Oct 31 18:11 Eastern Daylight Time
+"maintenance_paths" time elapsed: 00:00:00
+----------------------------------------------------------
+
+37/54 Testing: doctor_unit
+37/54 Test: doctor_unit
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/doctor_tests.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"doctor_unit" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.25 sec
+----------------------------------------------------------
+Test Passed.
+"doctor_unit" end time: Oct 31 18:11 Eastern Daylight Time
+"doctor_unit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+49/54 Testing: cli_help
+49/54 Test: cli_help
+Command: "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" "-DAPP=C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe" "-DCASE=help" "-P" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/tests/cli.cmake"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"cli_help" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.27 sec
+----------------------------------------------------------
+Test Passed.
+"cli_help" end time: Oct 31 18:11 Eastern Daylight Time
+"cli_help" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/54 Testing: redirection_windows
+5/54 Test: redirection_windows
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/redirection_tests.exe" "windows"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"redirection_windows" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+PASS native normal rectangle/size, maximization, minimized fallback and unrelated-process exclusion
+<end of output>
+Test time =   0.34 sec
+----------------------------------------------------------
+Test Passed.
+"redirection_windows" end time: Oct 31 18:11 Eastern Daylight Time
+"redirection_windows" time elapsed: 00:00:00
+----------------------------------------------------------
+
+48/54 Testing: cli_version
+48/54 Test: cli_version
+Command: "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" "-DAPP=C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe" "-DCASE=version" "-P" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/tests/cli.cmake"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"cli_version" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.28 sec
+----------------------------------------------------------
+Test Passed.
+"cli_version" end time: Oct 31 18:11 Eastern Daylight Time
+"cli_version" time elapsed: 00:00:00
+----------------------------------------------------------
+
+51/54 Testing: cli_extra
+51/54 Test: cli_extra
+Command: "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe" "-DAPP=C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe" "-DCASE=extra" "-P" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/tests/cli.cmake"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"cli_extra" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.33 sec
+----------------------------------------------------------
+Test Passed.
+"cli_extra" end time: Oct 31 18:11 Eastern Daylight Time
+"cli_extra" time elapsed: 00:00:00
+----------------------------------------------------------
+
+40/54 Testing: maintenance_handles
+40/54 Test: maintenance_handles
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/maintenance_tests.exe" "handles" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/session_fixture.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"maintenance_handles" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Maintenance handles: 6 checks passed
+<end of output>
+Test time =   0.13 sec
+----------------------------------------------------------
+Test Passed.
+"maintenance_handles" end time: Oct 31 18:11 Eastern Daylight Time
+"maintenance_handles" time elapsed: 00:00:00
+----------------------------------------------------------
+
+35/54 Testing: stage4_appearance
+35/54 Test: stage4_appearance
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/stage4_tests.exe" "appearance" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage4_appearance" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Dark neutral/stdout: foreground RGB(235,240,245), background RGB(32,36,43), contrast 13.580241:1 (minimum 4.5:1)
+Dark information: foreground RGB(96,165,250), background RGB(32,36,43), contrast 6.124526:1 (minimum 4.5:1)
+Dark success: foreground RGB(74,222,128), background RGB(32,36,43), contrast 8.935890:1 (minimum 4.5:1)
+Dark warning: foreground RGB(251,191,36), background RGB(32,36,43), contrast 9.327585:1 (minimum 4.5:1)
+Dark error: foreground RGB(255,68,25), background RGB(32,36,43), contrast 4.517769:1 (minimum 4.5:1)
+Light neutral/stdout: foreground RGB(25,35,50), background RGB(255,255,255), contrast 15.815573:1 (minimum 4.5:1)
+Light information: foreground RGB(0,78,255), background RGB(255,255,255), contrast 5.942686:1 (minimum 4.5:1)
+Light success: foreground RGB(43,136,0), background RGB(255,255,255), contrast 4.541147:1 (minimum 4.5:1)
+Light warning: foreground RGB(158,109,0), background RGB(255,255,255), contrast 4.524618:1 (minimum 4.5:1)
+Light error: foreground RGB(228,43,0), background RGB(255,255,255), contrast 4.521626:1 (minimum 4.5:1)
+Stage 4 appearance: 38 checks passed
+<end of output>
+Test time =   0.13 sec
+----------------------------------------------------------
+Test Passed.
+"stage4_appearance" end time: Oct 31 18:11 Eastern Daylight Time
+"stage4_appearance" time elapsed: 00:00:00
+----------------------------------------------------------
+
+36/54 Testing: stage4_prompts
+36/54 Test: stage4_prompts
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/stage4_tests.exe" "prompts" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage4_prompts" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Stage 4 prompts: 12 checks passed
+<end of output>
+Test time =   0.11 sec
+----------------------------------------------------------
+Test Passed.
+"stage4_prompts" end time: Oct 31 18:11 Eastern Daylight Time
+"stage4_prompts" time elapsed: 00:00:00
+----------------------------------------------------------
+
+33/54 Testing: stage4_console_model
+33/54 Test: stage4_console_model
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/stage4_tests.exe" "console_model" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"stage4_console_model" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Stage 4 console_model: 13 checks passed
+<end of output>
+Test time =   0.07 sec
+----------------------------------------------------------
+Test Passed.
+"stage4_console_model" end time: Oct 31 18:11 Eastern Daylight Time
+"stage4_console_model" time elapsed: 00:00:00
+----------------------------------------------------------
+
+39/54 Testing: maintenance_output
+39/54 Test: maintenance_output
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/maintenance_tests.exe" "output" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/session_fixture.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-phase2
+"maintenance_output" start time: Oct 31 18:11 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Maintenance output: 32 checks passed
+<end of output>
+Test time =   0.06 sec
+----------------------------------------------------------
+Test Passed.
+"maintenance_output" end time: Oct 31 18:11 Eastern Daylight Time
+"maintenance_output" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Oct 31 18:11 Eastern Daylight Time
+
+full =  28.89 sec*proc
+
+quick =  28.89 sec*proc
+

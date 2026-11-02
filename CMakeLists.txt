@@ -2,10 +2,38 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(
-    CppLiveLab
+    EasierCpp
     VERSION 0.1.0
     LANGUAGES CXX
 )
+
+# Accept the old cache option when first migrating a build tree. Never silently
+# turn an explicitly legacy-portable build into a source-dependent executable.
+set(portable_default OFF)
+if(DEFINED CPPLIVELAB_PORTABLE)
+    set(portable_default "${CPPLIVELAB_PORTABLE}")
+endif()
+option(EASIERCPP_PORTABLE "Resolve runtime support beside the executables only" ${portable_default})
+if(CPPLIVELAB_PORTABLE AND NOT EASIERCPP_PORTABLE)
+    message(FATAL_ERROR "Conflicting portable options: use EASIERCPP_PORTABLE, and set the legacy CPPLIVELAB_PORTABLE=OFF when disabling portable mode.")
+endif()
+
+enable_language(RC)
+configure_file(cmake/ApplicationVersion.rc.in "ApplicationVersion.rc" @ONLY)
+
+# Runtime scripts are first-party application resources, not development tools.
+# configure_file preserves timestamps when their contents have not changed.
+foreach(resource IN ITEMS
+    scripts/file_api.cmake
+    scripts/discover_targets.cmake
+    scripts/github-library.ps1
+    scripts/detect-project-libraries.ps1
+    cmake/EasierCppPch.cmake
+    cmake/EasierCppPchHook.cmake
+)
+    configure_file("${resource}" "resources/${resource}" COPYONLY)
+endforeach()
+file(GENERATE OUTPUT "${CMAKE_BINARY_DIR}/release-version.txt" CONTENT "${PROJECT_VERSION}\n")
 
 
 # =============================================================================
@@ -14,7 +42,7 @@ project(
 
 # Shared functionality used by the CLI, GUI, and test executables.
 
-set(CPPLIVELAB_CORE_SOURCES
+set(EASIERCPP_CORE_SOURCES
     src/build/build_workers.cpp
     src/libraries/library_compatibility.cpp
     src/libraries/library_detection.cpp
@@ -23,6 +51,7 @@ set(CPPLIVELAB_CORE_SOURCES
     src/process/restart.cpp
     src/tools/tool_workflows.cpp
     src/projects/workspace.cpp
+    src/projects/state_migration.cpp
     src/projects/workspace_creation.cpp
     src/tools/editors.cpp
     src/cli/doctor.cpp
@@ -37,37 +66,39 @@ set(CPPLIVELAB_CORE_SOURCES
 )
 
 add_library(
-    cpplivelab_core
-    ${CPPLIVELAB_CORE_SOURCES}
+    EasierCppCore
+    ${EASIERCPP_CORE_SOURCES}
 )
 
-target_compile_definitions(
-    cpplivelab_core
-    PRIVATE
-        CPPLIVELAB_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-)
+if(NOT EASIERCPP_PORTABLE)
+    target_compile_definitions(
+        EasierCppCore
+        PRIVATE
+            EASIERCPP_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+endif()
 
 target_include_directories(
-    cpplivelab_core
+    EasierCppCore
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
 target_link_libraries(
-    cpplivelab_core
+    EasierCppCore
     PUBLIC
         advapi32
         user32
 )
 
 target_compile_features(
-    cpplivelab_core
+    EasierCppCore
     PUBLIC
         cxx_std_20
 )
 
 set_target_properties(
-    cpplivelab_core
+    EasierCppCore
     PROPERTIES
         CXX_EXTENSIONS OFF
 )
@@ -80,21 +111,21 @@ set_target_properties(
 if(MSVC)
     # Interpret source files and product text as UTF-8 on Windows.
     target_compile_options(
-        cpplivelab_core
+        EasierCppCore
         PUBLIC
-            /utf-8
+            $<$<COMPILE_LANGUAGE:CXX>:/utf-8>
     )
 
     # Enable strict compiler warnings for maintained core code.
     target_compile_options(
-        cpplivelab_core
+        EasierCppCore
         PRIVATE
             /W4
             /permissive-
     )
 else()
     target_compile_options(
-        cpplivelab_core
+        EasierCppCore
         PRIVATE
             -Wall
             -Wextra
@@ -108,21 +139,22 @@ endif()
 # =============================================================================
 
 add_executable(
-    cpplivelab
+    EasierCpp
+    "${CMAKE_CURRENT_BINARY_DIR}/ApplicationVersion.rc"
     src/main.cpp
     src/cli/workspace_cli.cpp
 )
 
 target_link_libraries(
-    cpplivelab
+    EasierCpp
     PRIVATE
-        cpplivelab_core
+        EasierCppCore
 )
 
 target_compile_definitions(
-    cpplivelab
+    EasierCpp
     PRIVATE
-        CPPLIVELAB_VERSION="${PROJECT_VERSION}"
+        EASIERCPP_VERSION="${PROJECT_VERSION}"
 )
 
 
@@ -130,7 +162,7 @@ target_compile_definitions(
 # Windows graphical application
 # =============================================================================
 
-set(CPPLIVELAB_GUI_SOURCES
+set(EASIERCPP_GUI_SOURCES
     src/gui/gui.cpp
     src/gui/console_view.cpp
     src/appearance/ui_theme.cpp
@@ -140,22 +172,33 @@ set(CPPLIVELAB_GUI_SOURCES
 )
 
 add_executable(
-    cpplivelab-gui
+    EasierCpp-Gui
     WIN32
-    ${CPPLIVELAB_GUI_SOURCES}
+    "${CMAKE_CURRENT_BINARY_DIR}/ApplicationVersion.rc"
+    ${EASIERCPP_GUI_SOURCES}
 )
 
+install(TARGETS EasierCpp EasierCpp-Gui
+    RUNTIME DESTINATION . CONFIGURATIONS Release COMPONENT Runtime
+)
+install(DIRECTORY "${CMAKE_BINARY_DIR}/resources/" DESTINATION resources COMPONENT Runtime)
+install(FILES LICENSE THIRD_PARTY_NOTICES.md docs/release/RELEASE_NOTES.md
+    DESTINATION . COMPONENT Runtime
+)
+install(FILES docs/release/README.md DESTINATION . COMPONENT Runtime)
+
 target_compile_definitions(
-    cpplivelab-gui
+    EasierCpp-Gui
     PRIVATE
         UNICODE
         _UNICODE
+        EASIERCPP_GUI
 )
 
 target_link_libraries(
-    cpplivelab-gui
+    EasierCpp-Gui
     PRIVATE
-        cpplivelab_core
+        EasierCppCore
         user32
         gdi32
         shell32
@@ -169,8 +212,8 @@ target_link_libraries(
 
 # The GUI supervises the CLI and requires its executable to be built.
 add_dependencies(
-    cpplivelab-gui
-    cpplivelab
+    EasierCpp-Gui
+    EasierCpp
 )
 
 
@@ -194,7 +237,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         library_compatibility_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     add_test(
@@ -226,7 +269,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         redirection_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     add_test(
@@ -269,20 +312,20 @@ if(BUILD_TESTING)
     target_link_libraries(
         restart_gui_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
             user32
             advapi32
     )
 
     add_dependencies(
         restart_gui_tests
-        cpplivelab-gui
+        EasierCpp-Gui
     )
 
     add_test(
         NAME stage5_restart_gui
         COMMAND restart_gui_tests
-            $<TARGET_FILE:cpplivelab-gui>
+            $<TARGET_FILE:EasierCpp-Gui>
     )
 
     set_tests_properties(
@@ -300,7 +343,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         restart_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     add_test(
@@ -327,7 +370,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         library_management_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     foreach(case IN ITEMS
@@ -364,7 +407,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         unified_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     target_compile_definitions(
@@ -387,7 +430,7 @@ if(BUILD_TESTING)
         NAME stage5_unified_raylib
         COMMAND unified_tests
             raylib
-            $<TARGET_FILE:cpplivelab>
+            $<TARGET_FILE:EasierCpp>
     )
 
     set_tests_properties(
@@ -428,7 +471,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         ui_audit_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
             user32
             gdi32
             shell32
@@ -443,7 +486,7 @@ if(BUILD_TESTING)
 
     add_dependencies(
         ui_audit_tests
-        cpplivelab
+        EasierCpp
     )
 
     add_test(
@@ -475,7 +518,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         workflow_probe
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     add_test(
@@ -527,7 +570,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         ui_forms_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
             user32
             gdi32
             shell32
@@ -558,7 +601,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         stage5_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     foreach(case IN ITEMS
@@ -572,7 +615,7 @@ if(BUILD_TESTING)
             NAME stage5_${case}
             COMMAND stage5_tests
                 ${case}
-                $<TARGET_FILE:cpplivelab>
+                $<TARGET_FILE:EasierCpp>
                 $<TARGET_FILE:session_fixture>
         )
 
@@ -598,13 +641,13 @@ if(BUILD_TESTING)
     target_link_libraries(
         performance_probe
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     add_dependencies(
         performance_probe
         session_fixture
-        cpplivelab
+        EasierCpp
     )
 
 
@@ -632,7 +675,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         gui_flow_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
             user32
             gdi32
             shell32
@@ -647,7 +690,7 @@ if(BUILD_TESTING)
 
     add_dependencies(
         gui_flow_tests
-        cpplivelab
+        EasierCpp
     )
 
     add_test(
@@ -680,7 +723,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         reliability_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     add_test(
@@ -756,7 +799,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         console_view_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
             user32
             gdi32
     )
@@ -779,7 +822,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         stage4_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     foreach(case IN ITEMS
@@ -795,7 +838,7 @@ if(BUILD_TESTING)
             NAME stage4_${case}
             COMMAND stage4_tests
                 ${case}
-                $<TARGET_FILE:cpplivelab>
+                $<TARGET_FILE:EasierCpp>
         )
 
         set_tests_properties(
@@ -818,7 +861,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         doctor_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     add_test(
@@ -839,7 +882,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         maintenance_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     foreach(case IN ITEMS
@@ -854,7 +897,7 @@ if(BUILD_TESTING)
             COMMAND maintenance_tests
                 ${case}
                 $<TARGET_FILE:session_fixture>
-                $<TARGET_FILE:cpplivelab>
+                $<TARGET_FILE:EasierCpp>
         )
 
         set_tests_properties(
@@ -879,7 +922,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         session_fixture
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     target_compile_features(
@@ -901,7 +944,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         session_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
     )
 
     foreach(case IN ITEMS
@@ -913,7 +956,7 @@ if(BUILD_TESTING)
             NAME stage3_${case}
             COMMAND session_tests
                 $<TARGET_FILE:session_fixture>
-                $<TARGET_FILE:cpplivelab>
+                $<TARGET_FILE:EasierCpp>
                 ${case}
         )
 
@@ -935,7 +978,7 @@ if(BUILD_TESTING)
             -NoProfile
             -ExecutionPolicy Bypass
             -File ${CMAKE_CURRENT_SOURCE_DIR}/tests/stage2.ps1
-            -App $<TARGET_FILE:cpplivelab>
+            -App $<TARGET_FILE:EasierCpp>
     )
 
     set_tests_properties(
@@ -956,7 +999,7 @@ if(BUILD_TESTING)
         add_test(
             NAME doctor_without_path
             COMMAND ${CMAKE_COMMAND}
-                -DAPP=$<TARGET_FILE:cpplivelab>
+                -DAPP=$<TARGET_FILE:EasierCpp>
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/doctor_no_path.cmake
         )
     endif()
@@ -976,7 +1019,7 @@ if(BUILD_TESTING)
         add_test(
             NAME cli_${case}
             COMMAND ${CMAKE_COMMAND}
-                -DAPP=$<TARGET_FILE:cpplivelab>
+                -DAPP=$<TARGET_FILE:EasierCpp>
                 -DCASE=${case}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli.cmake
         )
@@ -1004,6 +1047,13 @@ if(BUILD_TESTING)
 
     # Label every currently registered regression as part of the full suite.
     # The optional live-library suite is deliberately registered afterward.
+
+    add_executable(migration_tests tests/projects/migration_tests.cpp)
+    target_link_libraries(migration_tests PRIVATE EasierCppCore)
+    add_test(NAME identity_migration COMMAND migration_tests)
+    add_test(NAME test_cache_migration COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+        -File "${CMAKE_SOURCE_DIR}/tests/test_build_directory.ps1"
+        -Helper "${CMAKE_SOURCE_DIR}/scripts/test-build-directory.ps1")
 
     get_property(
         all_tests
@@ -1044,7 +1094,7 @@ if(BUILD_TESTING)
     target_link_libraries(
         library_live_tests
         PRIVATE
-            cpplivelab_core
+            EasierCppCore
             user32
             gdi32
             shell32
@@ -1058,13 +1108,13 @@ if(BUILD_TESTING)
 
     add_dependencies(
         library_live_tests
-        cpplivelab
+        EasierCpp
     )
 
     add_test(
         NAME stage5_live_libraries
         COMMAND library_live_tests
-            $<TARGET_FILE:cpplivelab>
+            $<TARGET_FILE:EasierCpp>
     )
 
     set_tests_properties(
@@ -1083,6 +1133,8 @@ if(BUILD_TESTING)
     # Excludes expensive tests that repeatedly configure or build projects.
 
     set(quick_tests
+        identity_migration
+        test_cache_migration
         stage5_library_detection
         stage5_gitlab_versions
         library_compatibility_unit

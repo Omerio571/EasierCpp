@@ -72,14 +72,14 @@ function Request-GitHub([string]$Path) {
             }
             $projectId = [Uri]::EscapeDataString($projectPath)
             $response = Invoke-RestMethod -Uri "https://gitlab.com/api/v4/projects/$projectId/$resource" -Headers @{
-                Accept='application/json'; 'User-Agent'='EasierCPP'
+                Accept='application/json'; 'User-Agent'='EasierCpp'
             } -TimeoutSec $timeout
             if ($Path.StartsWith('commits/')) {
                 return [pscustomobject]@{ sha = $response.id }
             }
         } else {
             $response = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/$Path" -Headers @{
-                Accept='application/vnd.github+json'; 'User-Agent'='CppLiveLab'; 'X-GitHub-Api-Version'='2022-11-28'
+                Accept='application/vnd.github+json'; 'User-Agent'='EasierCpp'; 'X-GitHub-Api-Version'='2022-11-28'
             } -TimeoutSec $timeout
         }
         return $response

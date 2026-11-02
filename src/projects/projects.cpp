@@ -5,6 +5,7 @@
 #include "build/build_workers.hpp"
 #include "cpplivelab/doctor.hpp"
 #include "cpplivelab/process.hpp"
+#include "tools/tool_workflows.hpp"
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
@@ -21,13 +22,12 @@ namespace fs = std::filesystem;
 
 void require_external_project_directory(const fs::path& path)
 {
-    const auto manager_directory = fs::weakly_canonical(fs::path(CPPLIVELAB_SOURCE_DIR));
+    const auto manager_directory = fs::weakly_canonical(source_repository());
     const auto selected_directory = fs::weakly_canonical(fs::absolute(path));
 
     if (path_support::is_within_directory(selected_directory, manager_directory))
     {
-        throw std::runtime_error(
-            "Choose a user project folder outside the CppLiveLab source tree.");
+        throw std::runtime_error("Choose a user project folder outside the EasierCpp source tree.");
     }
 }
 
@@ -92,7 +92,7 @@ void create_project(const fs::path& folder, bool calculator)
     }
     write_text_file(root / "CMakeLists.txt",
         project_templates::cmake_project(path_support::path_utf8(root.filename()), sources));
-    write_text_file(root / ".gitignore", "/.cpplivelab/\n/build/\n");
+    write_text_file(root / ".gitignore", "/.easiercpp/\n/.cpplivelab/\n/build/\n");
 
     if (calculator)
     {
@@ -145,8 +145,11 @@ int build_project(const fs::path& input,
         {
             throw std::runtime_error("Single-file input must be .cpp, .cc, or .cxx.");
         }
-        cmake_source_directory = selected_input_path.parent_path() / ".cpplivelab" /
-                                 selected_input_path.filename() / "source";
+        const auto owner = fs::exists(selected_input_path.parent_path() / ".cpplivelab")
+                               ? ".cpplivelab"
+                               : ".easiercpp";
+        cmake_source_directory =
+            selected_input_path.parent_path() / owner / selected_input_path.filename() / "source";
         fs::create_directories(cmake_source_directory);
         const auto wrapper = project_templates::cmake_project(
             "SingleFile", {escape_cmake_path(selected_input_path)});
@@ -165,8 +168,9 @@ int build_project(const fs::path& input,
         {
             throw std::runtime_error("Folder has no CMakeLists.txt.");
         }
-        build_output_directory =
-            cmake_source_directory / ".cpplivelab" / ("build-" + configuration);
+        const auto owner =
+            fs::exists(cmake_source_directory / ".cpplivelab") ? ".cpplivelab" : ".easiercpp";
+        build_output_directory = cmake_source_directory / owner / ("build-" + configuration);
     }
     // Keep this owner in scope through Run, not just through the build commands.
     const BuildLease lock(

@@ -1,0 +1,40 @@
+EASIERCPP_PROFILE worker_start_tick=900239140
+EASIERCPP_PROFILE managed_entry_tick=900239140
+EASIERCPP_PROFILE project_inspection_ms=2.235
+EASIERCPP_PROFILE leases_options_cache_ms=14.701
+EASIERCPP_PROFILE tool_discovery_ms=7.511
+EASIERCPP_PROFILE environment_ms=0.575
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\EasierLink-9c1264173fd84e9291d8ea6d041a7270\source
+EASIERCPP_PROFILE configure_arguments_ms=3.632
+EASIERCPP_PROFILE configure_ms=0.107
+EASIERCPP_PROFILE metadata_before_ms=5.184
+EASIERCPP_PROFILE artifact_before_ms=3.663
+Change Dir: 'C:/Users/omer2/AppData/Local/Temp/EasierLink-9c1264173fd84e9291d8ea6d041a7270/state/projects/d9661eb68f2c3b52/build-Debug-af63f14c8602103b-fresh-auto-b'
+
+Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe" -v -j 3 app
+[1/2] C:\PROGRA~1\MICROS~4\2022\COMMUN~1\VC\Tools\MSVC\1444~1.352\bin\HostX64\x64\cl.exe  /nologo /TP   /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++20 -MDd /YuC:/Users/omer2/AppData/Local/Temp/EasierLink-9c1264173fd84e9291d8ea6d041a7270/state/projects/d9661eb68f2c3b52/build-Debug-af63f14c8602103b-fresh-auto-b/CMakeFiles/app.dir/cmake_pch.hxx /FpC:/Users/omer2/AppData/Local/Temp/EasierLink-9c1264173fd84e9291d8ea6d041a7270/state/projects/d9661eb68f2c3b52/build-Debug-af63f14c8602103b-fresh-auto-b/CMakeFiles/app.dir/./cmake_pch.cxx.pch /FIC:/Users/omer2/AppData/Local/Temp/EasierLink-9c1264173fd84e9291d8ea6d041a7270/state/projects/d9661eb68f2c3b52/build-Debug-af63f14c8602103b-fresh-auto-b/CMakeFiles/app.dir/cmake_pch.hxx /showIncludes /FoCMakeFiles\app.dir\worker.cpp.obj /FdCMakeFiles\app.dir\ /FS -c C:\Users\omer2\AppData\Local\Temp\EasierLink-9c1264173fd84e9291d8ea6d041a7270\source\worker.cpp
+[2/2] C:\WINDOWS\system32\cmd.exe /C "cd . && "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -E vs_link_exe --msvc-ver=1944 --intdir=CMakeFiles\app.dir --rc=C:\PROGRA~2\WI3CF2~1\10\bin\100261~1.0\x64\rc.exe --mt=C:\PROGRA~2\WI3CF2~1\10\bin\100261~1.0\x64\mt.exe --manifests  -- C:\PROGRA~1\MICROS~4\2022\COMMUN~1\VC\Tools\MSVC\1444~1.352\bin\Hostx64\x64\link.exe /nologo CMakeFiles\app.dir\cmake_pch.cxx.obj CMakeFiles\app.dir\main.cpp.obj CMakeFiles\app.dir\worker.cpp.obj  /out:app.exe /implib:app.lib /pdb:app.pdb /version:0.0 /machine:x64 /debug /INCREMENTAL /subsystem:console  /VERBOSE:INCR /TIME  dependency.lib  kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib && cd ."
+Visual Studio Incremental Link with embedded manifests
+Create CMakeFiles\app.dir/manifest.rc
+RC Pass 1:
+C:\PROGRA~2\WI3CF2~1\10\bin\100261~1.0\x64\rc.exe /fo CMakeFiles\app.dir/manifest.res CMakeFiles\app.dir/manifest.rc
+LINK Pass 1:
+C:\PROGRA~1\MICROS~4\2022\COMMUN~1\VC\Tools\MSVC\1444~1.352\bin\Hostx64\x64\link.exe /nologo CMakeFiles\app.dir\cmake_pch.cxx.obj CMakeFiles\app.dir\main.cpp.obj CMakeFiles\app.dir\worker.cpp.obj /out:app.exe /implib:app.lib /pdb:app.pdb /version:0.0 /machine:x64 /debug /INCREMENTAL /subsystem:console /VERBOSE:INCR /TIME dependency.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTFILE:CMakeFiles\app.dir/intermediate.manifest CMakeFiles\app.dir/manifest.res
+LINK : 0 new modules and 1 (out of 48) modules have changed since prior linking
+IncrPass2: Interval #1, time = 0.047s
+  Wait PDB close: Total time = 0.000s
+IncrPass2: Interval #2, time = 0.016s
+Final: Total time = 0.063s
+MT:
+C:\PROGRA~2\WI3CF2~1\10\bin\100261~1.0\x64\mt.exe /nologo /manifest CMakeFiles\app.dir/intermediate.manifest /out:CMakeFiles\app.dir/embed.manifest /notify_update
+
+[BUILD] Compilation workers: 3
+EASIERCPP_PROFILE ninja_wall_ms=539.500
+EASIERCPP_PROFILE ninja_log_available=1.000
+EASIERCPP_PROFILE compile_commands_ms=81.000
+EASIERCPP_PROFILE link_commands_ms=387.000
+EASIERCPP_PROFILE archive_commands_ms=0.000
+EASIERCPP_PROFILE ninja_commands=2.000
+EASIERCPP_PROFILE metadata_after_ms=5.636
+EASIERCPP_PROFILE artifact_after_ms=2.891
+Build succeeded: C:\Users\omer2\AppData\Local\Temp\EasierLink-9c1264173fd84e9291d8ea6d041a7270\state\projects\d9661eb68f2c3b52\build-Debug-af63f14c8602103b-fresh-auto-b

@@ -5,7 +5,7 @@ No authentication, self-hosted GitLab, or additional package manager is included
 
 ## Manual acceptance
 
-1. Launch `build/compile-workers/cpplivelab-gui.exe` from the repository.
+1. Launch `build/compile-workers/EasierCpp-Gui.exe` from the repository.
 2. Use a disposable project. Open Manage Libraries, Add, then the existing
    Known / GitHub / GitLab workflow and choose GitHub / GitLab Repository.
 3. Enter a trusted public repository using either

@@ -1,0 +1,85 @@
+Start testing: Oct 31 16:50 Eastern Daylight Time
+----------------------------------------------------------
+31/54 Testing: stage4_scheduler
+31/54 Test: stage4_scheduler
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline/stage4_tests.exe" "scheduler" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline
+"stage4_scheduler" start time: Oct 31 16:50 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Stage 4 scheduler: 20 checks passed
+<end of output>
+Test time =   0.05 sec
+----------------------------------------------------------
+Test Passed.
+"stage4_scheduler" end time: Oct 31 16:50 Eastern Daylight Time
+"stage4_scheduler" time elapsed: 00:00:00
+----------------------------------------------------------
+
+20/54 Testing: stage5_unit
+20/54 Test: stage5_unit
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline/stage5_tests.exe" "unit" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline/cpplivelab.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline/session_fixture.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline
+"stage5_unit" start time: Oct 31 16:50 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-4020-822475781-0\.cpplivelab-new-4020
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-4020-822475781-0\Empty. Dependencies will be verified during Build.
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-4020-822475781-0\.cpplivelab-new-4020
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-4020-822475781-0\Multi. Dependencies will be verified during Build.
+Stage 5 fixture checks passed
+<end of output>
+Test time =   1.88 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_unit" end time: Oct 31 16:50 Eastern Daylight Time
+"stage5_unit" time elapsed: 00:00:01
+----------------------------------------------------------
+
+30/54 Testing: stage4_watcher
+30/54 Test: stage4_watcher
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline/stage4_tests.exe" "watcher" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline/cpplivelab.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline
+"stage4_watcher" start time: Oct 31 16:50 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Stage 4 watcher: 57 checks passed
+<end of output>
+Test time =   2.30 sec
+----------------------------------------------------------
+Test Passed.
+"stage4_watcher" end time: Oct 31 16:50 Eastern Daylight Time
+"stage4_watcher" time elapsed: 00:00:02
+----------------------------------------------------------
+
+24/54 Testing: reliability_gui_flow
+24/54 Test: reliability_gui_flow
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline/gui_flow_tests.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline/redirection-ui"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/fast-auto-run-baseline
+"reliability_gui_flow" start time: Oct 31 16:50 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab GUI regression 18796
+Auto Run: failed build retains PID, repair restarts, manual Restart reuses artifact, interactive I/O passed
+AUTO_RUN_TIMING,after,0,detect=47,debounce=515,build=1422,shutdown=16,preparation=62,startup=94,window=672,total=2828
+AUTO_RUN_TIMING,after,1,detect=47,debounce=547,build=1485,shutdown=15,preparation=63,startup=93,window=688,total=2938
+AUTO_RUN_TIMING,after,2,detect=31,debounce=547,build=1688,shutdown=31,preparation=78,startup=110,window=703,total=3188
+Native Auto Run: actual restart rectangle, maximization, rapid saves and manual Stop passed
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-18796-822475921-0\Second project
+GUI controller: fresh Run, EOF/restart, interactive I/O, Stop/restart and shutdown passed
+<end of output>
+Test time =  72.61 sec
+----------------------------------------------------------
+Test Passed.
+"reliability_gui_flow" end time: Oct 31 16:52 Eastern Daylight Time
+"reliability_gui_flow" time elapsed: 00:01:12
+----------------------------------------------------------
+
+End testing: Oct 31 16:52 Eastern Daylight Time
+
+full =  76.84 sec*proc
+
+integration =  72.61 sec*proc
+
+quick =   4.23 sec*proc
+

@@ -1,0 +1,28 @@
+Start testing: Oct 30 20:27 Eastern Daylight Time
+----------------------------------------------------------
+22/52 Testing: reliability_gui_flow
+22/52 Test: reliability_gui_flow
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/CppLiveLab/build/redirection/gui_flow_tests.exe" "C:/Users/omer2/OneDrive/Desktop/Projects/CppLiveLab/build/redirection/redirection-ui"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/CppLiveLab/build/redirection
+"reliability_gui_flow" start time: Oct 30 20:27 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab GUI regression 31292
+Auto Run: failed build retains PID, repair restarts, manual Restart reuses artifact, interactive I/O passed
+Native Auto Run: actual restart rectangle, maximization, rapid saves and manual Stop passed
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-31292-749050500-0\Second project
+GUI controller: fresh Run, EOF/restart, interactive I/O, Stop/restart and shutdown passed
+<end of output>
+Test time =  77.34 sec
+----------------------------------------------------------
+Test Passed.
+"reliability_gui_flow" end time: Oct 30 20:28 Eastern Daylight Time
+"reliability_gui_flow" time elapsed: 00:01:17
+----------------------------------------------------------
+
+End testing: Oct 30 20:28 Eastern Daylight Time
+
+full =  77.34 sec*proc
+
+integration =  77.34 sec*proc
+

@@ -111,7 +111,7 @@ void test_watcher()
     for (const auto& file : {".git/index.cpp",
              ".vs/hidden.hpp",
              "build/generated.cpp",
-             ".cpplivelab/build-Debug/CMakeLists.txt",
+             ".easiercpp/build-Debug/CMakeLists.txt",
              "out/build/generated.cmake",
              "cmake-build-debug/test.cpp",
              "CMakeFiles/system.cmake",
@@ -368,6 +368,13 @@ void test_console_model()
                 L"CppLiveLab build deferred: This configuration is already building or running") ==
                 MessageKind::Warning,
         "Explicit deferred-build result lost its warning classification");
+    require(cpplivelab::classify_build_line(L"EasierCpp build deferred: Configuration is in use") ==
+                MessageKind::Warning,
+        "Renamed deferred-build result lost its warning classification");
+    require(cpplivelab::classify_build_line(
+                L"example.cpp(7): error C1189: EasierCpp build deferred: quoted compiler text") ==
+                MessageKind::Error,
+        "Quoted renamed scheduling text hid a real compiler error");
     require(cpplivelab::classify_build_line(L"example.cpp(12): warning C4101: unused") ==
                 MessageKind::Warning,
         "Compiler warning not classified");
@@ -640,7 +647,7 @@ void test_auto_build(const fs::path& cli)
     };
     auto output = build_current(L"Debug");
     require(build.exit_code() == 0, output.c_str());
-    const auto program = root / ".cpplivelab/build-Debug/app.exe";
+    const auto program = root / ".easiercpp/build-Debug/app.exe";
     const auto successful_executable = contents(program);
     write_file(root / "src/calculator.cpp", "#error Stage4 intentional failure\n");
     require(!observe(watcher).empty(), "Error save not detected");
@@ -656,7 +663,7 @@ void test_auto_build(const fs::path& cli)
     require(build.exit_code() == 0, output.c_str());
     output = build_current(L"Release");
     require(
-        build.exit_code() == 0 && fs::is_regular_file(root / ".cpplivelab/build-Release/app.exe"),
+        build.exit_code() == 0 && fs::is_regular_file(root / ".easiercpp/build-Release/app.exe"),
         "Auto Release build failed");
 
     cpplivelab::ConsoleSession program_session;
@@ -675,7 +682,7 @@ void test_auto_build(const fs::path& cli)
     write_file(root / "src/calculator.cpp",
         "#include \"calculator.hpp\"\ndouble add(double a, double b) { return a + b; }\n");
     require(!observe(watcher).empty(), "Running-program save not detected");
-    require(!cpplivelab::build_outputs_available(root / ".cpplivelab/build-Debug"),
+    require(!cpplivelab::build_outputs_available(root / ".easiercpp/build-Debug"),
         "Running program was not deferred");
     require(program_session.running(), "Source change killed the running program");
     require(program_session.send_line("Ada Lovelace"), "Name input failed");
@@ -688,7 +695,7 @@ void test_auto_build(const fs::path& cli)
     program_output += finish(program_session);
     require(program_output.find("Sum: 9.375") != std::string::npos,
         "Running program was silently replaced/restarted");
-    require(cpplivelab::build_outputs_available(root / ".cpplivelab/build-Debug"),
+    require(cpplivelab::build_outputs_available(root / ".easiercpp/build-Debug"),
         "Exited program retained build lock");
     output = build_current(L"Debug");
     require(build.exit_code() == 0, "Deferred build did not recover");
@@ -698,8 +705,8 @@ void test_auto_build(const fs::path& cli)
 
     // Ninja buffers a command's output until that command finishes. A file gate
     // proves the build is active without racing the worker's eventual exit.
-    const auto gate = root / ".cpplivelab/build-Debug";
-    write_file(root / ".cpplivelab/delay.cmake",
+    const auto gate = root / ".easiercpp/build-Debug";
+    write_file(root / ".easiercpp/delay.cmake",
         "file(WRITE stage4-delay.started \"ready\")\n"
         "set(attempts 0)\nwhile(NOT EXISTS stage4-delay.release)\n"
         "    math(EXPR attempts \"${attempts} + 1\")\n"
@@ -711,7 +718,7 @@ void test_auto_build(const fs::path& cli)
     write_file(root / "CMakeLists.txt",
         configuration_before + "\nadd_custom_target(stage4_delay ALL\n"
                                " COMMAND ${CMAKE_COMMAND} -P "
-                               "\"${CMAKE_CURRENT_SOURCE_DIR}/.cpplivelab/delay.cmake\")\n");
+                               "\"${CMAKE_CURRENT_SOURCE_DIR}/.easiercpp/delay.cmake\")\n");
     const auto configuration_changes = observe(watcher);
     require(configuration_changes.size() == 1 && configuration_changes.front().affects_cmake,
         "Real CMake save did not request configuration");

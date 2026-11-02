@@ -9,9 +9,76 @@
 
 namespace cpplivelab
 {
+std::filesystem::path find_development_repository(
+    const std::filesystem::path& compiled, const std::filesystem::path& application_directory)
+{
+    const auto valid = [](const std::filesystem::path& root)
+    {
+        return !root.empty() && std::filesystem::is_regular_file(root / L"CMakeLists.txt") &&
+               std::filesystem::is_regular_file(root / L"AGENTS.md") &&
+               std::filesystem::is_regular_file(root / L"scripts/build.ps1") &&
+               std::filesystem::is_regular_file(root / L"include/cpplivelab/workspace.hpp");
+    };
+    if (valid(compiled))
+    {
+        return compiled;
+    }
+    auto ancestor = application_directory;
+    for (unsigned depth = 0; depth < 12 && !ancestor.empty(); ++depth)
+    {
+        if (valid(ancestor))
+        {
+            return ancestor;
+        }
+        const auto parent = ancestor.parent_path();
+        if (parent == ancestor)
+        {
+            break;
+        }
+        ancestor = parent;
+    }
+    return {};
+}
+
 std::filesystem::path source_repository()
 {
-    return std::filesystem::path(CPPLIVELAB_SOURCE_DIR);
+    std::vector<wchar_t> path(32768);
+    const auto length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    if (!length || length >= path.size())
+    {
+        throw std::runtime_error("Cannot locate the EasierCpp application directory.");
+    }
+    const auto application = std::filesystem::path(path.data()).parent_path();
+#ifdef EASIERCPP_SOURCE_DIR
+    const auto repository = find_development_repository(EASIERCPP_SOURCE_DIR, application);
+    if (!repository.empty())
+    {
+        return repository;
+    }
+#endif
+    return application;
+}
+
+std::filesystem::path runtime_resources()
+{
+    std::vector<wchar_t> path(32768);
+    const auto length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    if (!length || length >= path.size())
+    {
+        throw std::runtime_error("Cannot locate EasierCpp runtime resources.");
+    }
+    const auto resources = std::filesystem::path(path.data()).parent_path() / L"resources";
+    if (std::filesystem::is_regular_file(resources / L"scripts/file_api.cmake") &&
+        std::filesystem::is_regular_file(resources / L"cmake/EasierCppPchHook.cmake"))
+    {
+        return resources;
+    }
+#ifdef EASIERCPP_SOURCE_DIR
+    return source_repository();
+#else
+    throw std::runtime_error("EasierCpp support files are missing. Re-extract the complete ZIP "
+                             "and keep the resources folder beside both executables.");
+#endif
 }
 
 TestCommand test_command(const std::wstring& mode, int workers)
@@ -24,13 +91,26 @@ TestCommand test_command(const std::wstring& mode, int workers)
     {
         throw std::runtime_error("Recursive test-suite execution is disabled inside CTest.");
     }
+#ifndef EASIERCPP_SOURCE_DIR
+    throw std::runtime_error("This portable EasierCpp build does not include development "
+                             "tests. Use Tools > Toolchain Diagnostics or EasierCpp.exe "
+                             "doctor. Comprehensive tests require a non-portable source build.");
+#endif
     TestCommand result;
     result.repository = source_repository();
     const auto script = result.repository / L"scripts/build.ps1";
     if (!std::filesystem::is_regular_file(script))
     {
+#ifdef EASIERCPP_SOURCE_DIR
+        throw std::runtime_error("EasierCpp development source scripts are unavailable. Rebuild "
+                                 "from the current source checkout. Toolchain Diagnostics and "
+                                 "EasierCpp.exe doctor remain available.");
+#else
         throw std::runtime_error(
-            "Manager source scripts are unavailable. Use the source checkout to run tests.");
+            "This portable EasierCpp build does not include development "
+            "tests. Use Tools > Toolchain Diagnostics or EasierCpp.exe "
+            "doctor. Comprehensive tests require a non-portable source build.");
+#endif
     }
     wchar_t system[MAX_PATH]{};
     if (!GetSystemDirectoryW(system, MAX_PATH))
@@ -85,7 +165,7 @@ std::string cmake_dependency_probe(const std::filesystem::path& source)
         throw std::runtime_error("Probe path contains an unsupported CMake bracket delimiter.");
     }
     std::string setup =
-        "# CppLiveLab dependency target discovery\n"
+        "# EasierCpp dependency target discovery\n"
         "cmake_minimum_required(VERSION 3.24)\nproject(DependencyProbe LANGUAGES C "
         "CXX)\nset(CMAKE_CXX_SCAN_FOR_MODULES OFF)\nadd_executable(cpplivelab_probe "
         "main.cpp)\ntarget_compile_features(cpplivelab_probe PRIVATE cxx_std_20)\n"
@@ -101,7 +181,7 @@ std::string cmake_dependency_probe(const std::filesystem::path& source)
     // may omit. No exported name is inferred from the repository's name.
     setup += "set(CPPLIVELAB_DEPENDENCY_SOURCE [==[" + path_support::path_utf8(source) +
              "]==])\ninclude([==[" +
-             path_support::path_utf8(source_repository() / L"scripts/discover_targets.cmake") +
+             path_support::path_utf8(runtime_resources() / L"scripts/discover_targets.cmake") +
              "]==])\n";
     return setup;
 }
@@ -119,8 +199,9 @@ bool apply_approved_dependencies(const std::filesystem::path& project,
         throw std::runtime_error("CMake configuration changed since preview, or preview is empty. "
                                  "Reopen Manage Libraries.");
     }
-    const std::string marker = "# BEGIN CppLiveLab approved dependencies";
-    if (current.find(marker) != std::string::npos)
+    const std::string marker = "# BEGIN EasierCpp approved dependencies";
+    if (current.find(marker) != std::string::npos ||
+        current.find("# BEGIN CppLiveLab approved dependencies") != std::string::npos)
     {
         throw std::runtime_error("An approved dependency block already exists. Review it manually "
                                  "to avoid duplicate declarations.");
@@ -148,7 +229,7 @@ bool apply_approved_dependencies(const std::filesystem::path& project,
     const auto replace = [&](const std::string& bytes)
     {
         const auto temporary =
-            project / (L".cpplivelab-cmake-" + std::to_wstring(GetCurrentProcessId()) + L".tmp");
+            project / (L".easiercpp-cmake-" + std::to_wstring(GetCurrentProcessId()) + L".tmp");
         // CREATE_NEW avoids overwriting an unrelated file. The temporary is owned
         // only after that succeeds; MoveFileEx atomically replaces this one file.
         const auto file = CreateFileW(temporary.c_str(),
@@ -177,8 +258,7 @@ bool apply_approved_dependencies(const std::filesystem::path& project,
         }
     };
     input.close();
-    replace(
-        current + "\n" + marker + "\n" + snippet + "\n# END CppLiveLab approved dependencies\n");
+    replace(current + "\n" + marker + "\n" + snippet + "\n# END EasierCpp approved dependencies\n");
     try
     {
         if (verify())

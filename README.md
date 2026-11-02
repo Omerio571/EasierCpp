@@ -1,15 +1,28 @@
-# Cpp — Make Your Life Easier
+# EasierCpp — Make Your Life Easier
 
-Cpp is a lightweight Windows C++ development manager focused on libraries,
+For the v0.1.0 portable testing package, see the concise
+[release user guide](docs/release/README.md) and
+[release notes](docs/release/RELEASE_NOTES.md). Build/package locally with
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1`.
+Publication remains a separate owner-approved step. The historical development
+notes below are retained for context.
+
+EasierCpp is a lightweight Windows C++ development manager focused on libraries,
 standard CMake projects, and automatic rebuild/restart with window placement
 restoration. This is process restart: gameplay, memory and application state are
 not preserved. No universal hot-reloading or checkpoint feature is planned here.
 
-Start with [the current testing guide](PROJECT_REDIRECTION_MANUAL_TESTS.md) and
-[implementation/test report](PROJECT_REDIRECTION_REPORT.md). Executable names
-`cpplivelab.exe` / `cpplivelab-gui.exe`, namespaces, configuration locations and
-managed CMake ownership markers remain stable for compatibility. Earlier stage
+Start with [the current testing guide](docs/migration/MANUAL_TESTS.md) and
+[migration report](docs/migration/FINAL_REPORT.md). The executables are now
+`EasierCpp.exe` / `EasierCpp-Gui.exe`. Legacy public interfaces and metadata readers
+remain available for compatibility. Earlier stage
 reports below describe historical acceptance; their counts are not current results.
+
+The controlled identity migration is tracked in [the naming inventory](docs/migration/RENAMING.md).
+Supported legacy metadata is copied conservatively into `%LOCALAPPDATA%\EasierCpp`;
+originals remain untouched. Preferences use `HKCU\Software\EasierCpp\Preferences`.
+Existing new data wins conflicts. Build/download caches are not transplanted.
+The public repository is [Omerio571/EasierCpp](https://github.com/Omerio571/EasierCpp).
 
 The earlier unified-generation refinement is in [STAGE5_UNIFIED_REPORT.md](STAGE5_UNIFIED_REPORT.md),
 with [numbered manual acceptance steps](STAGE5_UNIFIED_MANUAL_TESTS.md). Executed
@@ -22,15 +35,15 @@ See [STAGE5_CONSOLIDATED_REPORT.md](STAGE5_CONSOLIDATED_REPORT.md) and the compl
 [numbered A–X manual guide](STAGE5_CONSOLIDATED_MANUAL_TESTS.md). Startup now shows
 New/Open/Recent rather than automatically reopening a project. Project/Tools sit
 left; Settings sits right. Build actions remain in the workspace. All forms share
-Dark/Light/Follow Windows styling. Tools > Run CppLiveLab Tests uses a separate
+Dark/Light/Follow Windows styling. Tools > Run EasierCpp Tests uses a separate
 owned process and isolated test-build directory.
 
-# CppLiveLab — Stage 5
+# EasierCpp — Stage 5
 
 A standalone Windows C++20 development manager, with a small native graphical interface.
 Stage 1 provides version/help and toolchain discovery. Stage 2 adds project creation,
 single-file and multi-file CMake builds, and console execution with interactive input.
-Stage 3 makes CppLiveLab the main application, with Visual Studio 2022 used for editing
+Stage 3 makes EasierCpp the main application, with Visual Studio 2022 used for editing
 and debugging. Stage 4 adds optional automatic compilation, two console tabs, and
 Dark, Light, and Follow Windows appearance. The CLI retains its commands and version.
 Stage 5 adds read-only project import, external managed builds, executable targets,
@@ -73,9 +86,9 @@ From PowerShell in this folder:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -Doctor
-.\build\debug\cpplivelab.exe --version
-.\build\debug\cpplivelab.exe --help
-.\build\debug\cpplivelab.exe doctor
+.\build\debug\EasierCpp.exe --version
+.\build\debug\EasierCpp.exe --help
+.\build\debug\EasierCpp.exe doctor
 ```
 
 The script discovers Visual Studio with vswhere, loads its x64 developer environment,
@@ -99,17 +112,17 @@ cmake --build --preset windows-debug
 ctest --preset windows-debug
 ```
 
-If using VS Code, run the named `CppLiveLab: build and test` task. It loads the developer
+If using VS Code, run the named `EasierCpp: build and test` task. It loads the developer
 environment automatically. Existing editor tasks are preserved.
 
 ## Start the graphical application
 
 ```powershell
-.\build\debug\cpplivelab-gui.exe
+.\build\debug\EasierCpp-Gui.exe
 ```
 
-Double-clicking `build/debug/cpplivelab-gui.exe` also works. Keep the companion
-`cpplivelab.exe` in the same directory. No Raylib, SDL, GUI framework, or graphics-library
+Double-clicking `build/debug/EasierCpp-Gui.exe` also works. Keep the companion
+`EasierCpp.exe` in the same directory. No Raylib, SDL, GUI framework, or graphics-library
 installation is needed; the interface uses Windows controls and system libraries.
 
 Choose **Project > Open Existing Project** and select the CMake source folder.
@@ -139,19 +152,19 @@ background tool helpers rather than waiting indefinitely for them. Closing the
 window while busy also stops its owned processes. Visual Studio
 is launched separately and is never included in that job.
 
-CppLiveLab holds a per-project/configuration build lock through program execution,
+EasierCpp holds a per-project/configuration build lock through program execution,
 blocking simultaneous builds/runs from another instance. It also checks existing build
 executables for write access before configuring, to catch programs launched externally.
 The OS remains responsible for enforcing executable locks if an external program is
 started after that check.
 
-GUI managed builds use `%LOCALAPPDATA%\CppLiveLab\projects`, outside the source folder,
+GUI managed builds use `%LOCALAPPDATA%\EasierCpp\projects`, outside the source folder,
 separate from this manager's `build/debug` and an IDE's existing build tree.
-CppLiveLab does not write CMake presets, CMakeSettings, or Visual Studio configurations.
+EasierCpp does not write CMake presets, CMakeSettings, or Visual Studio configurations.
 Configure presets and project compiler flags are retained. CMake file-writing commands
 trigger a permission warning; arbitrary CMake code is not a read-only sandbox.
 
-A fresh addition demo for GUI testing is in `../CppLiveLab-UserProjects/Stage3Calculator`.
+A fresh addition demo for GUI testing is in `../EasierCpp-UserProjects/Stage3Calculator`.
 Your existing CalculatorDemo edits are preserved. See [STAGE3_MANUAL_TESTS.md](STAGE3_MANUAL_TESTS.md)
 for numbered steps and expected results.
 
@@ -164,20 +177,20 @@ generated `.cpplivelab` directories and `--exe` behavior for compatibility.
 Keep user projects outside this repository. For example, from this folder:
 
 ```powershell
-.\build\debug\cpplivelab.exe create ..\CppLiveLab-UserProjects\HelloProject
-.\build\debug\cpplivelab.exe build ..\CppLiveLab-UserProjects\HelloProject --config Debug
-.\build\debug\cpplivelab.exe run ..\CppLiveLab-UserProjects\HelloProject --config Release
+.\build\debug\EasierCpp.exe create ..\EasierCpp-UserProjects\HelloProject
+.\build\debug\EasierCpp.exe build ..\EasierCpp-UserProjects\HelloProject --config Debug
+.\build\debug\EasierCpp.exe run ..\EasierCpp-UserProjects\HelloProject --config Release
 ```
 
 Create accepts a new or empty folder and never overwrites an existing project.
 Use `create <new-folder> --demo calculator` for the multi-file calculator template.
-A fresh addition demo is in the sibling `CppLiveLab-UserProjects/Stage3Calculator` folder.
+A fresh addition demo is in the sibling `EasierCpp-UserProjects/Stage3Calculator` folder.
 
 `build <path>` accepts a `.cpp`, `.cc`, `.cxx` source file or an existing CMake project
 folder. `run <path>` builds first and launches only on success. Debug is the default;
 `--config Release` selects a separate optimized build. Compiler and CMake diagnostics
 appear directly in the terminal. The program inherits stdin, stdout, stderr and its
-project working directory; its exit code becomes CppLiveLab's exit code.
+project working directory; its exit code becomes EasierCpp's exit code.
 
 New projects use C++20 and target `app`. Existing CMake projects receive C++20 defaults;
 their own explicit target settings remain authoritative. Use `run <folder> --exe
@@ -185,7 +198,7 @@ their own explicit target settings remain authoritative. Use `run <folder> --exe
 The executable path is relative to the selected build directory; absolute paths work too.
 
 Tool discovery supplies absolute CMake, Ninja and compiler paths. When MSVC is selected,
-CppLiveLab captures `VsDevCmd.bat`'s environment and supplies it to child processes,
+EasierCpp captures `VsDevCmd.bat`'s environment and supplies it to child processes,
 including SDK tools and include/library paths. It never modifies the parent terminal
 or persistent PATH. MSVC from the discovered VS installation is preferred, with
 Clang/GCC fallback when no MSVC is found.
@@ -200,7 +213,7 @@ commands covering every Stage 2 feature, including console input and compilation
 
 ## Manual checks
 
-1. Run `--version`: expect `CppLiveLab 0.1.0` and exit 0.
+1. Run `--version`: expect `EasierCpp 0.1.0` and exit 0.
 2. Run with no arguments or `--help`: expect usage and exit 0.
 3. Run `doctor` from ordinary PowerShell: expect CMake, Ninja, MSVC and Clang to show
    `Installed: Yes` on this machine, even when `Available in current terminal: No`.
@@ -290,7 +303,7 @@ programs should flush prompts normally (`std::cin` does so for tied `std::cout`)
 **Appearance** offers Dark, Light, and Follow Windows, with rounded native controls,
 themed console colors and per-monitor DPI handling. Follow Windows updates when the
 OS broadcasts a theme change. Theme and debounce are persisted as
-DWORD preferences under `HKCU\Software\CppLiveLab`. Auto Run is a single per-project
+DWORD preferences under `HKCU\Software\EasierCpp\Preferences`. Auto Run is a single per-project
 preference stored outside the source tree. An explicit project ON/OFF wins over the
 read-only legacy global Auto Build migration input. New profiles use a 150 ms debounce;
 existing saved values are retained. Ordinary launch shows the

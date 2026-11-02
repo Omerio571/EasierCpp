@@ -15,24 +15,24 @@ int wmain(int argc, wchar_t** argv)
     {
         if (argc == 1 || (argc == 2 && std::wstring_view(argv[1]) == L"--help"))
         {
-            std::cout
-                << "Cpp — Make Your Life Easier\nUsage: cpplivelab [--help | --version | doctor]\n"
-                   "  cpplivelab create <folder> [--demo calculator]\n"
-                   "  cpplivelab build <file.cpp|project-folder> [--config Debug|Release] "
-                   "[--incremental]\n"
-                   "  cpplivelab run <file.cpp|project-folder> [--config Debug|Release] "
-                   "[--exe relative-path]\n"
-                   "Run builds first, then launches with console input/output. Default "
-                   "config: Debug.\n"
-                   "Stage 5 isolated workflows:\n"
-                   "  pch-config <folder> --recipe <trusted-file.cmake|off> [--config "
-                   "Debug|Release]\n"
-                   "  inspect <folder> | targets <folder> | edit <folder>\n"
-                   "  new <folder> [--template empty|multi] [--library fmt,nlohmann_json]\n"
-                   "  manage-build|manage-run <folder> [--config Debug|Release]\n"
-                   "  manage-rebuild <folder> --approve-recovery [--config Debug|Release]\n"
-                   "    [--preset name|-] [--target name] [--working-dir folder]\n"
-                   "    [--vcpkg root] [--allow-configure-writes] [--incremental]\n";
+            std::cout << "EasierCpp — Make Your Life Easier\nUsage: EasierCpp [--help | --version "
+                         "| doctor]\n"
+                         "  EasierCpp create <folder> [--demo calculator]\n"
+                         "  EasierCpp build <file.cpp|project-folder> [--config Debug|Release] "
+                         "[--incremental]\n"
+                         "  EasierCpp run <file.cpp|project-folder> [--config Debug|Release] "
+                         "[--exe relative-path]\n"
+                         "Run builds first, then launches with console input/output. Default "
+                         "config: Debug.\n"
+                         "Stage 5 isolated workflows:\n"
+                         "  pch-config <folder> --recipe <trusted-file.cmake|off> [--config "
+                         "Debug|Release]\n"
+                         "  inspect <folder> | targets <folder> | edit <folder>\n"
+                         "  new <folder> [--template empty|multi] [--library fmt,nlohmann_json]\n"
+                         "  manage-build|manage-run <folder> [--config Debug|Release]\n"
+                         "  manage-rebuild <folder> --approve-recovery [--config Debug|Release]\n"
+                         "    [--preset name|-] [--target name] [--working-dir folder]\n"
+                         "    [--vcpkg root] [--allow-configure-writes] [--incremental]\n";
             return 0;
         }
         const std::wstring_view command(argv[1]);
@@ -47,7 +47,7 @@ int wmain(int argc, wchar_t** argv)
         }
         if (argc == 2 && command == L"--version")
         {
-            std::cout << "Cpp " << CPPLIVELAB_VERSION << '\n';
+            std::cout << "EasierCpp " << EASIERCPP_VERSION << '\n';
             return 0;
         }
         if (argc == 2 && command == L"doctor")
@@ -105,12 +105,12 @@ int wmain(int argc, wchar_t** argv)
             return cpplivelab::build_project(
                 argv[2], configuration, command == L"run", executable, incremental);
         }
-        std::cerr << "Invalid arguments. Use cpplivelab --help.\n";
+        std::cerr << "Invalid arguments. Use EasierCpp --help.\n";
         return 2;
     }
     catch (const cpplivelab::BuildDeferredError& error)
     {
-        std::cerr << "CppLiveLab build deferred: " << error.what() << '\n';
+        std::cerr << "EasierCpp build deferred: " << error.what() << '\n';
         return cpplivelab::build_deferred_exit_code;
     }
     catch (const std::invalid_argument& error)
@@ -120,7 +120,7 @@ int wmain(int argc, wchar_t** argv)
     }
     catch (const std::exception& error)
     {
-        std::cerr << "CppLiveLab error: " << error.what() << '\n';
+        std::cerr << "EasierCpp error: " << error.what() << '\n';
         return 1;
     }
 }

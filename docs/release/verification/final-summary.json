@@ -1,0 +1,9 @@
+{
+  "sha256": "031de6d4f03e30ca1798605f5d4660755ba00446faf3c0bbe2baf38ee1d2c9a0",
+  "zip_bytes": 750879,
+  "gui_bytes": 1128448,
+  "cli_bytes": 517632,
+  "package_files": 12,
+  "matched_tested_files": 12,
+  "checks_completed": 13
+}

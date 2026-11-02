@@ -226,7 +226,7 @@ void test_project_builds(const fs::path& cli_executable, const fs::path& test_di
     session.start_worker(cli_executable, {L"run", project_directory.wstring()}, project_directory);
     std::string captured_output;
     wait_for_output(session, captured_output, "Your name: ");
-    const auto program = project_directory / ".cpplivelab/build-Debug/app.exe";
+    const auto program = project_directory / ".easiercpp/build-Debug/app.exe";
     const auto original_time = fs::last_write_time(program);
     second_session.start_worker(
         cli_executable, {L"build", project_directory.wstring()}, project_directory);
@@ -248,7 +248,7 @@ void test_project_builds(const fs::path& cli_executable, const fs::path& test_di
         "External running executable not detected");
     session.stop();
     wait_for_exit(session);
-    const auto cache_path = project_directory / ".cpplivelab/build-Debug/CMakeCache.txt";
+    const auto cache_path = project_directory / ".easiercpp/build-Debug/CMakeCache.txt";
     auto cache = contents(cache_path);
     const std::string entry = "CMAKE_CXX_STANDARD:UNINITIALIZED=20";
     const auto at = cache.find(entry);

@@ -1,6 +1,7 @@
 #include "appearance/appearance.hpp"
 
 #include <algorithm>
+#include <stdexcept>
 
 namespace cpplivelab
 {
@@ -19,8 +20,100 @@ DWORD read_dword(HKEY root, const std::wstring& key, const wchar_t* value, DWORD
 }
 } // namespace
 
+bool migrate_preference_store(const std::wstring& legacy, const std::wstring& destination)
+{
+    struct Key
+    {
+        HKEY value = nullptr;
+
+        ~Key()
+        {
+            if (value)
+            {
+                RegCloseKey(value);
+            }
+        }
+    } existing, original, staging;
+
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, destination.c_str(), 0, KEY_READ, &existing.value) ==
+        ERROR_SUCCESS)
+    {
+        return false;
+    }
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, legacy.c_str(), 0, KEY_READ, &original.value) !=
+        ERROR_SUCCESS)
+    {
+        return false;
+    }
+    const auto temporary = destination + L".migration-" + std::to_wstring(GetCurrentProcessId()) +
+                           L"-" + std::to_wstring(GetTickCount64());
+    DWORD disposition = 0;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER,
+            temporary.c_str(),
+            0,
+            nullptr,
+            0,
+            KEY_SET_VALUE | DELETE,
+            nullptr,
+            &staging.value,
+            &disposition) != ERROR_SUCCESS ||
+        disposition != REG_CREATED_NEW_KEY)
+    {
+        throw std::runtime_error("Cannot stage EasierCpp appearance preferences.");
+    }
+    bool copied = true;
+    for (const auto* name : {L"Theme", L"DebounceMilliseconds", L"AutoBuild"})
+    {
+        DWORD value = 0, size = sizeof(value);
+        const auto read =
+            RegGetValueW(original.value, nullptr, name, RRF_RT_REG_DWORD, nullptr, &value, &size);
+        if (read == ERROR_FILE_NOT_FOUND || read == ERROR_UNSUPPORTED_TYPE)
+        {
+            continue;
+        }
+        copied = copied && read == ERROR_SUCCESS &&
+                 RegSetValueExW(staging.value,
+                     name,
+                     0,
+                     REG_DWORD,
+                     reinterpret_cast<const BYTE*>(&value),
+                     sizeof(value)) == ERROR_SUCCESS;
+    }
+    // Rename publishes all supported values together. Windows refuses an existing
+    // destination, including one created concurrently; no old/new key is replaced.
+    const auto leaf = destination.substr(destination.find_last_of(L'\\') + 1);
+    const auto result = copied ? RegRenameKey(HKEY_CURRENT_USER, temporary.c_str(), leaf.c_str())
+                               : ERROR_INVALID_DATA;
+    if (result != ERROR_SUCCESS)
+    {
+        RegDeleteTreeW(HKEY_CURRENT_USER, temporary.c_str());
+        throw std::runtime_error("Preference migration could not publish; original and existing "
+                                 "preferences retained. Close other managers and retry.");
+    }
+    return true;
+}
+
 Preferences load_preferences(const std::wstring& key)
 {
+    if (key == L"Software\\EasierCpp\\Preferences" &&
+        !GetEnvironmentVariableW(L"CPPLIVELAB_TEST_CHILD", nullptr, 0))
+    {
+        // A dedicated preferences subkey keeps test/other namespaces from making
+        // an otherwise empty product key look like existing user preferences.
+        // Honor any already saved values at the new product root before legacy.
+        const std::wstring root = L"Software\\EasierCpp";
+        bool new_root_preferences = false;
+        for (const auto* name : {L"Theme", L"DebounceMilliseconds", L"AutoBuild"})
+        {
+            DWORD size = 0;
+            new_root_preferences =
+                new_root_preferences ||
+                RegGetValueW(
+                    HKEY_CURRENT_USER, root.c_str(), name, RRF_RT_ANY, nullptr, nullptr, &size) ==
+                    ERROR_SUCCESS;
+        }
+        migrate_preference_store(new_root_preferences ? root : L"Software\\CppLiveLab", key);
+    }
     Preferences result;
     const DWORD theme = read_dword(HKEY_CURRENT_USER, key, L"Theme", 2);
     result.theme = theme <= 2 ? static_cast<ThemeChoice>(theme) : ThemeChoice::FollowWindows;

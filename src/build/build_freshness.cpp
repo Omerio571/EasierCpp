@@ -4,7 +4,9 @@ namespace cpplivelab
 {
 std::filesystem::path BuildIdentity::directory() const
 {
-    return output_directory.empty() ? project / L".cpplivelab" / (L"build-" + configuration)
+    const auto owner =
+        std::filesystem::exists(project / L".cpplivelab") ? L".cpplivelab" : L".easiercpp";
+    return output_directory.empty() ? project / owner / (L"build-" + configuration)
                                     : output_directory;
 }
 

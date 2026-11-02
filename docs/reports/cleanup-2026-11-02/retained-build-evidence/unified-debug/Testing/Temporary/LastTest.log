@@ -1,0 +1,227 @@
+Start testing: Oct 29 13:49 Eastern Daylight Time
+----------------------------------------------------------
+1/41 Testing: stage5_unified_unit
+1/41 Test: stage5_unified_unit
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/CppLiveLab/build/unified-debug/unified_tests.exe" "unit"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/CppLiveLab/build/unified-debug
+"stage5_unified_unit" start time: Oct 29 13:49 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 1588\.cpplivelab-new-1588
+Created new project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 1588\Named Project. Dependencies will be verified during Build.
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 1588\.cpplivelab-new-1588
+Created new project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 1588\Two Libraries. Dependencies will be verified during Build.
+Unified unit: formatting, names, modular dependencies, diagnostics, editor argv, long paths, ignored dependencies, disappearing/missing scans and approval passed
+<end of output>
+Test time =   0.70 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_unified_unit" end time: Oct 29 13:49 Eastern Daylight Time
+"stage5_unified_unit" time elapsed: 00:00:00
+----------------------------------------------------------
+
+12/41 Testing: reliability_gui_flow
+12/41 Test: reliability_gui_flow
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/CppLiveLab/build/unified-debug/gui_flow_tests.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/CppLiveLab/build/unified-debug
+"reliability_gui_flow" start time: Oct 29 13:49 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab GUI regression 33628
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 33628\Second project
+GUI controller: fresh Run, EOF/restart, interactive I/O, Stop/restart and shutdown passed
+<end of output>
+Test time =  41.50 sec
+----------------------------------------------------------
+Test Passed.
+"reliability_gui_flow" end time: Oct 29 13:49 Eastern Daylight Time
+"reliability_gui_flow" time elapsed: 00:00:41
+----------------------------------------------------------
+
+4/41 Testing: stage5_ui_audit
+4/41 Test: stage5_ui_audit
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/CppLiveLab/build/unified-debug/ui_audit_tests.exe"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/CppLiveLab/build/unified-debug
+"stage5_ui_audit" start time: Oct 29 13:49 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 4120\Audit calculator
+UI audit: 24 production modal forms, themes, 100/125/150% logical DPI, resize, Advanced, action accessibility and workspace bounds passed
+<end of output>
+Test time =  48.30 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_ui_audit" end time: Oct 29 13:50 Eastern Daylight Time
+"stage5_ui_audit" time elapsed: 00:00:48
+----------------------------------------------------------
+
+2/41 Testing: stage5_unified_projects
+2/41 Test: stage5_unified_projects
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/CppLiveLab/build/unified-debug/unified_tests.exe" "projects"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/CppLiveLab/build/unified-debug
+"stage5_unified_projects" start time: Oct 29 13:49 Eastern Daylight Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\.cpplivelab-new-920
+Created new project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\Recovery Project. Dependencies will be verified during Build.
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\Recovery Project
+-- The C compiler identification is Clang 19.1.5 with GNU-like command-line
+-- The CXX compiler identification is Clang 19.1.5 with GNU-like command-line
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (5.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/manager state/projects/d642e3a4adaab6f9/build-Debug-af63f14c8602103b
+[1/3] Building CXX object CMakeFiles/app.dir/src/greeting.cpp.obj
+[2/3] Building CXX object CMakeFiles/app.dir/src/main.cpp.obj
+[3/3] Linking CXX executable app.exe
+Build succeeded: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\manager state\projects\d642e3a4adaab6f9\build-Debug-af63f14c8602103b
+Running: C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/manager state/projects/d642e3a4adaab6f9/build-Debug-af63f14c8602103b/app.exe
+Hello from two C++ files!
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\Recovery Project
+CMake Error: Error: generator : Ninja
+Does not match the generator used previously: Other Generator
+Either remove the CMakeCache.txt file and CMakeFiles directory or choose a different binary directory.
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\Recovery Project
+CMake Error: The source "C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/Recovery Project/CMakeLists.txt" does not match the source "C:/missing-source/CMakeLists.txt" used to generate cache.  Re-run cmake with a different source directory.
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\Recovery Project
+[0/1] Re-running CMake...
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/manager state/projects/d642e3a4adaab6f9/build-Debug-af63f14c8602103b
+ninja: no work to do.
+Build succeeded: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\manager state\projects\d642e3a4adaab6f9\build-Debug-af63f14c8602103b
+Recovery: old build preserved at C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\manager state\projects\d642e3a4adaab6f9\build-Debug-af63f14c8602103b
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\Recovery Project
+-- The C compiler identification is Clang 19.1.5 with GNU-like command-line
+-- The CXX compiler identification is Clang 19.1.5 with GNU-like command-line
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (5.3s)
+-- Generating done (0.1s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/manager state/projects/d642e3a4adaab6f9/build-Debug-af63f14c8602103b-fresh-920-638801140
+[1/3] Building CXX object CMakeFiles/app.dir/src/greeting.cpp.obj
+[2/3] Building CXX object CMakeFiles/app.dir/src/main.cpp.obj
+[3/3] Linking CXX executable app.exe
+Build succeeded: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\manager state\projects\d642e3a4adaab6f9\build-Debug-af63f14c8602103b-fresh-920-638801140
+Recovery succeeded; fresh build is active. No previous outputs were deleted.
+Recovery: old build preserved at C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\manager state\projects\d642e3a4adaab6f9\build-Debug-af63f14c8602103b-fresh-920-638801140
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\Recovery Project
+-- The C compiler identification is Clang 19.1.5 with GNU-like command-line
+-- The CXX compiler identification is Clang 19.1.5 with GNU-like command-line
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (4.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/manager state/projects/d642e3a4adaab6f9/build-Debug-af63f14c8602103b-fresh-920-638815234
+[1/3] Building CXX object CMakeFiles/app.dir/src/main.cpp.obj
+FAILED: CMakeFiles/app.dir/src/main.cpp.obj 
+C:\PROGRA~1\MICROS~4\2022\COMMUN~1\VC\Tools\Llvm\x64\bin\CLANG_~1.EXE  -I"C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/Recovery Project/include" -O0 -g -Xclang -gcodeview -std=c++20 -D_DEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrtd -MD -MT CMakeFiles/app.dir/src/main.cpp.obj -MF CMakeFiles\app.dir\src\main.cpp.obj.d -o CMakeFiles/app.dir/src/main.cpp.obj -c "C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/Recovery Project/src/main.cpp"
+C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/Recovery Project/src/main.cpp:1:1: error: unknown type name 'intentional'
+    1 | intentional compilation failure
+      | ^
+C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/Recovery Project/src/main.cpp:1:24: error: expected ';' after top level declarator
+    1 | intentional compilation failure
+      |                        ^
+      |                        ;
+2 errors generated.
+[2/3] Building CXX object CMakeFiles/app.dir/src/greeting.cpp.obj
+ninja: build stopped: subcommand failed.
+Recovery failed; original active build and diagnostics preserved.
+Configuring Release: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\Recovery Project
+-- The C compiler identification is Clang 19.1.5 with GNU-like command-line
+-- The CXX compiler identification is Clang 19.1.5 with GNU-like command-line
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (3.8s)
+CMake Error at CMakeLists.txt:6 (add_executable):
+  Cannot find source file:
+
+    src/main.cpp
+
+
+CMake Error at CMakeLists.txt:6 (add_executable):
+  No SOURCES given to target: app
+
+
+CMake Generate step failed.  Build files cannot be regenerated correctly.
+Configuring Release: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\Recovery Project
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/manager state/projects/d642e3a4adaab6f9/build-Release-af63f14c8602103b
+[1/3] Building CXX object CMakeFiles/app.dir/src/greeting.cpp.obj
+[2/3] Building CXX object CMakeFiles/app.dir/src/main.cpp.obj
+[3/3] Linking CXX executable app.exe
+Build succeeded: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\manager state\projects\d642e3a4adaab6f9\build-Release-af63f14c8602103b
+Running: C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/manager state/projects/d642e3a4adaab6f9/build-Release-af63f14c8602103b/app.exe
+Hello from C++20!
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\.cpplivelab-new-920
+Created new project: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\Missing Artifact. Dependencies will be verified during Build.
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\CppLiveLab Stage5 920\Missing Artifact
+-- The C compiler identification is Clang 19.1.5 with GNU-like command-line
+-- The CXX compiler identification is Clang 19.1.5 with GNU-like command-line
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/x64/bin/clang++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (4.5s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/CppLiveLab Stage5 920/manager state/projects/6d32d38d6f74f121/build-Debug-af63f14c8602103b
+[1/2] Building CXX object CMakeFiles/app.dir/src/main.cpp.obj
+[2/2] Linking CXX executable app.exe
+Compilation succeeded but executable discovery failed: the selected File API artifact is missing. Review target/output configuration.
+Unified projects: real run, no-change build, leased/stale/failed recovery, preserved CMake and outputs, deleted source and Release passed
+<end of output>
+Test time =  86.51 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_unified_projects" end time: Oct 29 13:50 Eastern Daylight Time
+"stage5_unified_projects" time elapsed: 00:01:26
+----------------------------------------------------------
+
+End testing: Oct 29 13:50 Eastern Daylight Time
+
+full = 177.02 sec*proc
+
+integration =  89.80 sec*proc
+
+quick =   0.70 sec*proc
+

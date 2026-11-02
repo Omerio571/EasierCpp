@@ -144,7 +144,8 @@ MessageKind classify_build_line(std::wstring_view line)
     }
     // Only the controller's explicit deferred result is a scheduling warning.
     // A compiler can quote those words inside a genuine error diagnostic.
-    if (lowered.starts_with(L"cpplivelab build deferred:"))
+    if (lowered.starts_with(L"easiercpp build deferred:") ||
+        lowered.starts_with(L"cpplivelab build deferred:"))
     {
         return MessageKind::Warning;
     }

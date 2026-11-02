@@ -11,7 +11,14 @@ namespace
 {
 std::wstring instance_name()
 {
-    auto root = std::filesystem::weakly_canonical(manager_state_directory()).wstring();
+    auto directory = manager_state_directory();
+    if (!GetEnvironmentVariableW(L"CPPLIVELAB_STATE_HOME", nullptr, 0) &&
+        !GetEnvironmentVariableW(L"EASIERCPP_STATE_HOME", nullptr, 0))
+    {
+        // Default installations coordinate with old managers during transition.
+        directory = directory.parent_path() / L"CppLiveLab";
+    }
+    auto root = std::filesystem::weakly_canonical(directory).wstring();
     for (auto& character : root)
     {
         character = static_cast<wchar_t>(std::towlower(character));
@@ -219,9 +226,12 @@ std::unique_ptr<RestartChild> restart_child(int argc, wchar_t** argv, const std:
     require(static_cast<bool>(input), "Restart state is incomplete.");
     child->state.project = path_support::from_utf8(project);
     child->state.preference_store = path_support::from_utf8(preferences).wstring();
-    require(child->state.preference_store == L"Software\\CppLiveLab" ||
+    require(child->state.preference_store == L"Software\\EasierCpp" ||
+                child->state.preference_store == L"Software\\EasierCpp\\Preferences" ||
+                child->state.preference_store.starts_with(L"Software\\EasierCpp\\Tests\\") ||
+                child->state.preference_store == L"Software\\CppLiveLab" ||
                 child->state.preference_store.starts_with(L"Software\\CppLiveLab\\Tests\\"),
-        "Restart preference store is outside CppLiveLab.");
+        "Restart preference store is outside EasierCpp or its legacy compatibility store.");
     return child;
 }
 

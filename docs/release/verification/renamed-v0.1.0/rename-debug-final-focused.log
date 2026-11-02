@@ -1,0 +1,31 @@
+Preset CMake variables:
+
+  BUILD_TESTING:BOOL="TRUE"
+  CMAKE_BUILD_TYPE="Debug"
+  CMAKE_EXPORT_COMPILE_COMMANDS:BOOL="TRUE"
+
+-- Configuring done (0.3s)
+-- Generating done (0.1s)
+-- Build files have been written to: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/rename-debug
+[1/2] Building CXX object CMakeFiles\stage4_tests.dir\tests\build\stage4_tests.cpp.obj
+[2/2] Linking CXX executable stage4_tests.exe
+EasierCpp tests: filtered Full (1 worker(s)); not a complete approval run.
+Internal ctest changing into directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/rename-debug
+Test project C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/rename-debug
+    Start 38: stage4_auto_build
+1/4 Test #38: stage4_auto_build ................   Passed   42.56 sec
+    Start 59: test_selection
+2/4 Test #59: test_selection ...................   Passed    2.53 sec
+    Start 60: identity_migration
+3/4 Test #60: identity_migration ...............   Passed    0.35 sec
+    Start 61: test_cache_migration
+4/4 Test #61: test_cache_migration .............   Passed    0.94 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Label Time Summary:
+full           =  46.37 sec*proc (4 tests)
+integration    =  42.56 sec*proc (1 test)
+quick          =   3.81 sec*proc (3 tests)
+
+Total Test time (real) =  46.39 sec

@@ -206,7 +206,7 @@ void project_timings(Report& report,
     {
         Project project(
             parent, std::wstring(location.begin(), location.end()) + std::to_wstring(sample));
-        const auto build = project.root / L".cpplivelab/build-Debug";
+        const auto build = project.root / L".easiercpp/build-Debug";
         const auto cmake = tool(tools, "cmake");
         const std::vector<std::wstring> configure{L"-S",
             project.root.wstring(),
@@ -300,9 +300,9 @@ int wmain(int argc, wchar_t** argv)
                 }
             }
         }
-        project_timings(report, argv[2], "local", tools, environment, binaries / L"cpplivelab.exe");
+        project_timings(report, argv[2], "local", tools, environment, binaries / L"EasierCpp.exe");
         project_timings(
-            report, argv[3], "OneDrive", tools, environment, binaries / L"cpplivelab.exe");
+            report, argv[3], "OneDrive", tools, environment, binaries / L"EasierCpp.exe");
         std::cout << "Timing probe completed; temporary projects removed.\n";
         return 0;
     }

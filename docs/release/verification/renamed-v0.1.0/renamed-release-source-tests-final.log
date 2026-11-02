@@ -1,0 +1,102 @@
+[EasierCpp] Stale/moved test cache preserved at C:\Users\omer2\OneDrive\Desktop\Projects\EasierCpp\build\integrated-tests. Using C:\Users\omer2\OneDrive\Desktop\Projects\EasierCpp\build\integrated-tests.easiercpp-1.
+Preset CMake variables:
+
+  BUILD_TESTING:BOOL="TRUE"
+  CMAKE_BUILD_TYPE="Debug"
+  CMAKE_EXPORT_COMPILE_COMMANDS:BOOL="TRUE"
+
+-- Configuring done (0.3s)
+-- Generating done (0.2s)
+-- Build files have been written to: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/integrated-tests.easiercpp-1
+ninja: no work to do.
+
+EasierCpp tests: Quick (4 worker(s)); stage approval requires unfiltered Full.
+Internal ctest changing into directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/integrated-tests.easiercpp-1
+Test project C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/integrated-tests.easiercpp-1
+      Start 18: stage5_ui_layout
+      Start 21: stage5_github_versions
+      Start 32: reliability_lifecycle
+      Start 19: stage5_library_detection
+ 1/39 Test #19: stage5_library_detection .........   Passed    2.47 sec
+      Start 20: stage5_gitlab_versions
+ 2/39 Test #32: reliability_lifecycle ............   Passed    2.66 sec
+      Start 59: test_selection
+ 3/39 Test #21: stage5_github_versions ...........   Passed    3.71 sec
+      Start 35: stage4_console_view
+ 4/39 Test #20: stage5_gitlab_versions ...........   Passed    2.08 sec
+      Start 36: stage4_watcher
+ 5/39 Test #35: stage4_console_view ..............   Passed    1.53 sec
+      Start 23: stage5_unit
+ 6/39 Test #59: test_selection ...................   Passed    2.66 sec
+      Start  8: stage5_library_metadata
+ 7/39 Test #18: stage5_ui_layout .................   Passed    5.80 sec
+      Start 22: stage5_ui_forms
+ 8/39 Test #23: stage5_unit ......................   Passed    1.35 sec
+      Start 47: maintenance_arguments
+ 9/39 Test  #8: stage5_library_metadata ..........   Passed    1.27 sec
+      Start 14: stage5_unified_unit
+10/39 Test #36: stage4_watcher ...................   Passed    2.12 sec
+      Start 61: test_cache_migration
+11/39 Test #22: stage5_ui_forms ..................   Passed    1.15 sec
+      Start  7: stage5_restart
+12/39 Test  #7: stage5_restart ...................   Passed    0.23 sec
+      Start 49: stage3_session
+13/39 Test #14: stage5_unified_unit ..............   Passed    0.94 sec
+      Start  9: stage5_library_transactions
+14/39 Test #47: maintenance_arguments ............   Passed    1.02 sec
+      Start 43: doctor_unit
+15/39 Test #49: stage3_session ...................   Passed    0.62 sec
+      Start 50: stage3_tree
+16/39 Test #61: test_cache_migration .............   Passed    1.19 sec
+      Start  3: redirection_unit
+17/39 Test #43: doctor_unit ......................   Passed    0.50 sec
+      Start 60: identity_migration
+18/39 Test  #3: redirection_unit .................   Passed    0.23 sec
+      Start 53: doctor_without_path
+19/39 Test #50: stage3_tree ......................   Passed    0.38 sec
+      Start  1: library_compatibility_unit
+20/39 Test  #1: library_compatibility_unit .......   Passed    0.14 sec
+      Start 10: stage5_library_caches
+21/39 Test #53: doctor_without_path ..............   Passed    0.18 sec
+      Start 31: reliability_inheritance
+22/39 Test  #9: stage5_library_transactions ......   Passed    0.79 sec
+      Start 58: cli_doctor
+23/39 Test #60: identity_migration ...............   Passed    0.28 sec
+      Start 40: stage4_channels
+24/39 Test #31: reliability_inheritance ..........   Passed    0.20 sec
+      Start  5: redirection_windows
+25/39 Test #58: cli_doctor .......................   Passed    0.21 sec
+      Start 57: cli_extra
+26/39 Test #10: stage5_library_caches ............   Passed    0.27 sec
+      Start 44: maintenance_paths
+27/39 Test #40: stage4_channels ..................   Passed    0.25 sec
+      Start 56: cli_unknown
+28/39 Test #44: maintenance_paths ................   Passed    0.10 sec
+      Start 55: cli_help
+29/39 Test  #5: redirection_windows ..............   Passed    0.20 sec
+      Start 54: cli_version
+30/39 Test #57: cli_extra ........................   Passed    0.21 sec
+      Start 46: maintenance_handles
+31/39 Test #56: cli_unknown ......................   Passed    0.20 sec
+      Start 37: stage4_scheduler
+32/39 Test #46: maintenance_handles ..............   Passed    0.10 sec
+      Start 41: stage4_appearance
+33/39 Test #55: cli_help .........................   Passed    0.21 sec
+      Start 45: maintenance_output
+34/39 Test #54: cli_version ......................   Passed    0.19 sec
+      Start 39: stage4_console_model
+35/39 Test #37: stage4_scheduler .................   Passed    0.10 sec
+      Start 42: stage4_prompts
+36/39 Test #41: stage4_appearance ................   Passed    0.09 sec
+37/39 Test #45: maintenance_output ...............   Passed    0.07 sec
+38/39 Test #39: stage4_console_model .............   Passed    0.05 sec
+39/39 Test #42: stage4_prompts ...................   Passed    0.04 sec
+
+100% tests passed, 0 tests failed out of 39
+
+Label Time Summary:
+full     =  35.78 sec*proc (39 tests)
+quick    =  35.78 sec*proc (39 tests)
+
+Total Test time (real) =   9.03 sec
+Owned test runner exit: 0; seconds: 14.828

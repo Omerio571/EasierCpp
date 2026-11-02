@@ -90,7 +90,9 @@ Snapshot snapshot(const LibraryManagerContext& context)
                 [&](const auto& record)
                 {
                     return bytes.find("# BEGIN CppLiveLab library " + record.id + "\n") ==
-                           std::string::npos;
+                               std::string::npos &&
+                           bytes.find("# BEGIN EasierCpp library " + record.id + "\n") ==
+                               std::string::npos;
                 });
         }
         for (const auto& record : result.project_records)
@@ -217,7 +219,7 @@ std::wstring details(const Snapshot& state, const LibraryRecord& record)
         {
             return item.id == record.id;
         });
-    text += attached ? L"\r\nOwnership: managed by EasierCPP for the selected project."
+    text += attached ? L"\r\nOwnership: managed by EasierCpp for the selected project."
                      : L"\r\nOwnership: catalog entry, not attached to the selected project.";
     text += L"\r\nKnown project references (not an exhaustive disk scan):";
     if (const auto references = state.references.find(record.id);
@@ -269,7 +271,8 @@ std::string executable_target(const LibraryManagerContext& context)
     }
     std::ifstream input(context.project / L"CMakeLists.txt");
     const std::string content{std::istreambuf_iterator<char>(input), {}};
-    if (content.find("# CppLiveLab starter: explicit sources;") != content.npos)
+    if (content.find("# CppLiveLab starter: explicit sources;") != content.npos ||
+        content.find("# EasierCpp starter: explicit sources;") != content.npos)
     {
         return "app";
     }
@@ -299,7 +302,8 @@ bool apply_library_change(const LibraryManagerContext& context,
         const std::string bytes{std::istreambuf_iterator<char>(input), {}};
         for (const auto& record : previous)
         {
-            if (bytes.find("# BEGIN CppLiveLab library " + record.id + "\n") == std::string::npos)
+            if (bytes.find("# BEGIN CppLiveLab library " + record.id + "\n") == std::string::npos &&
+                bytes.find("# BEGIN EasierCpp library " + record.id + "\n") == std::string::npos)
             {
                 throw std::runtime_error(
                     "Existing dependency declarations lack ownership metadata. "

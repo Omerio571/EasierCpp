@@ -222,6 +222,8 @@ endforeach()
 # rather than silently adding expensive integration tests.
 
 set(expected_quick_tests
+    identity_migration
+    test_cache_migration
     stage5_library_detection
     stage5_gitlab_versions
     library_compatibility_unit

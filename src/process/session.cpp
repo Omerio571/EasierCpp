@@ -2,6 +2,7 @@
 #include "process/windows_support.hpp"
 #include "process/child_startup.hpp"
 #include "projects/project_paths.hpp"
+#include "tools/tool_workflows.hpp"
 #include <array>
 #include <cwctype>
 #include <stdexcept>
@@ -488,11 +489,11 @@ std::filesystem::path validate_gui_project(const std::filesystem::path& folder)
         throw std::runtime_error("Choose a CMake project folder first.");
     }
     const auto selected = fs::weakly_canonical(fs::absolute(folder));
-    const auto manager_directory = fs::weakly_canonical(fs::path(CPPLIVELAB_SOURCE_DIR));
+    const auto manager_directory = fs::weakly_canonical(source_repository());
 
     if (path_support::is_within_directory(selected, manager_directory))
     {
-        throw std::runtime_error("Choose a user project outside the CppLiveLab source tree.");
+        throw std::runtime_error("Choose a user project outside the EasierCpp source tree.");
     }
     if (!fs::is_directory(selected) || !fs::is_regular_file(selected / L"CMakeLists.txt"))
     {

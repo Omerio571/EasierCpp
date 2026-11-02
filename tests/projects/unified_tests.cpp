@@ -426,7 +426,7 @@ void raylib(const fs::path& root, const fs::path& cli)
         watcher.start(project);
         const auto original = read(project / L"src/main.cpp");
         auto edited = original;
-        edited.replace(edited.find("Hello from CppLiveLab!"), 21, "Updated from CppLiveLab!");
+        edited.replace(edited.find("Hello from EasierCpp!"), 21, "Updated from EasierCpp!");
         write(project / L"src/main.cpp", edited);
         Sleep(30);
         watcher.poll();

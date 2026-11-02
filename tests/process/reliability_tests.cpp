@@ -73,7 +73,7 @@ std::string contents(const std::filesystem::path& path)
 void queue(const std::filesystem::path& fixture)
 {
     TestProject project;
-    const auto cli = fixture.parent_path() / L"cpplivelab.exe";
+    const auto cli = fixture.parent_path() / L"EasierCpp.exe";
     cpplivelab::ConsoleSession build;
     const auto compile = [&]
     {
@@ -84,7 +84,7 @@ void queue(const std::filesystem::path& fixture)
     compile();
     const auto cmake = project.root / L"CMakeLists.txt";
     const auto original = contents(cmake);
-    const auto executable = project.root / L".cpplivelab/build-Debug/app.exe";
+    const auto executable = project.root / L".easiercpp/build-Debug/app.exe";
     const auto working_program = contents(executable);
     std::ofstream(cmake) << original
                          << "\nadd_custom_target(cancellation_hold ALL\n"
@@ -92,7 +92,7 @@ void queue(const std::filesystem::path& fixture)
                             " COMMAND ${CMAKE_COMMAND} -E sleep 30 VERBATIM)\n";
     build.start_worker(cli, {L"build", project.root.wstring(), L"--incremental"}, project.root);
     const auto started = GetTickCount64();
-    while (!std::filesystem::exists(project.root / L".cpplivelab/build-Debug/holding.flag"))
+    while (!std::filesystem::exists(project.root / L".easiercpp/build-Debug/holding.flag"))
     {
         build.poll();
         require(build.running() && GetTickCount64() - started < 30000,
@@ -133,7 +133,7 @@ void freshness_test(const std::filesystem::path& fixture)
 {
     namespace fs = std::filesystem;
     TestProject project;
-    const auto cli = fixture.parent_path() / L"cpplivelab.exe";
+    const auto cli = fixture.parent_path() / L"EasierCpp.exe";
     const auto external_header = project.container / L"external.hpp";
     std::ofstream(external_header) << "constexpr double extra = 0;\n";
     std::ofstream(project.root / L"CMakeLists.txt", std::ios::app)
@@ -144,9 +144,9 @@ void freshness_test(const std::filesystem::path& fixture)
     cpplivelab::ConsoleSession worker;
     cpplivelab::BuildFreshness freshness;
     const cpplivelab::BuildIdentity debug{
-        project.root, L"Debug", project.root / L".cpplivelab/build-Debug/app.exe"};
+        project.root, L"Debug", project.root / L".easiercpp/build-Debug/app.exe"};
     const cpplivelab::BuildIdentity release{
-        project.root, L"Release", project.root / L".cpplivelab/build-Release/app.exe"};
+        project.root, L"Release", project.root / L".easiercpp/build-Release/app.exe"};
     const auto compile = [&](const cpplivelab::BuildIdentity& identity)
     {
         const auto before = freshness.begin(identity);

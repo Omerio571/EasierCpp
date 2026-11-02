@@ -1,4 +1,5 @@
 # Search-only exclusions; keep historical evidence on disk and in Git.
 *.log
+docs/migration/LEGACY_REFERENCES.csv
 docs/reports/**/phase*-measurements/
 docs/reports/**/measurements/

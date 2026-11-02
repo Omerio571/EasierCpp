@@ -1,5 +1,7 @@
 param([Parameter(Mandatory=$true)][string]$Script)
 $ErrorActionPreference = 'Stop'
+# Native callers may inherit PowerShell 7 module paths; use this host's utility module.
+Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -Force
 $root = Join-Path $env:TEMP ('EasierCPP-detection-' + [Guid]::NewGuid().ToString('N'))
 $project = Join-Path $root 'project'
 $build = Join-Path $root 'build'

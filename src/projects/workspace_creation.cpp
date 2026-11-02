@@ -282,7 +282,7 @@ void create_managed_project(const std::filesystem::path& destination,
     // Create in a previously nonexistent sibling and publish by rename only after
     // every generated file succeeds. Failures never delete or edit the destination.
     const auto staging =
-        root.parent_path() / (L".cpplivelab-new-" + std::to_wstring(GetCurrentProcessId()));
+        root.parent_path() / (L".easiercpp-new-" + std::to_wstring(GetCurrentProcessId()));
     if (fs::exists(staging))
     {
         throw std::runtime_error(

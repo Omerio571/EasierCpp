@@ -370,7 +370,7 @@ std::optional<std::string> github_library_dialog(HWND owner,
     wchar_t system[MAX_PATH]{};
     GetSystemDirectoryW(system, MAX_PATH);
     const auto powershell = fs::path(system) / L"WindowsPowerShell/v1.0/powershell.exe";
-    const auto script = source_repository() / L"scripts/github-library.ps1";
+    const auto script = runtime_resources() / L"scripts/github-library.ps1";
     fs::path archive_extractor;
     for (const auto& tool : discover_toolchain(system_discovery_inputs()).tools)
     {
@@ -418,7 +418,7 @@ std::optional<std::string> github_library_dialog(HWND owner,
                 theme,
                 powershell,
                 arguments,
-                source_repository(),
+                runtime_resources(),
                 output,
                 action == L"Discover" ? 5000 : 900000);
             if (!succeeded)
@@ -663,7 +663,7 @@ std::optional<std::string> github_library_dialog(HWND owner,
     }
     const auto probe = cache / L"probe";
     fs::create_directory(probe);
-    std::string setup = "# CppLiveLab dependency target discovery\n"
+    std::string setup = "# EasierCpp dependency target discovery\n"
                         "cmake_minimum_required(VERSION 3.24)\nproject(DependencyProbe LANGUAGES C "
                         "CXX)\nadd_executable(cpplivelab_probe "
                         "main.cpp)\ntarget_compile_features(cpplivelab_probe PRIVATE cxx_std_20)\n";

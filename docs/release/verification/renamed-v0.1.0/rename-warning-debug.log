@@ -1,0 +1,48 @@
+Preset CMake variables:
+
+  BUILD_TESTING:BOOL="TRUE"
+  CMAKE_BUILD_TYPE="Debug"
+  CMAKE_EXPORT_COMPILE_COMMANDS:BOOL="TRUE"
+
+-- Configuring done (0.3s)
+-- Generating done (0.1s)
+-- Build files have been written to: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/rename-debug
+[1/26] Building CXX object CMakeFiles\EasierCppCore.dir\src\process\console_model.cpp.obj
+[2/26] Linking CXX static library EasierCppCore.lib
+[3/26] Linking CXX executable EasierCpp.exe
+[4/26] Linking CXX executable EasierCpp-Gui.exe
+[5/26] Linking CXX executable session_fixture.exe
+[6/26] Building CXX object CMakeFiles\stage4_tests.dir\tests\build\stage4_tests.cpp.obj
+[7/26] Linking CXX executable library_compatibility_tests.exe
+[8/26] Linking CXX executable redirection_tests.exe
+[9/26] Linking CXX executable restart_gui_tests.exe
+[10/26] Linking CXX executable restart_tests.exe
+[11/26] Linking CXX executable library_management_tests.exe
+[12/26] Linking CXX executable unified_tests.exe
+[13/26] Linking CXX executable ui_audit_tests.exe
+[14/26] Linking CXX executable workflow_probe.exe
+[15/26] Linking CXX executable ui_forms_tests.exe
+[16/26] Linking CXX executable stage5_tests.exe
+[17/26] Linking CXX executable performance_probe.exe
+[18/26] Linking CXX executable gui_flow_tests.exe
+[19/26] Linking CXX executable reliability_tests.exe
+[20/26] Linking CXX executable console_view_tests.exe
+[21/26] Linking CXX executable stage4_tests.exe
+[22/26] Linking CXX executable doctor_tests.exe
+[23/26] Linking CXX executable maintenance_tests.exe
+[24/26] Linking CXX executable session_tests.exe
+[25/26] Linking CXX executable migration_tests.exe
+[26/26] Linking CXX executable library_live_tests.exe
+EasierCpp tests: filtered Quick (1 worker(s)); not a complete approval run.
+Internal ctest changing into directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/rename-debug
+Test project C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/rename-debug
+    Start 39: stage4_console_model
+1/1 Test #39: stage4_console_model .............   Passed    0.21 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+full     =   0.21 sec*proc (1 test)
+quick    =   0.21 sec*proc (1 test)
+
+Total Test time (real) =   0.22 sec

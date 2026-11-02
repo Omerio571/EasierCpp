@@ -40,7 +40,7 @@ BOOL CALLBACK enumerate(HWND window, LPARAM parameter)
     }
     wchar_t title[128]{};
     GetWindowTextW(window, title, 128);
-    if (process == result.process && std::wstring_view(title) == L"Restart Cpp")
+    if (process == result.process && std::wstring_view(title) == L"Restart EasierCpp")
     {
         result.confirmation = window;
     }
@@ -180,6 +180,8 @@ void tests(const fs::path& gui)
         },
         "Actual GUI did not start");
     auto main = windows(key).main;
+    require(text(main).find(L"EasierCpp") == 0,
+        "Renamed GUI did not display the EasierCpp application title");
     require(
         main && IsWindowVisible(GetDlgItem(main, 145)) && IsWindowVisible(GetDlgItem(main, 143)),
         "Program Restart and Settings controls are not visible");

@@ -61,7 +61,7 @@ std::vector<LibraryObservation> detect_project_libraries(const std::filesystem::
             L"-ExecutionPolicy",
             L"Bypass",
             L"-File",
-            (source_repository() / L"scripts/detect-project-libraries.ps1").wstring(),
+            (runtime_resources() / L"scripts/detect-project-libraries.ps1").wstring(),
             L"-Project",
             project.wstring(),
             L"-Build",
@@ -72,7 +72,7 @@ std::vector<LibraryObservation> detect_project_libraries(const std::filesystem::
             target,
             L"-Output",
             output.wstring()},
-        source_repository());
+        runtime_resources());
     const auto deadline = GetTickCount64() + 15000;
     while (reader.running() || reader.output_pending())
     {

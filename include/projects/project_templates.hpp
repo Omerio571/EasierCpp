@@ -40,7 +40,7 @@ inline std::string cmake_project(std::string_view name,
               "set(CMAKE_CXX_EXTENSIONS OFF)\n"
               "# This starter uses headers, not implicit C++ module imports.\n"
               "set(CMAKE_CXX_SCAN_FOR_MODULES OFF)\n\n";
-    result += "# CppLiveLab starter: explicit sources; add new files here.\n"
+    result += "# EasierCpp starter: explicit sources; add new files here.\n"
               "add_executable(app\n";
     for (const auto& source : sources)
     {
@@ -52,7 +52,7 @@ inline std::string cmake_project(std::string_view name,
               "set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT app)\n";
     if (dependencies)
     {
-        result += "\n# CppLiveLab-managed dependency declarations.\n"
+        result += "\n# EasierCpp-managed dependency declarations.\n"
                   "include(\"${CMAKE_CURRENT_SOURCE_DIR}/cmake/Dependencies.cmake\")\n";
     }
     if (assets)
@@ -136,14 +136,14 @@ int main()
     const int screen_width = 800;
     const int screen_height = 600;
 
-    InitWindow(screen_width, screen_height, "CppLiveLab");
+    InitWindow(screen_width, screen_height, "EasierCpp");
     SetTargetFPS(60);
 
     while (!WindowShouldClose())
     {
         BeginDrawing();
         ClearBackground(BLACK);
-        DrawText("Hello from CppLiveLab!", 20, 20, 24, WHITE);
+        DrawText("Hello from EasierCpp!", 20, 20, 24, WHITE);
         EndDrawing();
     }
 

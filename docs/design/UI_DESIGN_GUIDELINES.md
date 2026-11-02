@@ -1,4 +1,4 @@
-# CppLiveLab UI design standards
+# EasierCpp UI design standards
 
 These are permanent standards for every future UI change, including later stages.
 Read this file together with AGENTS.md and CODING_STYLE.md before editing UI code.
@@ -20,7 +20,7 @@ rigidly or replace the product with a different framework.
 - Keep exactly one Settings entry. Never add a competing title-bar gear.
 - Project owns New/Open/Recent/Project Settings/Manage Libraries/Copy Project Path.
 - Build/Run/Stop stay in the workspace; do not restore a redundant Build menu.
-- Tools owns editor launch, summary/detailed diagnostics and Run CppLiveLab Tests.
+- Tools owns editor launch, summary/detailed diagnostics and Run EasierCpp Tests.
   Stream real tool/test output into Build & System without clearing Program Console.
 - Settings owns Appearance, Preferred Editor and global Build Preferences.
 - Never restore permanent folder, appearance or debounce fields to the workspace.

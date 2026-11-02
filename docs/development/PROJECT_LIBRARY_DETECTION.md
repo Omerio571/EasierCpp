@@ -73,7 +73,7 @@ inspect the original CMake configuration rather than silently adopting it.
 
 ## Manual acceptance
 
-1. Launch `build/compile-workers/cpplivelab-gui.exe` and open a project. Select the
+1. Launch `build/compile-workers/EasierCpp-Gui.exe` and open a project. Select the
    intended Debug/Release configuration and executable target.
 2. Open Project → Manage Libraries. Expect one selector containing managed,
    catalog, external, and unverified entries, with ownership shown in the labels.

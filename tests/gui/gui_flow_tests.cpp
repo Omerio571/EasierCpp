@@ -61,7 +61,7 @@ BOOL CALLBACK restart_task_window(HWND window, LPARAM)
         driver.requested = true;
         PostMessageW(driver.app->window_handle, WM_COMMAND, RestartButton, 0);
     }
-    if (title == L"Restart Cpp" && !driver.answered)
+    if (title == L"Restart EasierCpp" && !driver.answered)
     {
         driver.answered = true;
         PostMessageW(window, WM_COMMAND, driver.approve ? IDOK : IDCANCEL, 0);
@@ -71,7 +71,7 @@ BOOL CALLBACK restart_task_window(HWND window, LPARAM)
         driver.failure = "Restart did not reach the controlled task boundary";
         driver.release = true;
         cpplivelab::cancel_library_task();
-        if (title == L"Restart Cpp")
+        if (title == L"Restart EasierCpp")
         {
             PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
         }
@@ -1107,6 +1107,7 @@ struct WorkerDialogDriver
     bool acted = false;
     bool finished = false;
     bool snapshot_failed = false;
+    bool benchmark_seen = false;
     ULONGLONG compilation_seen = 0;
     std::wstring selection = L"1";
     ULONGLONG started = GetTickCount64();
@@ -1118,6 +1119,10 @@ BOOL CALLBACK drive_worker_window(HWND window, LPARAM)
 {
     auto& driver = *worker_dialog_driver;
     const auto title = read_control_text(window);
+    if (driver.optimize && title == L"Optimize Workers")
+    {
+        driver.benchmark_seen = true;
+    }
     if (driver.cancel_benchmark && title == L"Optimize Workers")
     {
         const auto progress = read_control_text(GetDlgItem(window, 1001));
@@ -1171,11 +1176,11 @@ BOOL CALLBACK drive_worker_window(HWND window, LPARAM)
                 PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
             }
         }
-        else if (driver.optimize && !cpplivelab::library_task_active() &&
-                 cpplivelab::load_build_workers().recommended)
+        else if (driver.optimize && driver.benchmark_seen && !cpplivelab::library_task_active())
         {
-            driver.finished = read_control_text(GetDlgItem(window, 2002)) ==
-                              std::to_wstring(cpplivelab::load_build_workers().recommended);
+            driver.finished = cpplivelab::load_build_workers().recommended &&
+                              read_control_text(GetDlgItem(window, 2002)) ==
+                                  std::to_wstring(cpplivelab::load_build_workers().recommended);
             try
             {
                 ui_test::capture(
@@ -1252,7 +1257,9 @@ void compilation_workers(const fs::path& fixtures)
     require(optimize.finished && !optimize.snapshot_failed && !manual.snapshot_failed &&
                 result.count && result.count == result.recommended &&
                 result.count <= cpplivelab::maximum_build_workers(),
-        "Optimize Workers button did not apply measured recommendation");
+        ("Optimize Workers button did not apply measured recommendation. Build & System:\n" +
+            encode_utf8(read_control_text(app.system_console.window)))
+            .c_str());
     const auto results = cpplivelab::manager_state_directory() / L"worker-benchmark.csv";
     require(fs::is_regular_file(results), "Worker measurements were not saved");
     fs::copy_file(results,
@@ -1291,8 +1298,9 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     cpplivelab::configure_project_pch(project.root, L"Release", pch_recipe);
     cpplivelab::configure_project_pch(project.root, L"Debug", pch_recipe);
     Host host(project.root, snapshots);
-    require(read_control_text(host.app.window_handle).find(L"Cpp \u2014 Make Your Life Easier") !=
-                std::wstring::npos,
+    require(
+        read_control_text(host.app.window_handle).find(L"EasierCpp \u2014 Make Your Life Easier") !=
+            std::wstring::npos,
         "Displayed identity/tagline lost its Unicode spelling in the active project");
     {
         const auto capture = fixtures / L"diagnostic location.txt";

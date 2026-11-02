@@ -1,0 +1,114 @@
+param(
+    [Parameter(Mandatory=$true)][string]$Archive,
+    [Parameter(Mandatory=$true)][string]$BuildDirectory,
+    [Parameter(Mandatory=$true)][string]$ReportDirectory
+)
+$ErrorActionPreference = 'Stop'
+$Archive = [IO.Path]::GetFullPath($Archive)
+$BuildDirectory = [IO.Path]::GetFullPath($BuildDirectory)
+$ReportDirectory = [IO.Path]::GetFullPath($ReportDirectory)
+[IO.Directory]::CreateDirectory($ReportDirectory) | Out-Null
+$root = Join-Path $env:TEMP ('EasierPortable-' + [Guid]::NewGuid().ToString('N'))
+$extracted = Join-Path $root 'Extracted package with spaces'
+[IO.Directory]::CreateDirectory($root) | Out-Null
+$originalHash = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash
+Expand-Archive -LiteralPath $Archive -DestinationPath $extracted
+$bundle = @(Get-ChildItem -LiteralPath $extracted -Directory)[0].FullName
+$cli = Join-Path $bundle 'EasierCpp.exe'
+$env:CPPLIVELAB_TEST_CHILD = '1'
+$env:CPPLIVELAB_STATE_HOME = Join-Path $root 'isolated manager state'
+# Test ordinary-terminal discovery. Keep changes in this test process only.
+$env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
+foreach ($name in @('CPPLIVELAB_PREPARED_VS','VSINSTALLDIR','VCINSTALLDIR','VCToolsInstallDir',
+    'INCLUDE','LIB','LIBPATH','VSCMD_ARG_TGT_ARCH','VSCMD_ARG_HOST_ARCH')) {
+    [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+}
+$passed = [Collections.Generic.List[string]]::new()
+function Run-Check($name, $executable, $arguments) {
+    $log = Join-Path $ReportDirectory "$name.log"
+    $previous = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $executable @arguments *> $log
+        $code = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $previous }
+    if ($code) { throw "Packaged check failed: $name. See $log" }
+    $passed.Add($name)
+}
+try {
+    Push-Location $root
+    try {
+        Run-Check version $cli @('--version')
+        $version = [IO.File]::ReadAllText((Join-Path $BuildDirectory 'release-version.txt')).Trim()
+        if ([IO.File]::ReadAllText((Join-Path $ReportDirectory 'version.log')).Trim() -ne "EasierCpp $version") { throw 'Package version mismatch.' }
+        Run-Check doctor $cli @('doctor')
+        $doctor = [IO.File]::ReadAllText((Join-Path $ReportDirectory 'doctor.log'))
+        if ($doctor -notmatch 'cl: Installed: Yes \| Available in current terminal: No') { throw 'Doctor did not verify ordinary-terminal discovery.' }
+        $project = Join-Path $root 'Created console project'
+        Run-Check create $cli @('create', $project, '--demo', 'calculator')
+        foreach ($configuration in @('Debug','Release')) {
+            Run-Check "build-$configuration" $cli @('manage-build', $project, '--target', 'app', '--config', $configuration)
+            $log = Join-Path $ReportDirectory "run-$configuration.log"
+            @('Ada','2','3') | & $cli manage-run $project --target app --config $configuration *> $log
+            if ($LASTEXITCODE -or [IO.File]::ReadAllText($log) -notmatch 'Hello, Ada! Sum: 5') { throw 'Packaged calculator input/output failed.' }
+            $passed.Add("run-$configuration")
+        }
+        # Absence of support files must fail even while the checkout is accessible.
+        Rename-Item -LiteralPath (Join-Path $bundle 'resources') -NewName 'resources-unavailable'
+        try {
+            $previous = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = 'Continue'
+                & $cli manage-build $project --target app --incremental *> (Join-Path $ReportDirectory 'missing-resources.log')
+                $code = $LASTEXITCODE
+            } finally { $ErrorActionPreference = $previous }
+            if ($code -eq 0 -or [IO.File]::ReadAllText((Join-Path $ReportDirectory 'missing-resources.log')) -notmatch 'Re-extract the complete ZIP') { throw 'Portable build unexpectedly used checkout fallback.' }
+            $passed.Add('missing-resources-no-source-fallback')
+        } finally {
+            Rename-Item -LiteralPath (Join-Path $bundle 'resources-unavailable') -NewName 'resources'
+        }
+        # Controllers are test-only and never enter the ZIP. Running these beside
+        # the packaged CLI/resources exercises the relocated runtime lookup.
+        foreach ($name in @('gui_flow_tests.exe','ui_audit_tests.exe','session_fixture.exe',
+            'library_management_tests.exe','workflow_probe.exe')) {
+            Copy-Item -LiteralPath (Join-Path $BuildDirectory $name) -Destination (Join-Path $bundle $name)
+        }
+        $env:CPPLIVELAB_TEST_CHILD = $null
+        try {
+            $previous = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            & (Join-Path $bundle 'workflow_probe.exe') Quick *> (Join-Path $ReportDirectory 'portable-development-tests.log')
+            $testCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $previous
+            $env:CPPLIVELAB_TEST_CHILD = '1'
+        }
+        if ($testCode -eq 0 -or [IO.File]::ReadAllText((Join-Path $ReportDirectory 'portable-development-tests.log')) -notmatch '(?s)portable EasierCpp.*Toolchain\s+Diagnostics.*EasierCpp\.exe doctor') {
+            throw 'Portable source-suite guard did not provide the expected actionable diagnostics.'
+        }
+        $passed.Add('portable-development-tests')
+        Run-Check actual-gui-restart (Join-Path $BuildDirectory 'restart_gui_tests.exe') @((Join-Path $bundle 'EasierCpp-Gui.exe'))
+        Run-Check packaged-gui-flow (Join-Path $bundle 'gui_flow_tests.exe') @()
+        Run-Check packaged-ui-library-audit (Join-Path $bundle 'ui_audit_tests.exe') @('--quick')
+        Run-Check packaged-workers (Join-Path $bundle 'gui_flow_tests.exe') @('--compilation-workers')
+        Run-Check packaged-local-library-consumer (Join-Path $bundle 'library_management_tests.exe') @('consumers')
+        $files = @(Get-ChildItem -LiteralPath $bundle -File -Recurse | ForEach-Object {
+            $_.FullName.Substring($bundle.Length + 1).Replace('\','/')
+        })
+        $files | Set-Content (Join-Path $ReportDirectory 'extracted-test-file-inventory.txt')
+        if ((Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash -ne $originalHash) { throw 'Acceptance testing modified the ZIP.' }
+        $passed | Set-Content (Join-Path $ReportDirectory 'passed.txt')
+        Write-Output "All $($passed.Count) packaged acceptance checks passed. ZIP unchanged."
+    } finally { Pop-Location }
+} finally {
+    $passed | Set-Content (Join-Path $ReportDirectory 'completed-checks.txt')
+    # Preserve a failed fixture for diagnosis; successful cleanup is explicitly owned.
+    if ($passed.Contains('packaged-local-library-consumer')) {
+        $absolute = [IO.Path]::GetFullPath($root)
+        if ([IO.Path]::GetDirectoryName($absolute) -ne [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') -or
+            [IO.Path]::GetFileName($absolute) -notmatch '^EasierPortable-[0-9a-f]{32}$') { throw 'Unsafe portable fixture cleanup path.' }
+        Remove-Item -LiteralPath $absolute -Recurse -Force
+    } else {
+        Write-Output "Failed portable fixture retained for diagnosis: $root"
+    }
+}

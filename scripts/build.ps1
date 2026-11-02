@@ -14,6 +14,14 @@ $BuildDirectory = [IO.Path]::GetFullPath($BuildDirectory)
 [IO.Directory]::CreateDirectory($BuildDirectory) | Out-Null
 # The lease spans configure/build/CTest. Cancellation closes it with the process.
 $testLease = [IO.File]::Open((Join-Path $BuildDirectory 'cpplivelab-tests.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+. (Join-Path $PSScriptRoot 'test-build-directory.ps1')
+$resolvedBuild = Resolve-EasierCppTestBuild -Repository $projectRoot -Directory $BuildDirectory
+$recoveryLease = $null
+if ($resolvedBuild -ne $BuildDirectory) {
+    $BuildDirectory = $resolvedBuild
+    [IO.Directory]::CreateDirectory($BuildDirectory) | Out-Null
+    $recoveryLease = [IO.File]::Open((Join-Path $BuildDirectory 'cpplivelab-tests.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
+}
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
 if (-not (Test-Path $vswhere)) { throw 'Install Visual Studio with Desktop development with C++.' }
 $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
@@ -43,9 +51,9 @@ try {
         '--parallel', "$Jobs", '--no-tests=error')
     if ($TestFilter) { $testArguments += @('-R', $TestFilter) }
     if ($TestFilter) {
-        Write-Host "CppLiveLab tests: filtered $TestMode ($Jobs worker(s)); not a complete approval run."
+        Write-Host "EasierCpp tests: filtered $TestMode ($Jobs worker(s)); not a complete approval run."
     } else {
-        Write-Host "CppLiveLab tests: $TestMode ($Jobs worker(s)); stage approval requires unfiltered Full."
+        Write-Host "EasierCpp tests: $TestMode ($Jobs worker(s)); stage approval requires unfiltered Full."
     }
     $phaseClock.Restart()
     $env:CPPLIVELAB_TEST_CHILD = '1'
@@ -53,7 +61,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
     if ($Timing) { Write-Host ('[Timing] {0} tests: {1:F3} s' -f $TestMode, $phaseClock.Elapsed.TotalSeconds) }
     if ($Doctor) {
-        & (Join-Path $BuildDirectory 'cpplivelab.exe') doctor
+        & (Join-Path $BuildDirectory 'EasierCpp.exe') doctor
         if ($LASTEXITCODE -ne 0) { throw 'Doctor failed.' }
     }
-} finally { Pop-Location; $testLease.Dispose() }
+} finally {
+    Pop-Location
+    if ($recoveryLease) { $recoveryLease.Dispose() }
+    $testLease.Dispose()
+}

@@ -1,0 +1,14 @@
+version
+doctor
+create
+build-Debug
+run-Debug
+build-Release
+run-Release
+missing-resources-no-source-fallback
+portable-development-tests
+actual-gui-restart
+packaged-gui-flow
+packaged-ui-library-audit
+packaged-workers
+packaged-local-library-consumer

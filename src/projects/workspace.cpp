@@ -9,6 +9,8 @@
 #include "build/build_profile.hpp"
 #include "build/build_workers.hpp"
 #include "projects/project_paths.hpp"
+#include "tools/tool_workflows.hpp"
+#include "projects/state_migration.hpp"
 #include <algorithm>
 #include <fstream>
 #include <iomanip>
@@ -41,11 +43,21 @@ fs::path state_root()
     {
         return fs::absolute(buffer);
     }
+    if (GetEnvironmentVariableW(L"EASIERCPP_STATE_HOME", buffer, 32768))
+    {
+        return fs::absolute(buffer);
+    }
     if (!GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, 32768))
     {
         throw std::runtime_error("LOCALAPPDATA is unavailable; cannot isolate manager metadata.");
     }
-    return fs::path(buffer) / L"CppLiveLab";
+    static const auto root = [local = fs::path(buffer)]
+    {
+        const auto destination = local / L"EasierCpp";
+        migrate_state_metadata(local / L"CppLiveLab", destination);
+        return destination;
+    }();
+    return root;
 }
 
 std::string text_key(std::wstring canonical)
@@ -168,8 +180,7 @@ bool reusable_target_metadata(const fs::path& project,
         {
             expected += metadata_hex(directory / name) + "\n";
         }
-        expected +=
-            metadata_hex(fs::path(CPPLIVELAB_SOURCE_DIR) / L"scripts/file_api.cmake") + "\n";
+        expected += metadata_hex(runtime_resources() / L"scripts/file_api.cmake") + "\n";
         const auto snapshot = directory / L"file-api.snapshot";
         if (!fs::is_regular_file(snapshot) || fs::file_size(snapshot) > expected.size() * 2)
         {
@@ -792,9 +803,9 @@ int managed_build(const fs::path& root,
             {
                 throw std::runtime_error("PCH snapshot missing; disable or reapply pch-config.");
             }
-            configure.push_back(L"-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=" +
-                                (fs::path(CPPLIVELAB_SOURCE_DIR) / L"cmake/EasierCppPchHook.cmake")
-                                    .generic_wstring());
+            configure.push_back(
+                L"-DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=" +
+                (runtime_resources() / L"cmake/EasierCppPchHook.cmake").generic_wstring());
             configure.push_back(L"-DEASIERCPP_PCH_CONFIG=" + options.pch_config.generic_wstring());
         }
     }
@@ -826,8 +837,10 @@ int managed_build(const fs::path& root,
                                              library_key(path_support::path_utf8(cache))));
         }
     }
-    const bool dependency_probe = read(project.root / L"CMakeLists.txt")
-                                      .starts_with("# CppLiveLab dependency target discovery\n");
+    const auto probe_source = read(project.root / L"CMakeLists.txt");
+    const bool dependency_probe =
+        probe_source.starts_with("# CppLiveLab dependency target discovery\n") ||
+        probe_source.starts_with("# EasierCpp dependency target discovery\n");
     if (dependency_probe)
     {
         configure.push_back(L"--graphviz=" + (project.root / L"target-graph.dot").wstring());
@@ -904,7 +917,7 @@ int managed_build(const fs::path& root,
             {L"-DBUILD=" + directory.wstring(),
                 L"-DCONFIG=" + configuration,
                 L"-P",
-                fs::path(CPPLIVELAB_SOURCE_DIR).wstring() + L"/scripts/file_api.cmake"},
+                (runtime_resources() / L"scripts/file_api.cmake").wstring()},
             project.root,
             environment);
         if (result != 0)
@@ -982,7 +995,7 @@ int managed_build(const fs::path& root,
             {L"-DBUILD=" + directory.wstring(),
                 L"-DCONFIG=" + configuration,
                 L"-P",
-                fs::path(CPPLIVELAB_SOURCE_DIR).wstring() + L"/scripts/file_api.cmake"},
+                (runtime_resources() / L"scripts/file_api.cmake").wstring()},
             project.root,
             environment);
         if (result != 0)

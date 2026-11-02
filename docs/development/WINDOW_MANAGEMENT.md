@@ -62,12 +62,12 @@ algorithm handles negative monitor coordinates and disconnected-monitor fallback
 
 ## Manual acceptance
 
-1. Launch `build/window-management/cpplivelab-gui.exe`. Open a disposable graphical
+1. Launch `build/window-management/EasierCpp-Gui.exe`. Open a disposable graphical
    CMake project. Settings → Preferences should show the project's placement and
    replacement settings. New settings default to Between Sessions + Safe.
 2. Choose Session + Safe, Run, move/resize the program, Stop, Run. Expect the same
    placement. Close its window yourself, Run again; expect the same placement.
-3. Choose Between Sessions, maximize the application, close EasierCPP, reopen it and
+3. Choose Between Sessions, maximize the application, close EasierCpp, reopen it and
    the same project/target/configuration, then Run. Expect maximization to return.
 4. Choose Off, Stop and Run. Expect the application to choose its own geometry. Switch
    back to a memory mode: its retained history should remain available.

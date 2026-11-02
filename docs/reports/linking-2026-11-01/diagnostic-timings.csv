@@ -1,0 +1,5 @@
+"case","total_ms","project_inspection_ms","leases_options_cache_ms","tool_discovery_ms","environment_ms","configure_arguments_ms","configure_ms","metadata_before_ms","artifact_before_ms","ninja_wall_ms","ninja_log_available","compile_commands_ms","link_commands_ms","archive_commands_ms","ninja_commands","metadata_after_ms","artifact_after_ms"
+"diagnostic_warm_a","574.76","2.314","14.536","7.311","0.505","3.584","0.06","5.054","3.854","492.868","1","83","336","0","2","5.983","2.83"
+"diagnostic_warm_b","618.6493","2.235","14.701","7.511","0.575","3.632","0.107","5.184","3.663","539.5","1","81","387","0","2","5.636","2.891"
+"diagnostic_missing_ilk_a","589.8333","2.294","14.468","7.644","0.629","3.644","0.079","5.054","3.009","507.206","1","83","354","0","2","5.737","2.67"
+"diagnostic_reused_after_full_a","620.6622","2.276","14.431","7.329","0.521","3.351","0.06","5.142","2.936","533.302","1","102","350","0","2","5.85","2.93"

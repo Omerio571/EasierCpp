@@ -320,7 +320,7 @@ public:
         }
     }
 
-    std::wstring preference_store = L"Software\\CppLiveLab";
+    std::wstring preference_store = L"Software\\EasierCpp\\Preferences";
 
     void persist_preferences()
     {
@@ -383,9 +383,9 @@ public:
                 {L"Clean && Rebuild (Fresh Directory)...", RecoverBuildMenu},
                 {L"Toolchain Diagnostics", DoctorMenu},
                 {L"Detailed Toolchain Diagnostics", DetailedDoctorMenu},
-                {L"Run Cpp Tests...", TestRunnerMenu},
+                {L"Run EasierCpp Tests...", TestRunnerMenu},
                 {L"Cancel Running Tests", CancelTestsMenu},
-                {L"Restart Cpp Manager...", RestartButton}};
+                {L"Restart EasierCpp Manager...", RestartButton}};
         }
         return {{L"Appearance...", AppearanceMenu},
             {L"Preferences...", WindowPreferencesMenu},
@@ -471,7 +471,7 @@ public:
         cpplivelab::FormOptions options;
         options.theme = preferences.theme;
         options.appearance_field = 0;
-        options.note = L"Uses your existing customized palette. Changes apply to all Cpp "
+        options.note = L"Uses your existing customized palette. Changes apply to all EasierCpp "
                        L"windows after OK.";
         if (show_project_form(L"Appearance", fields, options))
         {
@@ -527,7 +527,7 @@ public:
             }
         } restore{project_dialog_open, previous_dialog};
 
-        auto benchmark_cli = application_directory() / L"cpplivelab.exe";
+        auto benchmark_cli = application_directory() / L"EasierCpp.exe";
 #ifdef CPPLIVELAB_GUI_TEST
         if (!worker_benchmark_cli.empty())
         {
@@ -791,7 +791,7 @@ public:
         create_control(L"BUTTON", L"End Input", EndInputButton, WS_TABSTOP);
         create_control(L"STATIC", L"Ready", StatusLabel);
         create_control(L"BUTTON", L"Auto Run: OFF", AutoRunButton, WS_TABSTOP);
-        create_control(L"STATIC", L"Cpp — Make Your Life Easier", WelcomeTitle);
+        create_control(L"STATIC", L"EasierCpp — Make Your Life Easier", WelcomeTitle);
         create_control(L"STATIC", L"Create or open a C++ project. Recent projects:", WelcomeNote);
         create_control(L"BUTTON", L"New Project...", NewProjectMenu, WS_TABSTOP);
         create_control(L"BUTTON", L"Open Existing Project...", BrowseButton, WS_TABSTOP);
@@ -1064,7 +1064,8 @@ public:
         SetWindowTextW(find_control(ProjectIdentityLabel),
             (L"Active project: " + active_project_directory.filename().wstring()).c_str());
         SetWindowTextW(window_handle,
-            (L"Cpp — Make Your Life Easier - " + active_project_directory.filename().wstring())
+            (L"EasierCpp — Make Your Life Easier - " +
+                active_project_directory.filename().wstring())
                 .c_str());
         std::ifstream last_config(cpplivelab::workspace_directory(candidate) / L"last-config.txt");
         std::string configuration;
@@ -1252,7 +1253,7 @@ public:
             reveal_system_output();
             return cpplivelab::github_library_dialog(owner,
                 preferences.theme,
-                application_directory() / L"cpplivelab.exe",
+                application_directory() / L"EasierCpp.exe",
                 [&](const auto& text)
                 {
                     system_console.append(cpplivelab::classify_build_line(text), text);
@@ -1475,7 +1476,7 @@ public:
         context.owner = window_handle;
         context.theme = preferences.theme;
         context.project = active_project_directory;
-        context.cli = application_directory() / L"cpplivelab.exe";
+        context.cli = application_directory() / L"EasierCpp.exe";
         context.configuration = selected_configuration();
         context.options = project_options();
         context.output = [&](const auto& text)
@@ -1601,10 +1602,10 @@ public:
         {
             run_requested = false;
         }
-        const auto cli = application_directory() / L"cpplivelab.exe";
+        const auto cli = application_directory() / L"EasierCpp.exe";
         if (!fs::is_regular_file(cli))
         {
-            throw std::runtime_error("Keep cpplivelab.exe beside cpplivelab-gui.exe.");
+            throw std::runtime_error("Keep EasierCpp.exe beside EasierCpp-Gui.exe.");
         }
         if (!automatic && auto_build.enabled())
         {
@@ -1882,7 +1883,7 @@ public:
             }
             return L"Worker count must be a whole number from 1 to 16.";
         };
-        if (cpplivelab::project_form(window_handle, L"Run Cpp Tests", fields, options))
+        if (cpplivelab::project_form(window_handle, L"Run EasierCpp Tests", fields, options))
         {
             const auto workers = std::stoi(fields[1].value);
             const auto command = cpplivelab::test_command(fields[0].value, workers);
@@ -1948,7 +1949,7 @@ public:
             options.cancel_default = true;
             options.accept_label = L"Restart Safely";
             options.note =
-                L"Restart stops only Cpp-owned builds, tests and programs. "
+                L"Restart stops only EasierCpp-owned builds, tests and programs. "
                 L"Downloads are cancelled safely. Cache deletion and metadata writes finish at "
                 L"a safe boundary. Finish or cancel any open settings dialog. Your editor stays "
                 L"open.";
@@ -1956,7 +1957,7 @@ public:
             bool confirmed = false;
             try
             {
-                confirmed = show_project_form(L"Restart Cpp", fields, options);
+                confirmed = show_project_form(L"Restart EasierCpp", fields, options);
             }
             catch (...)
             {
@@ -2051,7 +2052,7 @@ public:
         try
         {
             restart_launch = std::make_unique<cpplivelab::RestartLaunch>(
-                application_directory() / L"cpplivelab-gui.exe", state, restart_instance_name);
+                application_directory() / L"EasierCpp-Gui.exe", state, restart_instance_name);
             watcher.stop();
             auto_build.cancel();
             EnableWindow(find_control(RestartButton), FALSE);
@@ -2547,7 +2548,7 @@ public:
             auto_run_trace("build");
         }
 #endif
-        replacement_build.start_worker(application_directory() / L"cpplivelab.exe",
+        replacement_build.start_worker(application_directory() / L"EasierCpp.exe",
             arguments,
             active_project_directory,
             worker_environment ? *worker_environment : cpplivelab::Environment{});
@@ -3852,6 +3853,7 @@ LRESULT CALLBACK window_procedure(HWND window_handle, UINT message, WPARAM wpara
 
 #ifndef CPPLIVELAB_GUI_TEST
 int WINAPI wWinMain(HINSTANCE application_instance, HINSTANCE, PWSTR, int initial_show_state)
+try
 {
     int argc = 0;
     auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
@@ -3934,7 +3936,8 @@ int WINAPI wWinMain(HINSTANCE application_instance, HINSTANCE, PWSTR, int initia
     {
         wchar_t test_child[8]{}, state_override[32768]{};
         if (GetEnvironmentVariableW(L"CPPLIVELAB_TEST_CHILD", test_child, 8) &&
-            GetEnvironmentVariableW(L"CPPLIVELAB_STATE_HOME", state_override, 32768))
+            (GetEnvironmentVariableW(L"CPPLIVELAB_STATE_HOME", state_override, 32768) ||
+                GetEnvironmentVariableW(L"EASIERCPP_STATE_HOME", state_override, 32768)))
         {
             application.preference_store =
                 L"Software\\CppLiveLab\\Tests\\" +
@@ -3947,7 +3950,7 @@ int WINAPI wWinMain(HINSTANCE application_instance, HINSTANCE, PWSTR, int initia
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &desktop, 0);
     HWND window_handle = CreateWindowExW(WS_EX_CONTROLPARENT,
         window_class.lpszClassName,
-        L"Cpp — Make Your Life Easier",
+        L"EasierCpp — Make Your Life Easier",
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
@@ -3968,6 +3971,14 @@ int WINAPI wWinMain(HINSTANCE application_instance, HINSTANCE, PWSTR, int initia
         return 1;
     }
     SetPropW(window_handle, L"CppLiveLabInstance", reinterpret_cast<HANDLE>(instance.key));
+    const auto migration_report = cpplivelab::manager_state_directory() / L"migration-report.txt";
+    if (fs::is_regular_file(migration_report))
+    {
+        application.log(cpplivelab::MessageKind::System,
+            L"Settings migration report: " + migration_report.wstring() +
+                L". Originals retained; existing EasierCpp data takes precedence. Review any "
+                L"conflicts.");
+    }
     if (restart && !restart->state.project.empty())
     {
         try
@@ -4045,5 +4056,13 @@ int WINAPI wWinMain(HINSTANCE application_instance, HINSTANCE, PWSTR, int initia
         CoUninitialize();
     }
     return static_cast<int>(message.wParam);
+}
+catch (const std::exception& error)
+{
+    MessageBoxW(nullptr,
+        decode_console_text(error.what()).c_str(),
+        L"EasierCpp startup",
+        MB_OK | MB_ICONERROR);
+    return 1;
 }
 #endif

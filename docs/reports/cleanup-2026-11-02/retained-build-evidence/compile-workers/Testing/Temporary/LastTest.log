@@ -1,0 +1,162 @@
+Start testing: Nov 01 12:54 Eastern Standard Time
+----------------------------------------------------------
+15/60 Testing: stage5_unified_projects
+15/60 Test: stage5_unified_projects
+Command: "C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/compile-workers/unified_tests.exe" "projects"
+Directory: C:/Users/omer2/OneDrive/Desktop/Projects/EasierCpp/build/compile-workers
+"stage5_unified_projects" start time: Nov 01 12:54 Eastern Standard Time
+Output:
+----------------------------------------------------------
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\.cpplivelab-new-25388
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project. Dependencies will be verified during Build.
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project
+-- The C compiler identification is MSVC 19.44.35228.0
+-- The CXX compiler identification is MSVC 19.44.35228.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (2.8s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/cll5-25388-898323078-0/manager state/projects/91728c063fc984ac/build-Debug-af63f14c8602103b
+[1/3] Building CXX object CMakeFiles\app.dir\src\greeting.cpp.obj
+[2/3] Building CXX object CMakeFiles\app.dir\src\main.cpp.obj
+[3/3] Linking CXX executable app.exe
+Build succeeded: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\manager state\projects\91728c063fc984ac\build-Debug-af63f14c8602103b
+Running: C:/Users/omer2/AppData/Local/Temp/cll5-25388-898323078-0/manager state/projects/91728c063fc984ac/build-Debug-af63f14c8602103b/app.exe
+Hello from two C++ files!
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project
+CMake Error: Error: generator : Ninja
+Does not match the generator used previously: Other Generator
+Either remove the CMakeCache.txt file and CMakeFiles directory or choose a different binary directory.
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project
+CMake Error: The source "C:/Users/omer2/AppData/Local/Temp/cll5-25388-898323078-0/Recovery Project/CMakeLists.txt" does not match the source "C:/missing-source/CMakeLists.txt" used to generate cache.  Re-run cmake with a different source directory.
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project
+[0/1] Re-running CMake...
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/cll5-25388-898323078-0/manager state/projects/91728c063fc984ac/build-Debug-af63f14c8602103b
+ninja: no work to do.
+Build succeeded: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\manager state\projects\91728c063fc984ac\build-Debug-af63f14c8602103b
+Recovery: old build preserved at C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\manager state\projects\91728c063fc984ac\build-Debug-af63f14c8602103b
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project
+-- The C compiler identification is MSVC 19.44.35228.0
+-- The CXX compiler identification is MSVC 19.44.35228.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (2.5s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/cll5-25388-898323078-0/manager state/projects/91728c063fc984ac/build-Debug-af63f14c8602103b-fresh-25388-898345968
+[1/3] Building CXX object CMakeFiles\app.dir\src\greeting.cpp.obj
+[2/3] Building CXX object CMakeFiles\app.dir\src\main.cpp.obj
+[3/3] Linking CXX executable app.exe
+Build succeeded: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\manager state\projects\91728c063fc984ac\build-Debug-af63f14c8602103b-fresh-25388-898345968
+Recovery succeeded; fresh build is active. No previous outputs were deleted.
+Recovery: old build preserved at C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\manager state\projects\91728c063fc984ac\build-Debug-af63f14c8602103b-fresh-25388-898345968
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project
+-- The C compiler identification is MSVC 19.44.35228.0
+-- The CXX compiler identification is MSVC 19.44.35228.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (2.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/cll5-25388-898323078-0/manager state/projects/91728c063fc984ac/build-Debug-af63f14c8602103b-fresh-25388-898355437
+[1/3] Building CXX object CMakeFiles\app.dir\src\main.cpp.obj
+FAILED: CMakeFiles/app.dir/src/main.cpp.obj 
+C:\PROGRA~1\MICROS~4\2022\COMMUN~1\VC\Tools\MSVC\1444~1.352\bin\Hostx64\x64\cl.exe  /nologo /TP  -I"C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project\include" /DWIN32 /D_WINDOWS /EHsc /Zi /Ob0 /Od /RTC1 -std:c++20 -MDd /showIncludes /FoCMakeFiles\app.dir\src\main.cpp.obj /FdCMakeFiles\app.dir\ /FS -c "C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project\src\main.cpp"
+C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project\src\main.cpp(1): error C4430: missing type specifier - int assumed. Note: C++ does not support default-int
+C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project\src\main.cpp(1): error C2146: syntax error: missing ';' before identifier 'compilation'
+[2/3] Building CXX object CMakeFiles\app.dir\src\greeting.cpp.obj
+ninja: build stopped: subcommand failed.
+Recovery failed; original active build and diagnostics preserved.
+Configuring Release: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project
+-- The C compiler identification is MSVC 19.44.35228.0
+-- The CXX compiler identification is MSVC 19.44.35228.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (2.5s)
+CMake Error at CMakeLists.txt:12 (add_executable):
+  Cannot find source file:
+
+    src/main.cpp
+
+
+CMake Error at CMakeLists.txt:12 (add_executable):
+  No SOURCES given to target: app
+
+
+CMake Generate step failed.  Build files cannot be regenerated correctly.
+Configuring Release: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Recovery Project
+-- Configuring done (0.1s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/cll5-25388-898323078-0/manager state/projects/91728c063fc984ac/build-Release-af63f14c8602103b
+[1/3] Building CXX object CMakeFiles\app.dir\src\greeting.cpp.obj
+[2/3] Building CXX object CMakeFiles\app.dir\src\main.cpp.obj
+[3/3] Linking CXX executable app.exe
+Build succeeded: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\manager state\projects\91728c063fc984ac\build-Release-af63f14c8602103b
+Running: C:/Users/omer2/AppData/Local/Temp/cll5-25388-898323078-0/manager state/projects/91728c063fc984ac/build-Release-af63f14c8602103b/app.exe
+Hello from C++20!
+Created C++20 project: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\.cpplivelab-new-25388
+Created new project: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Missing Artifact. Dependencies will be verified during Build.
+Configuring Debug: C:\Users\omer2\AppData\Local\Temp\cll5-25388-898323078-0\Missing Artifact
+-- The C compiler identification is MSVC 19.44.35228.0
+-- The CXX compiler identification is MSVC 19.44.35228.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (2.5s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/Users/omer2/AppData/Local/Temp/cll5-25388-898323078-0/manager state/projects/77f5c22d7a52e060/build-Debug-af63f14c8602103b
+[1/2] Building CXX object CMakeFiles\app.dir\src\main.cpp.obj
+[2/2] Linking CXX executable app.exe
+Compilation succeeded but executable discovery failed: the selected File API artifact is missing. Review target/output configuration.
+Unified projects: real run, no-change build, leased/stale/failed recovery, preserved CMake and outputs, deleted source and Release passed
+<end of output>
+Test time =  61.08 sec
+----------------------------------------------------------
+Test Passed.
+"stage5_unified_projects" end time: Nov 01 12:55 Eastern Standard Time
+"stage5_unified_projects" time elapsed: 00:01:01
+----------------------------------------------------------
+
+End testing: Nov 01 12:55 Eastern Standard Time
+
+full =  61.08 sec*proc
+
