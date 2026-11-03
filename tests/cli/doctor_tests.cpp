@@ -37,6 +37,7 @@ int main()
     create_fixture_file(
         visual_studio_directory / "VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe");
     create_fixture_file(visual_studio_directory / "VC/Tools/Llvm/x64/bin/clang++.exe");
+    create_fixture_file(visual_studio_directory / "VC/Tools/Llvm/x64/bin/clang-format.exe");
     const auto bundled_cmake_directory =
         visual_studio_directory / "Common7/IDE/CommonExtensions/Microsoft/CMake";
     create_fixture_file(bundled_cmake_directory / "CMake/bin/cmake.exe");
@@ -56,6 +57,9 @@ int main()
     }
     check(
         discovered_toolchain.tools[4].installed_path.empty(), "GCC should be optional and missing");
+    check(!discovered_toolchain.tools[5].installed_path.empty() &&
+              discovered_toolchain.tools[5].terminal_path.empty(),
+        "Optional VS formatter was not discovered outside PATH");
     check(doctor_output.str().find("Installed: Yes | Available in current terminal: No") !=
               std::string::npos,
         "Installed/terminal distinction missing");
@@ -72,6 +76,14 @@ int main()
     discovery_inputs.terminal_directories = {standalone_tool_directory};
     discovered_toolchain = cpplivelab::discover_toolchain(discovery_inputs);
     check(!discovered_toolchain.tools[0].terminal_path.empty(), "PATH tool not detected");
+    create_fixture_file(standalone_tool_directory / "clang-format.exe");
+    fs::remove(standalone_tool_directory / "clang++.exe");
+    auto formatter_only = cpplivelab::discover_toolchain(discovery_inputs);
+    std::ostringstream formatter_output;
+    check(!formatter_only.tools[5].installed_path.empty() &&
+              cpplivelab::run_doctor(formatter_output, formatter_only) == 1,
+        "Formatter was mistaken for a compiler or depended on compiler presence");
+    create_fixture_file(standalone_tool_directory / "clang++.exe");
     for (const auto name : {"cmake.exe", "ninja.exe", "clang++.exe"})
     {
         fs::remove(standalone_tool_directory / name);

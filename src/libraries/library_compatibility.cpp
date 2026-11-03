@@ -12,6 +12,15 @@ namespace
 {
 namespace fs = std::filesystem;
 
+struct HeaderScanLimit : std::runtime_error
+{
+    HeaderScanLimit()
+        : std::runtime_error(
+              "Header evidence exceeds the bounded scan; verification is incomplete.")
+    {
+    }
+};
+
 bool public_header(const fs::path& file, const fs::path& root, unsigned depth = 0)
 {
     static const std::set<fs::path> extensions{L".h", L".hpp", L".hh", L".hxx", L".inl"};
@@ -53,8 +62,7 @@ bool public_header(const fs::path& file, const fs::path& root, unsigned depth = 
     }
     if (!interface_found && input.peek() != std::char_traits<char>::eof())
     {
-        throw std::runtime_error(
-            "Header evidence exceeds the bounded scan; verification is incomplete.");
+        throw HeaderScanLimit();
     }
     return interface_found;
 }
@@ -111,7 +119,16 @@ LibraryAssessment assess_library(const fs::path& source,
                 if (extension == L".h" || extension == L".hpp" || extension == L".hh" ||
                     extension == L".hxx" || extension == L".inl")
                 {
-                    header_api = public_header(file, source) || header_api;
+                    try
+                    {
+                        // Independent public API evidence remains useful even when another
+                        // header exceeds the passive scan budget. Consumer proof is still required.
+                        header_api = header_api || public_header(file, source);
+                    }
+                    catch (const HeaderScanLimit&)
+                    {
+                        incomplete = true;
+                    }
                 }
                 native_source = native_source || extension == L".c" || extension == L".cpp" ||
                                 extension == L".cc" || extension == L".cxx";
@@ -199,7 +216,7 @@ LibraryAssessment assess_library(const fs::path& source,
         if (incomplete)
         {
             return {LibraryCompatibility::UnableToVerify,
-                "Build metadata exceeds the bounded scan; evidence is incomplete."};
+                "Header or build metadata exceeds the bounded scan; evidence is incomplete."};
         }
         if (cmake_project && native_source && !consumer_verified)
         {

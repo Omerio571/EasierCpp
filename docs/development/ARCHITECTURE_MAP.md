@@ -7,7 +7,7 @@ For opt-in PCH usage and compatibility boundaries, see [PCH.md](PCH.md).
 | Concern | Starting files/symbols | Relevant tests |
 |---|---|---|
 | CLI | `src/main.cpp`, `src/cli/workspace_cli.cpp::workspace_command` | `cli_*`, `stage2_integration`, `stage5_projects` |
-| Identity/state migration | `src/projects/state_migration.cpp`, workspace `state_root`, appearance `migrate_preference_store`; `scripts/test-build-directory.ps1`, tools `find_development_repository` | `identity_migration`, `test_cache_migration`, `test_selection`; [migration guide](../migration/RENAMING.md) |
+| Identity/state migration | `src/projects/state_migration.cpp`, workspace `state_root`, appearance `migrate_preference_store`; `scripts/test-build-directory.ps1`, tools `find_development_repository` | `identity_migration`, `migration_processes` (isolated GUI/CLI profiles and legacy-runtime guard), `test_cache_migration`, `test_selection`; [migration guide](../migration/RENAMING.md) |
 | Tool discovery/SDK | `src/cli/doctor.cpp`, `src/process/process.cpp::developer_environment` | `doctor_unit`, `doctor_without_path`, `stage5_presets` |
 | Projects/builds/settings | `src/projects/workspace.cpp::managed_build`, `load_project_options`, `managed_build_directory`; `include/cpplivelab/workspace.hpp` | `tests/projects/stage5_tests.cpp`, `stage5_projects`, `stage5_presets`, `reliability_freshness` |
 | CMake target/runtime metadata | `scripts/file_api.cmake`, workspace `executable_targets`, `runtime_environment` | `stage5_projects`, `stage5_unified_projects` |

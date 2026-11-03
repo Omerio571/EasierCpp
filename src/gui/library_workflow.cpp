@@ -748,9 +748,8 @@ std::optional<std::string> github_library_dialog(HWND owner,
     };
     if (!verify())
     {
-        output(L"Unable to Verify: dependency configuration failed. Nothing registered; manual "
-               L"options or platform "
-               L"dependencies may be required.\n");
+        output(L"Unable to Verify: dependency verification failed or was cancelled. Nothing "
+               L"registered. See Build & System for the configuration, compile or link error.\n");
         return {};
     }
     if (!header_only)

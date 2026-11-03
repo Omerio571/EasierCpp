@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <string_view>
 #include <vector>
 
 namespace cpplivelab
@@ -35,6 +36,73 @@ std::string bytes(const fs::path& file)
         throw std::runtime_error("Cannot read settings migration metadata.");
     }
     return {std::istreambuf_iterator<char>(input), {}};
+}
+
+constexpr std::string_view completion_text = "EasierCpp metadata migration 1\n";
+constexpr std::string_view legacy_completion_text = "EasierCpp metadata migration 1\r\n";
+
+bool migration_completed(const fs::path& marker)
+{
+    if (!fs::exists(marker))
+    {
+        return false;
+    }
+    if (!fs::is_regular_file(marker))
+    {
+        throw std::runtime_error("Migration completion marker is not a regular file: " +
+                                 path_support::path_utf8(marker));
+    }
+    const auto value = bytes(marker);
+    // Older releases wrote in Windows text mode. Accept their exact CRLF
+    // signature without rewriting data or reacquiring the GUI's legacy mutex.
+    if (value == completion_text || value == legacy_completion_text)
+    {
+        return true;
+    }
+    if (completion_text.starts_with(value) || legacy_completion_text.starts_with(value))
+    {
+        return false; // Empty/truncated publication can be retried conservatively.
+    }
+    throw std::runtime_error(
+        "Unrecognized migration completion marker: " + path_support::path_utf8(marker) +
+        ". Original metadata retained; review the marker before retrying.");
+}
+
+void publish_completion(const fs::path& marker)
+{
+    const auto temporary =
+        fs::path(marker.wstring() + L".new-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+                 std::to_wstring(GetTickCount64()));
+    windows_support::UniqueHandle file;
+    file.reset(CreateFileW(
+        temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (file.value == INVALID_HANDLE_VALUE)
+    {
+        throw std::runtime_error("Cannot stage migration completion marker; Windows error " +
+                                 std::to_string(GetLastError()));
+    }
+    DWORD written = 0;
+    const bool saved = WriteFile(file.value,
+                           completion_text.data(),
+                           static_cast<DWORD>(completion_text.size()),
+                           &written,
+                           nullptr) &&
+                       written == completion_text.size() && FlushFileBuffers(file.value);
+    auto error = saved ? ERROR_SUCCESS : GetLastError();
+    file.reset(); // Release exclusive ownership before the atomic rename.
+    if (!saved ||
+        !MoveFileExW(
+            temporary.c_str(), marker.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    {
+        if (saved)
+        {
+            error = GetLastError();
+        }
+        DeleteFileW(temporary.c_str()); // Only this call's exclusively created staging file.
+        throw std::runtime_error("Cannot publish migration completion marker; Windows error " +
+                                 std::to_string(error ? error : ERROR_WRITE_FAULT) +
+                                 ". Validated metadata retained for retry.");
+    }
 }
 
 bool metadata_file(const fs::path& relative, bool project)
@@ -167,11 +235,7 @@ void migrate_state_metadata(const fs::path& legacy, const fs::path& destination)
     }
     const auto marker = destination / L"legacy-migration.complete";
     ordinary_path(marker);
-    const auto completed = [&]
-    {
-        return fs::is_regular_file(marker) && bytes(marker) == "EasierCpp metadata migration 1\n";
-    };
-    if (completed())
+    if (migration_completed(marker))
     {
         return;
     }
@@ -189,9 +253,15 @@ void migrate_state_metadata(const fs::path& legacy, const fs::path& destination)
     legacy_mutex.reset(CreateMutexW(nullptr, FALSE, mutex_name.c_str()));
     const auto acquired =
         legacy_mutex.value ? WaitForSingleObject(legacy_mutex.value, 0) : WAIT_FAILED;
-    if (acquired != WAIT_OBJECT_0 && acquired != WAIT_ABANDONED)
+    if (acquired == WAIT_TIMEOUT)
     {
         throw std::runtime_error("Close the legacy CppLiveLab manager before settings migration.");
+    }
+    if (acquired != WAIT_OBJECT_0 && acquired != WAIT_ABANDONED)
+    {
+        throw std::runtime_error(
+            "Cannot acquire the legacy settings migration guard; Windows error " +
+            std::to_string(GetLastError()));
     }
 
     struct Release
@@ -219,9 +289,17 @@ void migrate_state_metadata(const fs::path& legacy, const fs::path& destination)
         nullptr));
     if (lease.value == INVALID_HANDLE_VALUE)
     {
-        throw std::runtime_error("Another EasierCpp settings migration is active; retry shortly.");
+        const auto error = GetLastError();
+        if (error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION)
+        {
+            throw std::runtime_error(
+                "Another EasierCpp settings migration is active; retry shortly.");
+        }
+        throw std::runtime_error("Cannot open the settings migration lease at " +
+                                 path_support::path_utf8(destination) + "; Windows error " +
+                                 std::to_string(error));
     }
-    if (completed())
+    if (migration_completed(marker))
     {
         return;
     }
@@ -267,11 +345,12 @@ void migrate_state_metadata(const fs::path& legacy, const fs::path& destination)
               "HKCU/Software/CppLiveLab is retained. Existing new preferences are never merged "
               "or overwritten by legacy values.\n";
     report.close();
-    if (!report || !(std::ofstream(marker) << "EasierCpp metadata migration 1\n"))
+    if (!report)
     {
         throw std::runtime_error(
             "Cannot finish migration; validated copies are retained for retry.");
     }
+    publish_completion(marker);
     std::cout << "EasierCpp settings migration: "
               << path_support::path_utf8(destination / L"migration-report.txt") << '\n';
 }

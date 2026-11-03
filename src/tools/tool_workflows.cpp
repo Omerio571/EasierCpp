@@ -146,7 +146,8 @@ std::string diagnostics_summary(const Toolchain& toolchain)
                           : tool.name == "clang++" ? "Clang"
                           : tool.name == "g++"     ? "GCC"
                           : tool.name == "cmake"   ? "CMake"
-                                                   : "Ninja";
+                          : tool.name == "ninja"   ? "Ninja"
+                                                   : "clang-format (optional)";
         result << name << ": " << (tool.installed_path.empty() ? "Not installed" : "Found") << '\n';
     }
     result << "MSVC developer environment: "

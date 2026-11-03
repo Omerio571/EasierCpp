@@ -70,6 +70,19 @@ void unit(const fs::path& root)
     require(assess_library(headers, {}, true, headers / L"umbrella.hpp").status ==
                 LibraryCompatibility::Compatible,
         "A verified umbrella header exporting a local API was rejected");
+    const auto bounded = root / L"bounded-header";
+    write(bounded / L"large.hpp", "//" + std::string(129 * 1024, '!'));
+    const auto uncertain = assess_library(bounded);
+    require(uncertain.status == LibraryCompatibility::UnableToVerify &&
+                uncertain.reason.find("bounded scan") != std::string::npos,
+        "A bounded header scan must remain uncertain, not incompatible");
+    write(bounded / L"answer.hpp", "inline int answer() { return 42; }\n");
+    write(bounded / L"main.cpp", "int main() { return 0; }\n");
+    const std::vector<LibraryTarget> verified_target{
+        {"Reusable", "STATIC_LIBRARY", "", bounded, false, true}};
+    require(
+        assess_library(bounded, verified_target, true).status == LibraryCompatibility::Compatible,
+        "An unrelated bounded header discarded verified target and public API evidence");
     write(application / L"private.cpp", "int private_helper() { return 1; }\n");
     const std::vector<LibraryTarget> private_target{
         {"PrivateCore", "STATIC_LIBRARY", "", application, false, true}};

@@ -3935,13 +3935,18 @@ try
     else
     {
         wchar_t test_child[8]{}, state_override[32768]{};
-        if (GetEnvironmentVariableW(L"CPPLIVELAB_TEST_CHILD", test_child, 8) &&
-            (GetEnvironmentVariableW(L"CPPLIVELAB_STATE_HOME", state_override, 32768) ||
-                GetEnvironmentVariableW(L"EASIERCPP_STATE_HOME", state_override, 32768)))
+        if (GetEnvironmentVariableW(L"CPPLIVELAB_TEST_CHILD", test_child, 8))
         {
+            const bool has_override =
+                GetEnvironmentVariableW(L"CPPLIVELAB_STATE_HOME", state_override, 32768) ||
+                GetEnvironmentVariableW(L"EASIERCPP_STATE_HOME", state_override, 32768);
+            // Default-location tests substitute LOCALAPPDATA rather than bypassing
+            // migration with STATE_HOME; their registry preferences stay isolated.
+            const auto identity = has_override ? std::wstring(state_override)
+                                               : cpplivelab::manager_state_directory().wstring();
             application.preference_store =
                 L"Software\\CppLiveLab\\Tests\\" +
-                decode_console_text(cpplivelab::library_key(encode_utf8(state_override)));
+                decode_console_text(cpplivelab::library_key(encode_utf8(identity)));
             application.preferences = cpplivelab::load_preferences(application.preference_store);
         }
     }

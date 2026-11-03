@@ -1050,7 +1050,12 @@ if(BUILD_TESTING)
 
     add_executable(migration_tests tests/projects/migration_tests.cpp)
     target_link_libraries(migration_tests PRIVATE EasierCppCore)
+    add_dependencies(migration_tests EasierCpp-Gui)
     add_test(NAME identity_migration COMMAND migration_tests)
+    add_test(NAME migration_processes COMMAND migration_tests --processes
+        $<TARGET_FILE:EasierCpp> $<TARGET_FILE:EasierCpp-Gui>
+        "${CMAKE_SOURCE_DIR}/build/stabilization-legacy-runtime/EasierCPP-v0.1.0/cpplivelab-gui.exe")
+    set_tests_properties(migration_processes PROPERTIES TIMEOUT 240 LABELS integration)
     add_test(NAME test_cache_migration COMMAND powershell -NoProfile -ExecutionPolicy Bypass
         -File "${CMAKE_SOURCE_DIR}/tests/test_build_directory.ps1"
         -Helper "${CMAKE_SOURCE_DIR}/scripts/test-build-directory.ps1")

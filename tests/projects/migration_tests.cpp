@@ -6,6 +6,7 @@
 #include "projects/project_paths.hpp"
 #include "build/build_freshness.hpp"
 #include "projects/project_templates.hpp"
+#include "cpplivelab/session.hpp"
 #include "../workspace_test_support.hpp"
 #include <fstream>
 #include <iostream>
@@ -84,6 +85,8 @@ void tests()
     write(current / L"integrations.migration-abandoned/known.library", "partial");
     write(current / L"legacy-migration.complete", "EasierCpp metadata");
     migrate_state_metadata(old, current);
+    require(read(current / L"legacy-migration.complete") == "EasierCpp metadata migration 1\n",
+        "Completion marker is not canonical binary LF; text-mode CRLF causes repeated migration");
     require(read(current / L"editor.settings") == "new editor wins\n", "New editor overwritten");
     require(read(old / L"editor.settings") == "old editor\n", "Original editor changed");
     require(read(current / L"integrations/known.cmake") == read(old / L"integrations/known.cmake"),
@@ -161,6 +164,17 @@ void tests()
     {
         Sleep(1);
     }
+    const auto completed_report = read(current / L"migration-report.txt");
+    write(current / L"legacy-migration.complete", "EasierCpp metadata migration 1\r\n");
+    bool completed_allowed = false;
+    try
+    {
+        migrate_state_metadata(old, current);
+        completed_allowed = true;
+    }
+    catch (const std::exception&)
+    {
+    }
     bool live_refused = false;
     try
     {
@@ -174,6 +188,20 @@ void tests()
     legacy_owner.join();
     require(ready == 1 && live_refused && !fs::exists(fixture.root / L"Blocked"),
         "Live legacy manager did not block migration before writes");
+    require(
+        completed_allowed && read(current / L"migration-report.txt") == completed_report &&
+            read(current / L"legacy-migration.complete") == "EasierCpp metadata migration 1\r\n",
+        "Completed CRLF migration reacquired the GUI guard, rewrote its report or altered the "
+        "marker");
+    write(current / L"legacy-migration.complete", "EasierCpp metadata migration 99\n");
+    refuses(
+        [&]
+        {
+            migrate_state_metadata(old, current);
+        },
+        "Unknown marker version was overwritten");
+    require(read(current / L"legacy-migration.complete") == "EasierCpp metadata migration 99\n",
+        "Unsupported completion marker was changed");
 
     const auto registry =
         L"Software\\EasierCppMigrationTests\\Migration-" + std::to_wstring(GetCurrentProcessId());
@@ -268,12 +296,246 @@ void tests()
     require(manager_state_directory() == current, "New state override not recognized");
     SetEnvironmentVariableW(L"EASIERCPP_STATE_HOME", nullptr);
 }
+
+struct ScopedEnvironment
+{
+    std::vector<std::pair<std::wstring, std::wstring>> previous;
+
+    void set(const wchar_t* name, const std::wstring& value)
+    {
+        wchar_t buffer[32768]{};
+        GetEnvironmentVariableW(name, buffer, 32768);
+        previous.emplace_back(name, buffer);
+        require(SetEnvironmentVariableW(name, value.empty() ? nullptr : value.c_str()) != FALSE,
+            "Cannot set isolated process environment");
+    }
+
+    ~ScopedEnvironment()
+    {
+        for (auto item = previous.rbegin(); item != previous.rend(); ++item)
+        {
+            SetEnvironmentVariableW(
+                item->first.c_str(), item->second.empty() ? nullptr : item->second.c_str());
+        }
+    }
+};
+
+HWND process_window(DWORD process)
+{
+    struct Search
+    {
+        DWORD process;
+        HWND window = nullptr;
+    } search{process};
+
+    EnumWindows(
+        [](HWND window, LPARAM parameter) -> BOOL
+        {
+            auto& search = *reinterpret_cast<Search*>(parameter);
+            DWORD process = 0;
+            GetWindowThreadProcessId(window, &process);
+            if (process == search.process && IsWindowVisible(window) &&
+                GetPropW(window, L"CppLiveLabInstance"))
+            {
+                search.window = window;
+                return FALSE;
+            }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&search));
+    return search.window;
+}
+
+HWND wait_for_gui(ConsoleSession& gui)
+{
+    const auto started = GetTickCount64();
+    std::string output;
+    while (GetTickCount64() - started < 15000)
+    {
+        output += gui.poll();
+        if (const auto window = process_window(gui.process_id()))
+        {
+            return window;
+        }
+        require(gui.running(), ("Isolated GUI exited before ready: " + output).c_str());
+        Sleep(10);
+    }
+    throw std::runtime_error("Isolated GUI did not become ready: " + output);
+}
+
+std::string finish(ConsoleSession& process)
+{
+    const auto started = GetTickCount64();
+    std::string output;
+    while (process.running() || process.output_pending())
+    {
+        output += process.poll();
+        if (process.root_exited())
+        {
+            process.finish_build();
+        }
+        require(GetTickCount64() - started < 90000, "Isolated process timed out");
+        Sleep(10);
+    }
+    return output;
+}
+
+void process_tests(const fs::path& cli, const fs::path& gui, const fs::path& legacy_gui)
+{
+    workspace_test::Fixture fixture;
+
+    struct RegistryCleanup
+    {
+        std::vector<std::wstring> keys;
+
+        void add(const fs::path& state)
+        {
+            keys.push_back(
+                L"Software\\CppLiveLab\\Tests\\" +
+                path_support::from_utf8(library_key(path_support::path_utf8(state))).wstring());
+        }
+
+        ~RegistryCleanup()
+        {
+            for (const auto& key : keys)
+            {
+                RegDeleteTreeW(HKEY_CURRENT_USER, key.c_str());
+            }
+        }
+    } registry;
+
+    for (const auto* scenario : {L"fresh", L"legacy", L"both", L"completed", L"interrupted"})
+    {
+        const auto local = fixture.root / scenario;
+        const auto old = local / L"CppLiveLab";
+        const auto current = local / L"EasierCpp";
+        const auto project = fixture.root / (std::wstring(scenario) + L" project 計算");
+        write(project / L"CMakeLists.txt",
+            "cmake_minimum_required(VERSION 3.24)\n"
+            "project(MigrationConsumer LANGUAGES CXX)\nadd_executable(app main.cpp)\n"
+            "target_compile_features(app PRIVATE cxx_std_20)\n");
+        write(project / L"main.cpp", "int main() { return 0; }\n");
+        const auto source_before = read(project / L"CMakeLists.txt");
+        if (std::wstring_view(scenario) != L"fresh")
+        {
+            write(old / L"build-workers.settings", "1 1\n");
+        }
+        if (std::wstring_view(scenario) == L"both")
+        {
+            write(current / L"build-workers.settings", "0 0\n");
+        }
+        if (std::wstring_view(scenario) == L"completed")
+        {
+            write(current / L"legacy-migration.complete", "EasierCpp metadata migration 1\r\n");
+            write(current / L"build-workers.settings", "0 0\n");
+        }
+        if (std::wstring_view(scenario) == L"interrupted")
+        {
+            write(current / L"legacy-migration.complete", "EasierCpp metadata");
+        }
+        ScopedEnvironment environment;
+        environment.set(L"LOCALAPPDATA", local.wstring());
+        environment.set(L"CPPLIVELAB_STATE_HOME", L"");
+        environment.set(L"EASIERCPP_STATE_HOME", L"");
+        environment.set(L"CPPLIVELAB_TEST_CHILD", L"1");
+        registry.add(current);
+        ConsoleSession manager;
+        manager.start_worker(gui, {}, fixture.root);
+        const auto window = wait_for_gui(manager);
+        const auto report_before = fs::is_regular_file(current / L"migration-report.txt")
+                                       ? read(current / L"migration-report.txt")
+                                       : std::string{};
+        ConsoleSession companion;
+        companion.start_worker(cli, {L"targets", project.wstring()}, fixture.root);
+        const auto output = finish(companion);
+        require(companion.exit_code() == 0,
+            ("GUI blocked its own CLI in " + path_support::path_utf8(local) + ": " + output)
+                .c_str());
+        if (std::wstring_view(scenario) == L"legacy")
+        {
+            const auto second = fixture.root / L"independent consumer";
+            write(second / L"CMakeLists.txt", source_before);
+            write(second / L"main.cpp", "int main() { return 0; }\n");
+            ConsoleSession first_build, second_build;
+            first_build.start_worker(
+                cli, {L"manage-run", project.wstring(), L"--target", L"app"}, fixture.root);
+            second_build.start_worker(cli,
+                {L"manage-run", second.wstring(), L"--target", L"app", L"--config", L"Release"},
+                fixture.root);
+            const auto first_output = finish(first_build);
+            const auto second_output = finish(second_build);
+            require(first_build.exit_code() == 0 && second_build.exit_code() == 0,
+                ("Independent Debug/Release consumers failed:\n" + first_output + second_output)
+                    .c_str());
+        }
+        ConsoleSession duplicate;
+        duplicate.start_worker(gui, {}, fixture.root);
+        const auto duplicate_output = finish(duplicate);
+        require(duplicate.exit_code() == 0 && manager.running(),
+            ("Default-profile single-instance protection failed: " + duplicate_output).c_str());
+        require(!fs::exists(current / L"migration-report.txt") ||
+                    read(current / L"migration-report.txt") == report_before,
+            "Companion/duplicate startup repeated completed migration");
+        require(
+            read(project / L"CMakeLists.txt") == source_before, "Migration changed project CMake");
+        if (std::wstring_view(scenario) == L"both")
+        {
+            require(
+                read(current / L"build-workers.settings") == "0 0\n", "New settings overwritten");
+        }
+        PostMessageW(window, WM_CLOSE, 0, 0);
+        finish(manager);
+        require(manager.exit_code() == 0, "Default-profile manager did not close safely");
+        std::cout << "Default-profile GUI + CLI + duplicate: "
+                  << path_support::path_utf8(fs::path(scenario)) << " passed\n";
+    }
+    if (fs::is_regular_file(legacy_gui))
+    {
+        const auto local = fixture.root / L"actual legacy owner";
+        const auto old = local / L"CppLiveLab";
+        const auto current = local / L"EasierCpp";
+        write(old / L"build-workers.settings", "0 0\n");
+        const auto project = fixture.root / L"legacy refusal consumer";
+        write(project / L"CMakeLists.txt", "project(LegacyRefusal LANGUAGES CXX)\n");
+        ScopedEnvironment environment;
+        environment.set(L"LOCALAPPDATA", local.wstring());
+        environment.set(L"CPPLIVELAB_TEST_CHILD", L"1");
+        environment.set(L"EASIERCPP_STATE_HOME", L"");
+        environment.set(L"CPPLIVELAB_STATE_HOME", old.wstring());
+        registry.add(old);
+        ConsoleSession legacy;
+        legacy.start_worker(legacy_gui, {}, fixture.root);
+        const auto window = wait_for_gui(legacy);
+        environment.set(L"CPPLIVELAB_STATE_HOME", L"");
+        ConsoleSession companion;
+        companion.start_worker(cli, {L"targets", project.wstring()}, fixture.root);
+        const auto output = finish(companion);
+        require(companion.exit_code() != 0 &&
+                    output.find("Close the legacy CppLiveLab") != output.npos &&
+                    !fs::exists(current) && read(old / L"build-workers.settings") == "0 0\n",
+            ("Actual legacy owner was not safely detected: " + output).c_str());
+        PostMessageW(window, WM_CLOSE, 0, 0);
+        finish(legacy);
+        std::cout
+            << "Actual pre-migration CppLiveLab GUI: migration refused without metadata writes\n";
+    }
+    else
+    {
+        std::cout
+            << "Actual legacy executable unavailable; unit mutex-contract coverage still runs\n";
+    }
+}
 } // namespace
 
-int main()
+int wmain(int argc, wchar_t** argv)
 {
     try
     {
+        if (argc >= 4 && std::wstring_view(argv[1]) == L"--processes")
+        {
+            process_tests(argv[2], argv[3], argc > 4 ? fs::path(argv[4]) : fs::path{});
+            return 0;
+        }
         tests();
         std::cout
             << "EasierCpp migration: metadata, conflicts, resume, registry, source discovery, "

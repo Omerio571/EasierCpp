@@ -274,7 +274,7 @@ Toolchain discover_toolchain(const DiscoveryInputs& inputs)
         directories.push_back(visual_studio_directory / L"VC/Tools/Llvm/x64/bin");
         directories.push_back(visual_studio_directory / L"VC/Tools/Llvm/bin");
     }
-    for (const auto& name : {"cmake", "ninja", "cl", "clang++", "g++"})
+    for (const auto& name : {"cmake", "ninja", "cl", "clang++", "g++", "clang-format"})
     {
         Tool tool{name, {}, find(inputs.terminal_directories, std::string(name) + ".exe")};
         tool.installed_path = tool.terminal_path.empty()
@@ -295,6 +295,10 @@ int run_doctor(std::ostream& out, const Toolchain& toolchain)
         out << tool.name << ": Installed: " << (installed ? "Yes" : "No")
             << " | Available in current terminal: " << (tool.terminal_path.empty() ? "No" : "Yes")
             << '\n';
+        if (tool.name == "clang-format")
+        {
+            out << "  Optional formatting utility; not required to create or build projects.\n";
+        }
         if (installed)
         {
             out << "  Path: " << path_support::path_utf8(tool.installed_path) << '\n';
@@ -307,7 +311,7 @@ int run_doctor(std::ostream& out, const Toolchain& toolchain)
         {
             ninja = installed;
         }
-        else
+        else if (tool.name == "cl" || tool.name == "clang++" || tool.name == "g++")
         {
             compiler = compiler || installed;
         }
