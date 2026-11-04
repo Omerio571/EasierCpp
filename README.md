@@ -101,3 +101,32 @@ Report bugs, suggest improvements, or contribute through
 [issue tracker](https://github.com/Omerio571/EasierCpp/issues).
 For bug reports, include the version, toolchain, reproduction steps, and relevant
 build output with private information removed.
+
+
+
+## Technologies
+
+EasierCpp is built using **C++20** and native Windows technologies, with a focus on performance, lightweight design, and compatibility with existing C++ development workflows.
+
+| Category | Technologies |
+|---|---|
+| **Programming Language** | C++20 |
+| **GUI & Platform** | Win32 API, Windows SDK |
+| **Build System** | CMake, Ninja |
+| **Compiler & Toolchain** | MSVC, Visual Studio 2022 Build Tools |
+| **Build Automation** | PowerShell, CMake Scripts |
+| **Testing** | CTest, C++ Unit & Integration Tests |
+| **Version Control** | Git, GitHub |
+| **Library Management** | GitHub API, GitLab API, CMake FetchContent, find_package, add_subdirectory, vcpkg (optional) |
+| **Code Formatting** | clang-format |
+| **Process Management** | Windows Job Objects, Win32 Process APIs |
+| **Build Optimization** | Incremental Compilation, Incremental Linking, Precompiled Headers (PCH), Parallel Builds |
+
+### Development Tools
+
+- **Visual Studio 2022** — C++ development and debugging.
+- **CMake & Ninja** — Project configuration and incremental builds.
+- **PowerShell** — Build automation and toolchain discovery.
+- **CTest** — Automated testing and regression verification.
+
+EasierCpp is designed to work alongside existing code editors and IDEs rather than replace them.
