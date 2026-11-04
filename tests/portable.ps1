@@ -41,6 +41,13 @@ try {
         Run-Check version $cli @('--version')
         $version = [IO.File]::ReadAllText((Join-Path $BuildDirectory 'release-version.txt')).Trim()
         if ([IO.File]::ReadAllText((Join-Path $ReportDirectory 'version.log')).Trim() -ne "EasierCpp $version") { throw 'Package version mismatch.' }
+        foreach ($name in @('EasierCpp.exe','EasierCpp-Gui.exe')) {
+            $metadata = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $bundle $name))
+            if ($metadata.FileVersion -ne $version -or $metadata.ProductVersion -ne $version) {
+                throw "Windows version metadata mismatch: $name"
+            }
+        }
+        $passed.Add('windows-version-metadata')
         Run-Check doctor $cli @('doctor')
         $doctor = [IO.File]::ReadAllText((Join-Path $ReportDirectory 'doctor.log'))
         if ($doctor -notmatch 'cl: Installed: Yes \| Available in current terminal: No') { throw 'Doctor did not verify ordinary-terminal discovery.' }
@@ -89,6 +96,8 @@ try {
         $passed.Add('portable-development-tests')
         Run-Check actual-gui-restart (Join-Path $BuildDirectory 'restart_gui_tests.exe') @((Join-Path $bundle 'EasierCpp-Gui.exe'))
         Run-Check packaged-gui-flow (Join-Path $bundle 'gui_flow_tests.exe') @()
+        Run-Check packaged-window-geometry (Join-Path $bundle 'gui_flow_tests.exe') @('--window-geometry')
+        Run-Check packaged-initial-auto-run (Join-Path $bundle 'gui_flow_tests.exe') @('--initial-auto-run')
         Run-Check packaged-ui-library-audit (Join-Path $bundle 'ui_audit_tests.exe') @('--quick')
         Run-Check packaged-workers (Join-Path $bundle 'gui_flow_tests.exe') @('--compilation-workers')
         Run-Check packaged-local-library-consumer (Join-Path $bundle 'library_management_tests.exe') @('consumers')

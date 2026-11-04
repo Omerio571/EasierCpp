@@ -4,6 +4,17 @@ A lightweight C++ development companion for standard CMake projects. EasierCpp
 builds and runs your code while you edit it in Visual Studio or another editor.
 It does not include an editor/debugger or preserve game/application memory.
 
+In Settings → Preferences, **Keep Window Position (When Restarted)** and **Keep Window
+Size (When Restarted)** independently control the open project's application window.
+New projects default to position ON and size OFF, so code-defined dimensions take
+effect. Choices persist across manager sessions; existing ON preferences retain both.
+
+Auto Run enabled projects build and launch automatically when opened. Turning Auto
+Run on while idle also starts the project; an already running app is preserved.
+Multiple executables require a saved valid selection or a target choice. Configuration
+approval is still required where prompted. Stop pauses launch for the current session;
+Run or toggling Auto Run resumes it. Failed builds keep Auto Run available for repair.
+
 ## Launch requirements
 
 - Windows 11 x64. Local testing used Windows 11 Home build 26200; other machines,
@@ -30,14 +41,14 @@ a project's own dependency configuration.
 
 1. Open Project → New Project and choose a writable folder **outside this package**.
    Or Open an existing folder containing CMakeLists.txt; keep its layout intact.
-2. Select Debug or Release and the intended executable target after configuration.
-   An unconfigured project may not yet have a target list. Build it, then Run.
-3. Edit sources in your preferred editor. Turn **Auto Run** on to build saved
-   changes incrementally and run the updated result. Off disables automatic work.
-   There is one Auto Run control, not a separate automatic-build mode.
+2. Select Debug or Release. Enable **Auto Run** to configure, build and launch without
+   an initial manual Run. A project opened with Auto Run already enabled starts the
+   same workflow. Choose an executable when prompted if the project exports several.
+3. Edit sources in your preferred editor. Saved changes incrementally build and run
+   the updated result. Auto Run OFF disables automatic work.
 4. Build, Run, Stop and Restart remain manual controls. Stop disarms automatic
-   launching until Run or an Auto Run toggle resumes it. Failed builds retain a
-   working application when available.
+   launching until Run, an Auto Run toggle, or reopening an enabled project resumes
+   it. Failed builds retain a working application when available.
 5. Preferences offer **Safe** replacement (close old before launching new) and
    **Seamless** (start a candidate while the old process remains, then hand off).
    Use Safe for exclusive-instance applications. Window placement can be restored
@@ -65,15 +76,10 @@ successful build establishes compiler/SDK usability. Compiler, CMake and library
 details appear in Build & System; program I/O has its own console.
 
 Settings/caches/builds normally use `%LOCALAPPDATA%\EasierCpp`; appearance and
-related preferences use `HKCU\Software\EasierCpp\Preferences`. Supported legacy
-CppLiveLab metadata is copied and validated on first use; originals remain intact.
-An existing new project/catalog/settings unit wins a conflict without merging.
-Review `migration-report.txt` in the new state folder and the startup console note.
-Close the old manager before first migration; resolve any interrupted legacy
-library transaction using the old manager first. Build/download caches are not
-copied. The first build therefore needs fresh configuration/compilation. Some
-preserved absolute PCH/library references still use the retained original data:
-**do not delete the old AppData folder as part of upgrading.**
+related preferences use `HKCU\Software\EasierCpp\Preferences`. Existing preferences
+and geometry are retained when upgrading. If startup reports migration conflicts,
+review `migration-report.txt` in the manager state folder. **Keep existing manager
+data folders**: preserved library/PCH references may still depend on them.
 
 This is a portable application
 folder, **not a self-contained toolchain or settings-on-a-USB mode**. User projects

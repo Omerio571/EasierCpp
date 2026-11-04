@@ -124,6 +124,38 @@ void check_forms(const std::filesystem::path& root, const std::filesystem::path&
     using namespace cpplivelab;
     for (const auto theme : {ThemeChoice::Dark, ThemeChoice::Light})
     {
+        {
+            std::vector<FormField> toggles{{L"Keep Window Position (When Restarted)", L"Yes"},
+                {L"Keep Window Size (When Restarted)", L"No"}};
+            toggles[0].checkbox = toggles[1].checkbox = true;
+            FormOptions checkbox_options;
+            checkbox_options.theme = theme;
+            ProjectFormWindow checkboxes(
+                nullptr, L"Independent window settings", toggles, checkbox_options);
+            const auto position = GetDlgItem(checkboxes.window, 2000);
+            const auto size = GetDlgItem(checkboxes.window, 2001);
+            require((GetWindowLongPtrW(position, GWL_STYLE) & BS_TYPEMASK) == BS_AUTOCHECKBOX &&
+                        SendMessageW(position, BM_GETCHECK, 0, 0) == BST_CHECKED &&
+                        SendMessageW(size, BM_GETCHECK, 0, 0) == BST_UNCHECKED,
+                "Theme application replaced native checkbox behavior/defaults");
+            SendMessageW(position, BM_CLICK, 0, 0);
+            SendMessageW(size, BM_CLICK, 0, 0);
+            checkboxes.apply_theme();
+            if (!snapshots.empty())
+            {
+                ShowWindow(checkboxes.window, SW_SHOWNOACTIVATE);
+                RedrawWindow(checkboxes.window,
+                    nullptr,
+                    nullptr,
+                    RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
+                ui_test::capture(checkboxes.window,
+                    snapshots / (theme == ThemeChoice::Dark ? L"window-checkboxes-dark.png"
+                                                            : L"window-checkboxes-light.png"));
+            }
+            checkboxes.command(IDOK);
+            require(toggles[0].value == L"No" && toggles[1].value == L"Yes",
+                "Independent checkbox clicks or form readback lost their states");
+        }
         std::wstring versions;
         for (int index = 0; index < 26; ++index)
         {

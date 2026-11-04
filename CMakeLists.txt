@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     EasierCpp
-    VERSION 0.1.0
+    VERSION 0.1.1
     LANGUAGES CXX
 )
 
@@ -152,8 +152,8 @@ target_link_libraries(
 )
 
 target_compile_definitions(
-    EasierCpp
-    PRIVATE
+    EasierCppCore
+    PUBLIC
         EASIERCPP_VERSION="${PROJECT_VERSION}"
 )
 
@@ -707,6 +707,10 @@ if(BUILD_TESTING)
 
     add_test(NAME window_management COMMAND gui_flow_tests --window-management)
     set_tests_properties(window_management PROPERTIES TIMEOUT 240)
+    add_test(NAME window_geometry COMMAND gui_flow_tests --window-geometry)
+    set_tests_properties(window_geometry PROPERTIES TIMEOUT 300)
+    add_test(NAME initial_auto_run COMMAND gui_flow_tests --initial-auto-run)
+    set_tests_properties(initial_auto_run PROPERTIES TIMEOUT 300)
     add_test(NAME compilation_workers COMMAND gui_flow_tests --compilation-workers)
     set_tests_properties(compilation_workers PROPERTIES TIMEOUT 600 RUN_SERIAL TRUE)
 
@@ -1021,6 +1025,7 @@ if(BUILD_TESTING)
             COMMAND ${CMAKE_COMMAND}
                 -DAPP=$<TARGET_FILE:EasierCpp>
                 -DCASE=${case}
+                -DEXPECTED_VERSION=${PROJECT_VERSION}
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli.cmake
         )
     endforeach()

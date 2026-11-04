@@ -73,8 +73,9 @@ void unit(const fs::path& root)
                 loaded.replacement_mode == ReplacementMode::Safe,
         "New preference defaults or round trip failed");
     write(workspace_directory(root / L"legacy") / L"auto-run.settings", "0 1 0 3000\n");
-    require(
-        load_auto_run_preferences(root / L"legacy").placement_memory == PlacementMemory::Session,
+    require(load_auto_run_preferences(root / L"legacy").placement_memory ==
+                    PlacementMemory::Persistent &&
+                load_auto_run_preferences(root / L"legacy").keep_window_size,
         "Legacy window restoration preference was not migrated");
     settings.placement_memory = PlacementMemory::Off;
     settings.replacement_mode = ReplacementMode::Seamless;
@@ -93,11 +94,40 @@ void unit(const fs::path& root)
             combination.replacement_mode = replacement;
             save_auto_run_preferences(root / L"combinations", combination);
             const auto round_trip = load_auto_run_preferences(root / L"combinations");
-            require(round_trip.placement_memory == placement &&
+            require(round_trip.placement_memory == (placement == PlacementMemory::Off
+                                                           ? PlacementMemory::Off
+                                                           : PlacementMemory::Persistent) &&
                         round_trip.replacement_mode == replacement,
                 "Placement/replacement preference combination changed during persistence");
         }
     }
+    const auto defaults = load_auto_run_preferences(root / L"new-window-options");
+    require(defaults.keep_window_position && !defaults.keep_window_size,
+        "New projects must default to position ON and size OFF");
+    for (const bool position : {false, true})
+    {
+        for (const bool size : {false, true})
+        {
+            AutoRunPreferences independent;
+            independent.keep_window_position = position;
+            independent.keep_window_size = size;
+            save_auto_run_preferences(root / L"independent", independent);
+            const auto round_trip = load_auto_run_preferences(root / L"independent");
+            require(round_trip.keep_window_position == position &&
+                        round_trip.keep_window_size == size &&
+                        round_trip.restore_windows == (position || size),
+                "Independent geometry options did not persist");
+        }
+    }
+    write(workspace_directory(root / L"old-off") / L"auto-run.settings", "0 0 0 3000 0 1\n");
+    const auto old_off = load_auto_run_preferences(root / L"old-off");
+    require(!old_off.keep_window_position && !old_off.keep_window_size,
+        "Legacy restoration OFF must migrate to both OFF");
+    write(workspace_directory(root / L"damaged-geometry") / L"auto-run.settings",
+        "0 1 0 3000 2 0 geometry-v1 1 broken\n");
+    const auto damaged_geometry = load_auto_run_preferences(root / L"damaged-geometry");
+    require(!damaged_geometry.keep_window_position && !damaged_geometry.keep_window_size,
+        "Corrupt geometry options enabled unintended restoration");
     ApplicationWindow remembered;
     remembered.class_name = L"Memory fixture";
     remembered.title = L"Unicode \u03bb";
@@ -346,6 +376,43 @@ void windows()
     auto previous = capture_application_windows(ids);
     require(previous.size() == 1, "Owned window capture failed");
     require(capture_application_windows({0}).empty(), "Captured an unrelated process window");
+    const auto original = previous;
+    for (const bool position : {false, true})
+    {
+        for (const bool size : {false, true})
+        {
+            SetWindowPos(window,
+                nullptr,
+                monitor.rcWork.left + 100,
+                monitor.rcWork.top + 100,
+                640,
+                400,
+                SWP_NOACTIVATE | SWP_NOZORDER);
+            std::vector<HWND> partial;
+            restore_application_windows(ids, original, partial, false, position, size);
+            RECT actual{};
+            GetWindowRect(window, &actual);
+            require(actual.left == monitor.rcWork.left + (position ? 24 : 100) &&
+                        actual.top == monitor.rcWork.top + (position ? 24 : 100) &&
+                        actual.right - actual.left == (size ? 480 : 640) &&
+                        actual.bottom - actual.top == (size ? 320 : 400),
+                "Independent native window geometry restored a disabled component");
+            if (position && !size)
+            {
+                SetWindowPos(window,
+                    nullptr,
+                    actual.left,
+                    actual.top,
+                    720,
+                    460,
+                    SWP_NOACTIVATE | SWP_NOZORDER);
+                restore_application_windows(ids, original, partial, true, position, size);
+                GetWindowRect(window, &actual);
+                require(actual.right - actual.left == 720 && actual.bottom - actual.top == 460,
+                    "Startup recheck overwrote program-controlled dimensions");
+            }
+        }
+    }
     SetWindowPos(window,
         nullptr,
         monitor.rcWork.left + 100,
@@ -384,7 +451,69 @@ void windows()
     restored.clear();
     require(restore_application_windows(ids, previous, restored) == 1 && !IsIconic(window),
         "Minimized window remained invisible after restart restoration");
+    ShowWindow(window, SW_SHOWMAXIMIZED);
+    restored.clear();
+    restore_application_windows(ids, original, restored, false, true, false);
+    require(IsZoomed(window), "Position-only restoration unmaximized the application's window");
     ShowWindow(window, SW_SHOWNORMAL);
+    SetWindowPos(window,
+        nullptr,
+        monitor.rcWork.left + 100,
+        monitor.rcWork.top + 100,
+        640,
+        400,
+        SWP_NOACTIVATE | SWP_NOZORDER);
+    auto scaled = original;
+    scaled[0].dpi = GetDpiForWindow(window) * 2;
+    restored.clear();
+    restore_application_windows(ids, scaled, restored, false, false, true);
+    GetWindowRect(window, &actual);
+    require(actual.left == monitor.rcWork.left + 100 && actual.top == monitor.rcWork.top + 100 &&
+                actual.right - actual.left == 240 && actual.bottom - actual.top == 160,
+        "Size-only DPI conversion changed position or used unscaled remembered dimensions");
+    {
+        const auto second = CreateWindowW(type.lpszClassName,
+            L"Second owned window",
+            WS_OVERLAPPEDWINDOW,
+            monitor.rcWork.left + 200,
+            monitor.rcWork.top + 200,
+            300,
+            200,
+            nullptr,
+            nullptr,
+            type.hInstance,
+            nullptr);
+        require(second != nullptr, "Cannot create second owned window");
+
+        struct WindowCleanup
+        {
+            HWND window;
+
+            ~WindowCleanup()
+            {
+                DestroyWindow(window);
+            }
+        } second_cleanup{second};
+
+        ShowWindow(second, SW_SHOWNOACTIVATE);
+        const auto multiple = capture_application_windows(ids);
+        require(multiple.size() == 2, "Multiple owned windows were not captured");
+        SetWindowPos(second,
+            nullptr,
+            monitor.rcWork.left + 300,
+            monitor.rcWork.top + 300,
+            340,
+            240,
+            SWP_NOACTIVATE | SWP_NOZORDER);
+        restored.clear();
+        require(restore_application_windows(ids, multiple, restored, false, true, false) == 2,
+            "Multiple window position restoration failed");
+        GetWindowRect(second, &actual);
+        require(actual.left == monitor.rcWork.left + 200 &&
+                    actual.top == monitor.rcWork.top + 200 && actual.right - actual.left == 340 &&
+                    actual.bottom - actual.top == 240,
+            "Multiple-window matching changed the wrong geometry component");
+    }
     SetWindowLongPtrW(window, GWL_STYLE, WS_POPUP | WS_VISIBLE);
     SetWindowPos(window,
         nullptr,

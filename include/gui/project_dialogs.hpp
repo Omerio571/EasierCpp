@@ -29,6 +29,7 @@ struct FormField
     std::wstring placeholder;
     bool multiple_selection = false;
     int multiline_height = 76;
+    bool checkbox = false;
 };
 
 struct FormOptions

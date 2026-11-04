@@ -9,6 +9,7 @@
 #include <iostream>
 #include <functional>
 #include <atomic>
+#include <utility>
 #include <psapi.h>
 
 namespace flow_tests
@@ -329,6 +330,12 @@ struct Host
         }
         RegDeleteTreeW(HKEY_CURRENT_USER, app.preference_store.c_str());
         UnregisterClassW(L"CppLiveLabGuiFlowTest", GetModuleHandleW(nullptr));
+        // Separate real manager sessions have separate threads. This fixture reuses
+        // one thread: its previous WM_QUIT must not cancel the next modal form.
+        MSG quit{};
+        while (PeekMessageW(&quit, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE))
+        {
+        }
     }
 
     void await(
@@ -407,6 +414,7 @@ void benchmark_project(const fs::path& project, unsigned samples)
     // The script marks and owns this complete copy. Original source-generating
     // CMake commands are approved only inside the disposable benchmark project.
     app.configure_writes_authorized = true;
+    app.auto_run_preferences.keep_window_size = true; // This benchmark asserts full placement.
     const auto cold_started = GetTickCount64();
     app.command(RunButton);
     host.running();
@@ -649,6 +657,7 @@ void replacement_benchmark(const fs::path& fixtures)
     std::ofstream(file) << source;
     Host host(project);
     auto& app = host.app;
+    app.auto_run_preferences.keep_window_size = true;
     app.auto_run_preferences.placement_memory = cpplivelab::PlacementMemory::Session;
     app.command(RunButton);
     host.await(
@@ -762,6 +771,7 @@ void placement_workflow(const fs::path& fixtures)
     {
         Host host(project);
         auto& app = host.app;
+        app.auto_run_preferences.keep_window_size = true;
         app.auto_run_preferences.placement_memory = cpplivelab::PlacementMemory::Session;
         auto launch = [&]
         {
@@ -845,6 +855,518 @@ void placement_workflow(const fs::path& fixtures)
                  "manager/maximized passed\n";
 }
 
+struct InitialRunDialog
+{
+    Application* app = nullptr;
+    bool approve = false;
+    bool acted = false;
+    bool target_prompt = false;
+    bool no_selection = false;
+};
+
+InitialRunDialog* initial_run_dialog = nullptr;
+
+void CALLBACK initial_run_dialog_timer(HWND, UINT, UINT_PTR, DWORD)
+{
+    if (!initial_run_dialog)
+    {
+        return;
+    }
+    EnumThreadWindows(
+        GetCurrentThreadId(),
+        [](HWND window, LPARAM) -> BOOL
+        {
+            auto& driver = *initial_run_dialog;
+            const auto title = read_control_text(window);
+            if (!driver.acted && (title == L"Choose Auto Run target" ||
+                                     title == L"Project writes require permission"))
+            {
+                driver.acted = true;
+                driver.target_prompt = title == L"Choose Auto Run target";
+                driver.no_selection = SendDlgItemMessageW(window, 2000, CB_GETCURSEL, 0, 0) == -1;
+                PostMessageW(window, WM_COMMAND, driver.approve ? IDOK : IDCANCEL, 0);
+            }
+            return TRUE;
+        },
+        0);
+}
+
+struct InitialRunDialogScope
+{
+    UINT_PTR timer = 0;
+
+    explicit InitialRunDialogScope(InitialRunDialog& driver)
+    {
+        initial_run_dialog = &driver;
+        timer = SetTimer(nullptr, 0, 20, initial_run_dialog_timer);
+    }
+
+    void stop()
+    {
+        if (timer)
+        {
+            KillTimer(nullptr, timer);
+            timer = 0;
+        }
+        initial_run_dialog = nullptr;
+    }
+
+    ~InitialRunDialogScope()
+    {
+        stop();
+    }
+};
+
+void initial_auto_run_workflow(const fs::path& fixtures)
+{
+    const auto source = [](const char* text)
+    {
+        return std::string("#include <iostream>\n#include <string>\nint main() { std::cout << \"") +
+               text + "\\n\" << std::flush; std::string line; std::getline(std::cin, line); }\n";
+    };
+    const auto create = [&](const wchar_t* name, bool enabled, const std::string& program)
+    {
+        const auto project = fixtures / name;
+        fs::create_directories(project);
+        std::ofstream(project / L"CMakeLists.txt")
+            << "cmake_minimum_required(VERSION 3.20)\nproject(InitialRun LANGUAGES CXX)\n"
+               "add_executable(app main.cpp)\ntarget_compile_features(app PRIVATE cxx_std_20)\n";
+        std::ofstream(project / L"main.cpp") << program;
+        cpplivelab::AutoRunPreferences preferences;
+        preferences.enabled = enabled;
+        cpplivelab::save_auto_run_preferences(project, preferences);
+        return project;
+    };
+    const auto wait_running = [](Host& host)
+    {
+        host.await(
+            [&]
+            {
+                return host.app.program_started;
+            },
+            "Initial Auto Run did not launch",
+            90000);
+    };
+    const auto settle = [](Host& host, unsigned milliseconds)
+    {
+        const auto started = GetTickCount64();
+        host.await(
+            [&]
+            {
+                return GetTickCount64() - started >= milliseconds;
+            },
+            "Polling stalled");
+    };
+    const auto project = create(L"initial-basic", false, source("initial hello"));
+    {
+        Host host(project);
+        auto& app = host.app;
+        settle(host, 600);
+        require(!app.operation_in_progress && app.build_sequence == 0,
+            "Auto Run OFF scheduled an initial build");
+        app.command(AutoRunButton);
+        wait_running(host);
+        host.prompt(L"initial hello");
+        require(
+            app.build_sequence == 1 &&
+                read_control_text(app.system_console.window).find(L"Initial Auto Run completed.") !=
+                    std::wstring::npos,
+            "Enabling Auto Run did not complete exactly one initial build");
+        const auto artifact = app.current_identity().executable;
+        const auto stamp = fs::last_write_time(artifact);
+        app.stop();
+        host.idle();
+        app.open(project);
+        app.tick();
+        app.open(project); // Repeated Open while preparing must not duplicate the job.
+        wait_running(host);
+        require(fs::last_write_time(artifact) == stamp && app.build_sequence == 2,
+            "Reopen recompiled an unchanged artifact or scheduled duplicate initial builds");
+        require(read_control_text(app.system_console.window).find(L"no work to do") !=
+                    std::wstring::npos,
+            "Initial reopen did not reuse Ninja's dependency checks");
+        app.stop();
+        host.idle();
+    }
+    {
+        Host host(create(L"initial-failure", true, "intentional compilation failure\n"));
+        auto& app = host.app;
+        host.await(
+            [&]
+            {
+                return app.build_sequence == 1 && !app.operation_in_progress;
+            },
+            "Initial build failure did not finish");
+        require(!app.program_started && app.auto_run_preferences.enabled &&
+                    app.auto_build.enabled() && !app.build_diagnostics.empty(),
+            "Initial failure disabled Auto Run or hid compiler diagnostics");
+        std::ofstream(app.active_project_directory / L"main.cpp") << source("failure repaired");
+        wait_running(host);
+        host.prompt(L"failure repaired");
+        app.stop();
+        host.idle();
+    }
+    {
+        Host host(create(L"initial-rapid", true, source("obsolete initial")));
+        auto& app = host.app;
+        unsigned launches = 0;
+        app.auto_run_trace = [&](const char* event)
+        {
+            if (std::string_view(event) == "started")
+            {
+                ++launches;
+            }
+        };
+        host.await(
+            [&]
+            {
+                return app.phase == Application::Phase::Building;
+            },
+            "Initial worker missing");
+        std::ofstream(app.active_project_directory / L"main.cpp") << source("intermediate initial");
+        std::ofstream(app.active_project_directory / L"main.cpp") << source("latest initial");
+        wait_running(host);
+        host.prompt(L"latest initial");
+        require(launches == 1 && app.build_sequence <= 2,
+            "Rapid first-build edits launched stale code or duplicated builds");
+        app.stop();
+        host.idle();
+    }
+    {
+        const auto next = create(L"initial-switch-next", true, source("switched initial"));
+        Host host(create(L"initial-switch-old", true, source("obsolete switch")));
+        auto& app = host.app;
+        host.await(
+            [&]
+            {
+                return app.phase == Application::Phase::Building;
+            },
+            "Switch worker missing");
+        app.open(next);
+        wait_running(host);
+        host.prompt(L"switched initial");
+        require(app.active_project_directory == fs::weakly_canonical(next) &&
+                    read_control_text(app.program_console.window).find(L"obsolete switch") ==
+                        std::wstring::npos,
+            "Project switch launched the obsolete initial project");
+        app.stop();
+        host.idle();
+        app.open(next);
+        app.stop();
+        settle(host, 600);
+        require(!app.operation_in_progress && !app.program_started,
+            "Stop did not cancel queued initial startup");
+        app.open(next);
+        host.await(
+            [&]
+            {
+                return app.phase == Application::Phase::Building;
+            },
+            "Close worker missing");
+        SendMessageW(app.window_handle, WM_CLOSE, 0, 0);
+        host.await(
+            [&]
+            {
+                return !IsWindow(app.window_handle);
+            },
+            "Closing did not cancel initial work");
+        require(!app.session.running(), "Closing retained the obsolete initial process tree");
+    }
+    for (const unsigned graph : {0u, 1u, 2u})
+    {
+        const auto multi = create(graph == 0   ? L"initial-multiple"
+                                  : graph == 1 ? L"initial-stale-targets"
+                                               : L"initial-suppressed-regeneration",
+            true,
+            source("not selected"));
+        if (graph == 2)
+        {
+            std::ofstream(multi / L"CMakeLists.txt", std::ios::app)
+                << "set(CMAKE_SUPPRESS_REGENERATION ON)\n";
+        }
+        if (graph != 0)
+        {
+            cpplivelab::ProjectOptions options;
+            require(cpplivelab::managed_build(multi, L"Debug", options, false, false) == 0,
+                "Cannot seed stale sole-target metadata");
+        }
+        std::ofstream(multi / L"CMakeLists.txt", std::ios::app)
+            << "add_executable(tool tool.cpp)\n";
+        std::ofstream(multi / L"main.cpp") << "#error unselected target must not compile\n";
+        std::ofstream(multi / L"tool.cpp") << source("selected tool");
+        Host host(multi);
+        auto& app = host.app;
+        InitialRunDialog driver{&app};
+        InitialRunDialogScope dialog(driver);
+        host.await(
+            [&]
+            {
+                return app.phase == Application::Phase::Building;
+            },
+            "Target-discovery worker did not start");
+        app.command(RunButton); // Explicit Run during discovery must still require a target.
+        host.await(
+            [&]
+            {
+                return driver.acted && !app.operation_in_progress;
+            },
+            "Missing target selection prompt");
+        dialog.stop();
+        require(driver.target_prompt && driver.no_selection && !app.program_started &&
+                    app.initial_auto_run == Application::InitialAutoRun::AwaitingTarget &&
+                    app.build_sequence == 1,
+            "Initial startup guessed or compiled ambiguous/stale target metadata");
+        SendMessageW(app.find_control(ExecutableInput),
+            CB_SELECTSTRING,
+            -1,
+            reinterpret_cast<LPARAM>(L"tool"));
+        app.save_selection();
+        wait_running(host);
+        host.prompt(L"selected tool");
+        require(cpplivelab::load_project_options(multi, L"Debug").target == L"tool",
+            "Chosen initial executable target did not persist");
+        app.stop();
+        host.idle();
+    }
+    {
+        const auto guarded = create(L"initial-approval", true, source("approved initial"));
+        std::ofstream(guarded / L"CMakeLists.txt", std::ios::app)
+            << "file(WRITE \"${CMAKE_CURRENT_SOURCE_DIR}/approved-write.txt\" \"approved\")\n";
+        Host host(guarded);
+        auto& app = host.app;
+        for (const bool approve : {false, true})
+        {
+            InitialRunDialog driver{&app, approve};
+            InitialRunDialogScope dialog(driver);
+            app.open(guarded);
+            host.await(
+                [&]
+                {
+                    return driver.acted;
+                },
+                "Initial configuration bypassed authorization");
+            dialog.stop();
+            if (!approve)
+            {
+                require(!fs::exists(guarded / L"approved-write.txt") && app.build_sequence == 0 &&
+                            app.auto_run_preferences.enabled,
+                    "Declined initial configuration executed CMake or disabled Auto Run");
+            }
+            else
+            {
+                wait_running(host);
+                host.prompt(L"approved initial");
+                require(fs::is_regular_file(guarded / L"approved-write.txt"),
+                    "Explicitly approved fixture configuration did not execute");
+                app.stop();
+                host.idle();
+            }
+        }
+    }
+    std::cout
+        << "Initial Auto Run: OFF/ON, cold/warm reopen, failure recovery, rapid first edits, "
+           "cancel/switch/close, ambiguous/stale targets and declined/approved CMake passed\n";
+}
+
+void independent_geometry(const fs::path& fixtures)
+{
+    std::ifstream sample(
+        fs::path(__FILE__).parent_path().parent_path() / L"consumers/native_window.cpp");
+    const std::string original{std::istreambuf_iterator<char>(sample), {}};
+    require(!original.empty(), "Independent geometry fixture missing");
+    for (const bool position : {false, true})
+    {
+        for (const bool size : {false, true})
+        {
+            const auto project =
+                fixtures / (L"geometry-" + std::to_wstring(position) + std::to_wstring(size));
+            fs::create_directories(project);
+            std::ofstream(project / L"CMakeLists.txt")
+                << "cmake_minimum_required(VERSION 3.20)\nproject(Geometry LANGUAGES CXX)\n"
+                   "add_executable(app main.cpp)\ntarget_link_libraries(app PRIVATE user32)\n";
+            auto source = original;
+            const auto natural_position = source.find("CW_USEDEFAULT,\n        CW_USEDEFAULT");
+            require(natural_position != source.npos, "Native default-position fixture changed");
+            source.replace(natural_position,
+                std::string("CW_USEDEFAULT,\n        CW_USEDEFAULT").size(),
+                "60,\n        70");
+            const auto file = project / L"main.cpp";
+            std::ofstream(file) << source;
+            RECT expected{};
+            {
+                Host host(project);
+                auto& app = host.app;
+
+                struct Choice
+                {
+                    bool position, size, acted = false, native = false;
+                } choice{position, size};
+
+                static Choice* current_choice = nullptr;
+                current_choice = &choice;
+                // Drive the production modal through native checkbox messages.
+                const auto timer = SetTimer(nullptr,
+                    0,
+                    20,
+                    [](HWND, UINT, UINT_PTR, DWORD)
+                    {
+                        // The caller keeps the Choice alive for the entire modal lifetime.
+                        EnumThreadWindows(
+                            GetCurrentThreadId(),
+                            [](HWND window, LPARAM data) -> BOOL
+                            {
+                                auto& selected = *reinterpret_cast<Choice*>(data);
+                                if (selected.acted || read_control_text(window) != L"Preferences")
+                                {
+                                    return TRUE;
+                                }
+                                selected.acted = true;
+                                selected.native = true;
+                                for (const auto [id, checked] : {std::pair{2000, selected.position},
+                                         std::pair{2001, selected.size}})
+                                {
+                                    const auto control = GetDlgItem(window, id);
+                                    selected.native =
+                                        selected.native && (GetWindowLongPtrW(control, GWL_STYLE) &
+                                                               BS_TYPEMASK) == BS_AUTOCHECKBOX;
+                                    if ((SendMessageW(control, BM_GETCHECK, 0, 0) == BST_CHECKED) !=
+                                        checked)
+                                    {
+                                        SendMessageW(control, BM_CLICK, 0, 0);
+                                    }
+                                }
+                                PostMessageW(window, WM_COMMAND, IDOK, 0);
+                                return TRUE;
+                            },
+                            reinterpret_cast<LPARAM>(current_choice));
+                    });
+
+                app.command(WindowPreferencesMenu);
+                KillTimer(nullptr, timer);
+                current_choice = nullptr;
+                if (!choice.acted || !choice.native ||
+                    app.auto_run_preferences.keep_window_position != position ||
+                    app.auto_run_preferences.keep_window_size != size)
+                {
+                    throw std::runtime_error(
+                        "Production Preferences expected position/size " +
+                        std::to_string(position) + "/" + std::to_string(size) + ", actual " +
+                        std::to_string(app.auto_run_preferences.keep_window_position) + "/" +
+                        std::to_string(app.auto_run_preferences.keep_window_size) +
+                        ", acted/native " + std::to_string(choice.acted) + "/" +
+                        std::to_string(choice.native));
+                }
+                const auto launch = [&]
+                {
+                    app.command(RunButton);
+                    host.await(
+                        [&]
+                        {
+                            return app.program_started && managed_window(app) &&
+                                   !app.restore_started;
+                        },
+                        "Independent geometry launch failed");
+                };
+                const auto check = [&]
+                {
+                    RECT actual{};
+                    GetWindowRect(managed_window(app), &actual);
+                    require(EqualRect(&actual, &expected),
+                        "GUI launch/replacement restored a disabled geometry component");
+                };
+                launch();
+                SetWindowPos(managed_window(app),
+                    nullptr,
+                    120,
+                    140,
+                    700,
+                    440,
+                    SWP_NOZORDER | SWP_NOACTIVATE);
+                app.command(StopButton);
+                host.idle();
+                const auto dimensions = source.find("        640,\n        420,");
+                require(dimensions != source.npos, "Native dimension fixture changed");
+                source.replace(dimensions,
+                    std::string("        640,\n        420,").size(),
+                    "        800,\n        500,");
+                std::ofstream(file) << source;
+                expected = {position ? 120 : 60, position ? 140 : 70, 0, 0};
+                expected.right = expected.left + (size ? 700 : 800);
+                expected.bottom = expected.top + (size ? 440 : 500);
+                launch();
+                check();
+                const auto stable = GetTickCount64();
+                host.await(
+                    [&]
+                    {
+                        return GetTickCount64() - stable >= 1200;
+                    },
+                    "Sampling stalled");
+                PostMessageW(managed_window(app), WM_CLOSE, 0, 0);
+                host.idle();
+                launch();
+                check();
+                const auto manual_pid = app.session.process_id();
+                app.command(ProgramRestartButton);
+                host.await(
+                    [&]
+                    {
+                        return app.program_started && managed_window(app) && !app.restore_started &&
+                               app.session.process_id() != manual_pid && !app.replacement_stopping;
+                    },
+                    "Manual Restart failed");
+                check();
+                app.command(AutoRunButton);
+                for (const auto mode :
+                    {cpplivelab::ReplacementMode::Safe, cpplivelab::ReplacementMode::Seamless})
+                {
+                    app.auto_run_preferences.replacement_mode = mode;
+                    const auto previous_pid = app.session.process_id();
+                    const auto saved_at = GetTickCount64();
+                    std::ofstream(file)
+                        << source << "\n// geometry mode " << static_cast<int>(mode);
+                    host.await(
+                        [&]
+                        {
+                            return app.program_started && managed_window(app) &&
+                                   app.session.process_id() != previous_pid &&
+                                   !app.restore_started && !app.replacement_stopping &&
+                                   !app.replacement_building && !app.candidate_pending;
+                        },
+                        "Independent Auto Run replacement failed",
+                        90000);
+                    check();
+                    std::cout << "GEOMETRY_AUTORUN,position=" << position << ",size=" << size
+                              << ",mode=" << static_cast<unsigned>(mode)
+                              << ",save_to_running_ms=" << GetTickCount64() - saved_at << '\n';
+                }
+                app.command(StopButton);
+                host.idle();
+            }
+            Host reopened(project);
+            require(reopened.app.auto_run_preferences.keep_window_position == position &&
+                        reopened.app.auto_run_preferences.keep_window_size == size,
+                "New manager session lost independent project preferences");
+            reopened.app.command(RunButton);
+            reopened.await(
+                [&]
+                {
+                    return reopened.app.program_started && managed_window(reopened.app) &&
+                           !reopened.app.restore_started;
+                },
+                "Cross-session geometry launch failed");
+            RECT actual{};
+            GetWindowRect(managed_window(reopened.app), &actual);
+            require(EqualRect(&actual, &expected), "Cross-session geometry was not retained");
+            reopened.app.command(StopButton);
+            reopened.idle();
+        }
+    }
+    std::cout
+        << "Independent geometry: four native checkbox combinations, changed program size, "
+           "normal close/Run, manual Restart, Safe/Seamless Auto Run and new manager passed\n";
+}
+
 void window_management(const fs::path& fixtures)
 {
     const auto project = fixtures / L"replacement";
@@ -874,6 +1396,7 @@ void window_management(const fs::path& fixtures)
             return !windows().empty();
         },
         "Initial native window missing");
+    app.auto_run_preferences.keep_window_size = true;
     app.auto_run_preferences.replacement_mode = cpplivelab::ReplacementMode::Seamless;
     SetWindowPos(managed_window(app), nullptr, 100, 140, 720, 460, SWP_NOZORDER | SWP_NOACTIVATE);
     RECT expected_early{};
@@ -1004,6 +1527,7 @@ void window_management(const fs::path& fixtures)
         "Single-instance conflict killed previous application");
     app.auto_run_preferences.replacement_mode = cpplivelab::ReplacementMode::Safe;
     replace(mutex_source + "\n// Safe compatibility fallback\n");
+    app.auto_run_preferences.keep_window_size = true;
     app.auto_run_preferences.replacement_mode = cpplivelab::ReplacementMode::Seamless;
     const auto before_timeout = app.session.process_id();
     std::ofstream(file) << "#include <windows.h>\nint main(){Sleep(30000);}\n";
@@ -1168,18 +1692,18 @@ BOOL CALLBACK drive_worker_window(HWND window, LPARAM)
             else
             {
                 SendDlgItemMessageW(window,
-                    2002,
+                    2003,
                     CB_SELECTSTRING,
                     static_cast<WPARAM>(-1),
                     reinterpret_cast<LPARAM>(driver.selection.c_str()));
-                SendMessageW(window, WM_COMMAND, MAKEWPARAM(2002, CBN_SELCHANGE), 0);
+                SendMessageW(window, WM_COMMAND, MAKEWPARAM(2003, CBN_SELCHANGE), 0);
                 PostMessageW(window, WM_COMMAND, IDCANCEL, 0);
             }
         }
         else if (driver.optimize && driver.benchmark_seen && !cpplivelab::library_task_active())
         {
             driver.finished = cpplivelab::load_build_workers().recommended &&
-                              read_control_text(GetDlgItem(window, 2002)) ==
+                              read_control_text(GetDlgItem(window, 2003)) ==
                                   std::to_wstring(cpplivelab::load_build_workers().recommended);
             try
             {
@@ -1663,14 +2187,6 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     app.command(AutoRunButton);
     require(!app.auto_build.enabled(), "Auto Run toggle did not disable scheduling");
     app.command(AutoRunButton);
-    const auto enabled_at = GetTickCount64();
-    while (GetTickCount64() - enabled_at < 400)
-    {
-        pump();
-        Sleep(5);
-    }
-    require(!app.operation_in_progress, "Enabling Auto Run immediately launched an idle project");
-    std::ofstream(source_path) << original << "\n// Launch from idle after relevant save\n";
     host.running();
     host.prompt(L"Your name:");
     host.send(L"Idle Auto");
@@ -1681,7 +2197,7 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     host.idle();
     require(read_control_text(app.program_console.window).find(L"Hello, Idle Auto! Sum: 10") !=
                 std::wstring::npos,
-        "Auto Run from idle lost interactive input/output");
+        "Initial Auto Run from idle lost interactive input/output");
     std::ofstream(source_path) << original << "\n// Cancel idle automatic build with OFF\n";
     host.await(
         [&]
@@ -1774,6 +2290,7 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
                                  "easiercpp_target_pch(runtime_dependency HEADERS <vector>)\n";
     cpplivelab::configure_project_pch(window_project, L"Debug", native_pch);
     app.open(window_project);
+    app.auto_run_preferences.keep_window_size = true;
     app.command(RunButton);
     host.running();
     auto native_window = [&]()
@@ -2067,6 +2584,9 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     app.open(second_project);
     require(!app.auto_build.pending() && !app.operation_in_progress,
         "Switch after Stop retained a build or pending queue");
+    require(app.initial_auto_run == Application::InitialAutoRun::Pending,
+        "Opening the enabled project did not queue its own initial Auto Run");
+    app.stop(); // The following tests exercise manager tasks, not project startup.
     restart_task_checks(app, fixtures);
     SendMessageW(app.window_handle, WM_CLOSE, 0, 0);
     host.await(
@@ -2107,6 +2627,14 @@ int wmain(int argc, wchar_t** argv)
         else if (argc == 2 && std::wstring_view(argv[1]) == L"--benchmark-replacement")
         {
             flow_tests::replacement_benchmark(isolated_state.root);
+        }
+        else if (argc == 2 && std::wstring_view(argv[1]) == L"--initial-auto-run")
+        {
+            flow_tests::initial_auto_run_workflow(isolated_state.root);
+        }
+        else if (argc == 2 && std::wstring_view(argv[1]) == L"--window-geometry")
+        {
+            flow_tests::independent_geometry(isolated_state.root);
         }
         else if (argc == 2 && std::wstring_view(argv[1]) == L"--window-management")
         {

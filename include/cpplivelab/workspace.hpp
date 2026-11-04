@@ -7,6 +7,7 @@
 namespace cpplivelab
 {
 inline constexpr int artifact_missing_exit_code = 76;
+inline constexpr int target_selection_exit_code = 77;
 
 struct ProjectInspection
 {
@@ -67,7 +68,8 @@ int managed_build(const std::filesystem::path& root,
     const std::wstring& configuration,
     const ProjectOptions& options,
     bool run,
-    bool incremental);
+    bool incremental,
+    bool require_target = false);
 // Explicit approval is required. Preserves all old outputs and switches the
 // manager's active directory only after the fresh build succeeds.
 int recover_managed_build(const std::filesystem::path& root,

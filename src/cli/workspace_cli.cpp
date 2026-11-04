@@ -20,10 +20,16 @@ std::optional<int> workspace_command(int argc, wchar_t** argv)
     }
     std::map<std::wstring, std::wstring> arguments;
     bool incremental = false, allow_writes = false;
+    bool require_target = false;
     bool approved_recovery = false;
     for (int index = 3; index < argc; ++index)
     {
         const std::wstring option = argv[index];
+        if (option == L"--require-target")
+        {
+            require_target = true;
+            continue;
+        }
         if (option == L"--approve-recovery")
         {
             approved_recovery = true;
@@ -142,6 +148,10 @@ std::optional<int> workspace_command(int argc, wchar_t** argv)
     {
         return recover_managed_build(inspected.root, configuration, options, approved_recovery);
     }
-    return managed_build(
-        inspected.root, configuration, options, command == L"manage-run", incremental);
+    return managed_build(inspected.root,
+        configuration,
+        options,
+        command == L"manage-run",
+        incremental,
+        require_target);
 }

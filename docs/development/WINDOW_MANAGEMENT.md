@@ -32,62 +32,76 @@ Existing A/B directories, PCH profiles, runtime environment, DLL paths, working 
 arguments, interactive pipes and build-failure preservation are reused. Startup requests
 non-activation; applications can still explicitly activate their own windows.
 
-## Placement memory
+## Independent placement settings (v0.1.1)
 
-New configurations default to **Remember Between Sessions**. Existing four-field
-Auto Run settings migrate to Session when restoration was enabled, otherwise Off.
-Replacement mode migrates to Safe. The original four fields remain at the start of
-`auto-run.settings`, followed by numeric placement and replacement modes.
+Settings → Preferences contains two project-specific checkboxes:
 
-- **Off:** does not restore or update historical placement; existing stored data is
-  retained so changing preferences does not erase it.
-- **Remember During Session:** uses manager-owned memory only. A fresh manager does
-  not read persistent placement in this mode.
-- **Remember Between Sessions:** also reads/writes the existing manager workspace,
-  under `workspace_directory(project)/window-placement/<identity>.settings`.
-  Source folders and CMake files are never modified.
+| Keep Window Position | Keep Window Size | Subsequent application launches |
+|---|---|---|
+| OFF | OFF | Program chooses position and dimensions |
+| ON | OFF | Remembered position; program chooses dimensions (new-project default) |
+| OFF | ON | Program chooses position; remembered dimensions |
+| ON | ON | Remembered position and dimensions |
 
-Identity is project + target + configuration, independent of the A/B slot. The stored
-record includes the target/configuration for verification, Unicode window class/title,
-monitor identity, normal rectangle, actual bounds, maximization, DPI and monitor/work
-rectangles. Versioned UTF-16 records are bounded to 64 KiB/32 windows, validated on read,
-and atomically replaced. Unrecognized/corrupt records are ignored.
+These apply to manual Run after normal close or Stop, manual Restart, Safe and
+Seamless Auto Run, and reopening the project in a new manager session. Choices take
+effect on subsequent launches. Native move-only/resize-only flags preserve the
+unchecked component. Partial restoration does not change the application's own
+maximized/minimized/fullscreen startup state; saved maximization is restored when
+both options are enabled. Existing early Seamless positioning/rechecking is reused.
+Startup rechecking ends at handoff; normal running windows are not repositioned.
 
-Tracking samples at most twice per second and requires consecutive stable geometry.
-Hidden/destroyed windows, minimized captures and invalid rectangles do not erase valid
-history. Changed persistent data is written at most every two seconds while running,
-with an explicit flush before Stop/shutdown and at process completion. A crash or user
-close does not automatically reopen the program. The existing monitor/DPI restoration
-algorithm handles negative monitor coordinates and disconnected-monitor fallback.
+Preferences remain in the project's manager workspace, not in source or CMake files.
+The original six Auto Run fields are retained for compatibility, followed by
+`geometry-v1 <position> <size>`. Old restoration OFF becomes both OFF; old ON becomes
+both ON. Legacy Session is upgraded to persistent retention because the new UI has
+no separate session mode. Existing window files are retained and remain readable.
+Invalid appended geometry options disable restoration conservatively.
 
-## Manual acceptance
+Geometry identity is project + target + configuration, independent of the A/B slot.
+Existing versioned UTF-16 records (64 KiB/32 windows maximum) retain class/title,
+monitor, normal/actual bounds, maximization and DPI. Invalid/corrupt records are
+ignored. Stable captures are sampled at most twice per second and flushed at most
+every two seconds, with explicit Stop/shutdown/completion flushes. Empty, hidden,
+destroyed or minimized captures do not erase valid history. Both OFF retains old
+history without applying or updating it. Enabling a choice does not reopen an app.
 
-1. Launch `build/window-management/EasierCpp-Gui.exe`. Open a disposable graphical
-   CMake project. Settings → Preferences should show the project's placement and
-   replacement settings. New settings default to Between Sessions + Safe.
-2. Choose Session + Safe, Run, move/resize the program, Stop, Run. Expect the same
-   placement. Close its window yourself, Run again; expect the same placement.
-3. Choose Between Sessions, maximize the application, close EasierCpp, reopen it and
-   the same project/target/configuration, then Run. Expect maximization to return.
-4. Choose Off, Stop and Run. Expect the application to choose its own geometry. Switch
-   back to a memory mode: its retained history should remain available.
-5. Select Seamless and enable Auto Run. Save a real source change. Expect the old
-   application to remain visible through compilation and replacement startup; only
-   after the restored replacement is ready should the old application close.
-6. Introduce a syntax error and save. Expect compiler errors and the old program to
-   remain running. Repair and save; expect a successful replacement.
-7. In a disposable fixture, make the replacement return a nonzero code immediately.
-   Expect a startup failure message, no retry loop and the previous program retained.
-   For a single-instance application, expect equivalent rejection; select Safe and
-   save another change to perform a compatible stop-first replacement.
-8. Save several real changes rapidly, including during compilation/startup. Expect
-   the latest version, no stale candidate launch and no orphan duplicate processes.
-9. Test a console project that reads stdin. Expect its prompt/output and input after
-   replacement, with no requirement for a graphical window. Test Stop and manual
-   Restart as well. Repeat with Session/Off and both replacement modes.
-10. If hardware permits, move a program above/left of the primary display, restart,
-    then disconnect that monitor and restart again. Expect preserved placement when
-    connected and safe visible fallback when disconnected. Check mixed DPI manually.
+Position-only restoration uses the remembered monitor where available and clamps
+position to a visible work area without resizing. Size-only restoration scales the
+saved outer-window dimensions for the current DPI, bounds size to the current work
+area, and does not move the application's chosen position. Mixed physical display
+configurations remain manual acceptance; geometry is not application/game state.
+
+## Manual v0.1.1 acceptance
+
+1. Extract the complete v0.1.1 ZIP, run EasierCpp-Gui.exe and open a disposable native
+   graphical project. Check the title and CLI `--version` show 0.1.1. Keep resources
+   and the companion CLI beside the GUI. Existing user projects need no changes.
+2. Open Settings → Preferences. A new project should have Position checked and Size
+   unchecked, with no old placement-mode dropdown. Toggle each using Tab/Space and
+   mouse. Confirm replacement mode and worker controls still work in both themes.
+3. Run a window, move/resize it, then Stop and Run. Repeat after closing the program's
+   own window normally. Test all four checkbox combinations against the table above.
+   Wait briefly after moving the window so the manager can sample stable geometry.
+4. In a disposable Raylib project, use InitWindow(1280, 720, "Test"), Run and move it.
+   With Position ON/Size OFF, change to InitWindow(1600, 900, "Test") and rebuild/Run.
+   Expect the old position and the new 1600x900 client area. With Size ON, expect the
+   remembered dimensions instead. Do not edit FarmGame for this acceptance check.
+5. Repeat with manual Restart, then with Auto Run in Safe and Seamless modes. Save a
+   valid change, a deliberate compiler error, and a repair. Expect the working app
+   retained during compilation/failure, successful replacement and no duplicate jobs.
+6. Close EasierCpp, reopen the same project, and Run. Expect both checkbox choices
+   and the selected target/configuration's valid geometry to persist. An old ON
+   profile should retain both checks; an old OFF profile should retain neither.
+7. Maximize/minimize a native app and repeat. Partial restoration must not override
+   application-controlled startup state. Both ON retains supported maximized history.
+   Repeat with multiple windows and console-only input/output, Stop and Restart.
+8. If hardware permits, use a monitor left/above primary, disconnect it, change DPI,
+   and relaunch. Expect visible fallback without restoring the unchecked component.
+   Repeat with actual SDL/SFML projects; those frameworks are not bundled or injected.
+9. From an extraction outside the checkout, create/build/run a disposable project,
+   add/use/remove a trusted local library through previews, and rerun the window
+   checks. Doctor must discover installed tools without permanent PATH changes.
 
 ## Limits
 

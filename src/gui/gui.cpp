@@ -34,6 +34,12 @@ namespace
 {
 namespace fs = std::filesystem;
 
+std::wstring application_title()
+{
+    return L"EasierCpp — Make Your Life Easier (v" +
+           cpplivelab::decode_console_text(EASIERCPP_VERSION) + L")";
+}
+
 // Fixed IDs route Windows messages and identify controls to accessibility tools.
 // Keep the numbers stable when changing labels or layout.
 enum ControlId
@@ -217,6 +223,16 @@ public:
     cpplivelab::AutoRunPreferences auto_run_preferences;
     bool auto_launch_armed = true;
     bool automatic_program_pending = false;
+    enum class InitialAutoRun
+    {
+        None,
+        Pending,
+        Active,
+        AwaitingTarget
+    };
+    InitialAutoRun initial_auto_run = InitialAutoRun::None;
+    bool initial_targets_verified = false;
+    fs::path initial_switch_project;
     cpplivelab::ConsoleSession replacement_build;
     cpplivelab::ConsoleSession candidate_session;
     std::unique_ptr<cpplivelab::BuildLease> candidate_lease;
@@ -245,6 +261,10 @@ public:
     ULONGLONG placement_sampled = 0;
     bool placement_warning = false;
     std::vector<HWND> restored_windows;
+    bool restore_position = true;
+    bool restore_size = false;
+    bool candidate_restore_position = true;
+    bool candidate_restore_size = false;
     bool restart_pending = false;
     bool restart_confirmation = false;
     std::wstring restart_instance_name;
@@ -573,17 +593,23 @@ public:
             append(L"Open a project to configure its window and replacement preferences.");
             return;
         }
-        const std::vector<std::wstring> placement{
-            L"Off", L"Remember During Session", L"Remember Between Sessions"};
         const std::vector<std::wstring> modes{
             L"Safe Replacement", L"Seamless Replacement (Experimental)"};
         std::vector<cpplivelab::FormField> fields{
-            {L"Window Placement — Remember Window Placement",
-                placement[static_cast<unsigned>(auto_run_preferences.placement_memory)],
-                placement},
+            {L"Keep Window Position (When Restarted)",
+                auto_run_preferences.keep_window_position ? L"Yes" : L"No"},
+            {L"Keep Window Size (When Restarted)",
+                auto_run_preferences.keep_window_size ? L"Yes" : L"No"},
             {L"Auto Run Replacement Mode",
                 modes[static_cast<unsigned>(auto_run_preferences.replacement_mode)],
                 modes}};
+        fields[0].checkbox = true;
+        fields[0].help =
+            L"Restore this project's application position on Run, Restart and Auto "
+            L"Run, including after reopening EasierCpp. Size is controlled separately.";
+        fields[1].checkbox = true;
+        fields[1].help = L"Restore remembered window dimensions. Turn this off to use dimensions "
+                         L"requested by your program. Choices apply to subsequent launches.";
         const auto workers = cpplivelab::load_build_workers();
         const std::wstring inherited = L"Build-system default";
         std::vector<std::wstring> counts{inherited};
@@ -608,16 +634,16 @@ public:
         fields.back().read_only = true;
         cpplivelab::FormOptions options;
         options.theme = preferences.theme;
-        options.changed = [inherited, last = fields[2].value](auto& changed) mutable
+        options.changed = [inherited, last = fields[3].value](auto& changed) mutable
         {
-            if (changed[2].value != last)
+            if (changed[3].value != last)
             {
                 auto selected = cpplivelab::load_build_workers();
-                selected.count = changed[2].value == inherited
+                selected.count = changed[3].value == inherited
                                      ? 0
-                                     : static_cast<unsigned>(std::stoul(changed[2].value));
+                                     : static_cast<unsigned>(std::stoul(changed[3].value));
                 cpplivelab::save_build_workers(selected);
-                last = changed[2].value;
+                last = changed[3].value;
             }
         };
         options.action_label = L"Optimize Workers";
@@ -626,14 +652,14 @@ public:
             if (optimize_workers(owner))
             {
                 const auto result = cpplivelab::load_build_workers();
-                changed[2].value = std::to_wstring(result.count);
-                if (std::find(changed[2].choices.begin(),
-                        changed[2].choices.end(),
-                        changed[2].value) == changed[2].choices.end())
+                changed[3].value = std::to_wstring(result.count);
+                if (std::find(changed[3].choices.begin(),
+                        changed[3].choices.end(),
+                        changed[3].value) == changed[3].choices.end())
                 {
-                    changed[2].choices.push_back(changed[2].value);
+                    changed[3].choices.push_back(changed[3].value);
                 }
-                changed[3].value = std::to_wstring(result.recommended) + L" (synthetic estimate)";
+                changed[4].value = std::to_wstring(result.recommended) + L" (synthetic estimate)";
             }
         };
         options.note =
@@ -642,17 +668,18 @@ public:
             L"resources. Mode changes apply to the next replacement.";
         if (show_project_form(L"Preferences", fields, options))
         {
-            auto_run_preferences.placement_memory = static_cast<cpplivelab::PlacementMemory>(
-                std::find(placement.begin(), placement.end(), fields[0].value) - placement.begin());
+            auto_run_preferences.keep_window_position = fields[0].value == L"Yes";
+            auto_run_preferences.keep_window_size = fields[1].value == L"Yes";
             auto_run_preferences.restore_windows =
-                auto_run_preferences.placement_memory != cpplivelab::PlacementMemory::Off;
-            if (!auto_run_preferences.restore_windows)
-            {
-                previous_windows.clear();
-                restore_started = 0;
-            }
+                auto_run_preferences.keep_window_position || auto_run_preferences.keep_window_size;
+            auto_run_preferences.placement_memory = auto_run_preferences.restore_windows
+                                                        ? cpplivelab::PlacementMemory::Persistent
+                                                        : cpplivelab::PlacementMemory::Off;
+            // Preferences affect future launches, never reposition the active window.
+            previous_windows.clear();
+            restore_started = 0;
             auto_run_preferences.replacement_mode = static_cast<cpplivelab::ReplacementMode>(
-                std::find(modes.begin(), modes.end(), fields[1].value) - modes.begin());
+                std::find(modes.begin(), modes.end(), fields[2].value) - modes.begin());
             cpplivelab::save_auto_run_preferences(active_project_directory, auto_run_preferences);
         }
     }
@@ -1037,6 +1064,16 @@ public:
     {
         if (operation_in_progress || replacement_building)
         {
+            if (initial_auto_run == InitialAutoRun::Active && !program_started)
+            {
+                const auto next = cpplivelab::inspect_project(folder).root;
+                if (next != active_project_directory)
+                {
+                    stop();
+                    initial_switch_project = next;
+                    set_auto_status(L"Cancelling obsolete initial Auto Run before project switch");
+                }
+            }
             return;
         }
         const auto inspection = cpplivelab::inspect_project(folder);
@@ -1046,6 +1083,9 @@ public:
         run_requested = false;
         probe_pending = false;
         should_run_program = false;
+        initial_auto_run = InitialAutoRun::None;
+        initial_targets_verified = false;
+        initial_switch_project.clear();
         active_project_directory = candidate;
         auto_run_preferences = cpplivelab::load_auto_run_preferences(
             candidate, cpplivelab::legacy_auto_build_enabled(preference_store));
@@ -1064,9 +1104,7 @@ public:
         SetWindowTextW(find_control(ProjectIdentityLabel),
             (L"Active project: " + active_project_directory.filename().wstring()).c_str());
         SetWindowTextW(window_handle,
-            (L"EasierCpp — Make Your Life Easier - " +
-                active_project_directory.filename().wstring())
-                .c_str());
+            (application_title() + L" - " + active_project_directory.filename().wstring()).c_str());
         std::ifstream last_config(cpplivelab::workspace_directory(candidate) / L"last-config.txt");
         std::string configuration;
         last_config >> configuration;
@@ -1104,6 +1142,12 @@ public:
                 L"configuration.");
         }
         start_watching();
+        if (auto_run_preferences.enabled)
+        {
+            initial_auto_run = InitialAutoRun::Pending;
+            log(cpplivelab::MessageKind::System,
+                L"Auto Run enabled — preparing initial project build.");
+        }
         refresh();
     }
 
@@ -1175,6 +1219,107 @@ public:
         }
         cpplivelab::save_project_options(
             active_project_directory, selected_configuration(), project_options());
+        if (initial_auto_run == InitialAutoRun::AwaitingTarget &&
+            !read_control_text(find_control(ExecutableInput)).empty())
+        {
+            initial_auto_run = InitialAutoRun::Pending;
+        }
+    }
+
+    void poll_initial_auto_run()
+    {
+        if (phase != Phase::Idle || operation_in_progress || replacement_building ||
+            project_dialog_open || close_requested || restart_pending)
+        {
+            return;
+        }
+        if (!initial_switch_project.empty())
+        {
+            const auto next = initial_switch_project;
+            initial_switch_project.clear();
+            open(next);
+            return;
+        }
+        if (initial_auto_run != InitialAutoRun::Pending)
+        {
+            return;
+        }
+        initial_auto_run = InitialAutoRun::Active; // Modal loops must not dispatch it twice.
+        if (!automatic_launch_allowed())
+        {
+            initial_auto_run = InitialAutoRun::None;
+            return;
+        }
+        try
+        {
+            if (!authorize_configuration())
+            {
+                initial_auto_run = InitialAutoRun::None;
+                auto_build.cancel();
+                set_auto_status(L"Initial Auto Run paused — configuration was not authorized");
+                return;
+            }
+            auto options = project_options();
+            const auto targets = cpplivelab::executable_targets(
+                active_project_directory, selected_configuration(), options);
+            const auto selected = std::find_if(targets.begin(),
+                targets.end(),
+                [&](const auto& target)
+                {
+                    return target.name == options.target;
+                });
+            if (initial_targets_verified && !targets.empty() && selected == targets.end())
+            {
+                std::wstring target;
+                if (targets.size() == 1)
+                {
+                    target = targets.front().name;
+                }
+                else
+                {
+                    initial_auto_run = InitialAutoRun::AwaitingTarget;
+                    std::vector<std::wstring> names;
+                    for (const auto& item : targets)
+                    {
+                        names.push_back(item.name);
+                    }
+                    std::vector<cpplivelab::FormField> fields{{L"Executable target", L"", names}};
+                    cpplivelab::FormOptions choice;
+                    choice.theme = preferences.theme;
+                    choice.note =
+                        L"This project has multiple executables. Choose one for Auto Run. "
+                        L"No executable will be guessed or launched without a selection.";
+                    choice.validate = [](const auto& values)
+                    {
+                        return values[0].value.empty() ? L"Select an executable target." : L"";
+                    };
+                    if (!show_project_form(L"Choose Auto Run target", fields, choice))
+                    {
+                        auto_build.cancel();
+                        set_auto_status(L"Initial Auto Run paused — select an executable target");
+                        return;
+                    }
+                    target = fields[0].value;
+                    initial_auto_run = InitialAutoRun::Active;
+                }
+                options.target = target;
+                cpplivelab::save_project_options(
+                    active_project_directory, selected_configuration(), options);
+                reload_targets();
+            }
+            // Reuse the worker's configuration fingerprints and Ninja dependency checks.
+            // Cold discovery stops before compilation if the graph is ambiguous.
+            start(false, true, true);
+        }
+        catch (const std::exception& error)
+        {
+            initial_auto_run = InitialAutoRun::None;
+            auto_build.cancel();
+            log(cpplivelab::MessageKind::Error,
+                L"Initial Auto Run could not start: " + decode_console_text(error.what()));
+            SetWindowTextW(
+                find_control(StatusLabel), L"Initial Auto Run failed — review Build & System");
+        }
     }
 
     bool authorize_configuration()
@@ -1569,6 +1714,10 @@ public:
         {
             return;
         }
+        if (!automatic)
+        {
+            initial_auto_run = InitialAutoRun::None;
+        }
         if (run)
         {
             auto_launch_armed = true;
@@ -1621,7 +1770,15 @@ public:
         {
             arguments.push_back(L"--approve-recovery");
         }
-        const auto options = project_options();
+        auto options = project_options();
+        if (initial_auto_run == InitialAutoRun::Active && !initial_targets_verified)
+        {
+            // A cached sole target can be stale after an external CMake edit.
+            // Only a saved user selection or the freshly configured graph may choose it.
+            options.target =
+                cpplivelab::load_project_options(active_project_directory, selected_configuration())
+                    .target;
+        }
         if (!options.target.empty())
         {
             arguments.insert(arguments.end(), {L"--target", options.target});
@@ -1633,6 +1790,10 @@ public:
         if (incremental)
         {
             arguments.push_back(L"--incremental");
+        }
+        if (initial_auto_run == InitialAutoRun::Active)
+        {
+            arguments.push_back(L"--require-target");
         }
         building_identity = current_identity();
         building_sources_known = false;
@@ -1806,11 +1967,18 @@ public:
                 auto_run_preferences.placement_memory);
         }
         restore_started = previous_windows.empty() ? 0 : GetTickCount64();
+        restore_position = auto_run_preferences.keep_window_position;
+        restore_size = auto_run_preferences.keep_window_size;
         restored_windows.clear();
         program_decoder.reset();
         error_decoder.reset();
         error_line_start = true;
         program_started = true;
+        if (initial_auto_run == InitialAutoRun::Active)
+        {
+            initial_auto_run = InitialAutoRun::None;
+            log(cpplivelab::MessageKind::System, L"Initial Auto Run completed.");
+        }
         input_closed = false;
         run_requested = false;
         phase = Phase::Running;
@@ -2080,6 +2248,7 @@ public:
             return;
         }
         track_placement();
+        poll_initial_auto_run();
         poll_watcher();
         poll_auto_run();
         if (phase == Phase::Idle && run_requested && !auto_build.pending() && !close_requested)
@@ -2199,8 +2368,28 @@ public:
                         build_id + L": Build Deferred - active executable/configuration preserved");
                     finish_operation(L"Build Deferred");
                 }
+                else if (result == cpplivelab::target_selection_exit_code &&
+                         initial_auto_run == InitialAutoRun::Active)
+                {
+                    run_requested = false; // A queued Run must not bypass the target chooser.
+                    reload_targets();
+                    initial_targets_verified = true;
+                    auto_build.cancel();
+                    finish_operation(L"Initial Auto Run — choose an executable target");
+                    const auto targets = cpplivelab::executable_targets(
+                        active_project_directory, selected_configuration(), project_options());
+                    initial_auto_run =
+                        targets.empty() ? InitialAutoRun::None : InitialAutoRun::Pending;
+                    if (targets.empty())
+                    {
+                        log(cpplivelab::MessageKind::Warning,
+                            L"Initial Auto Run needs an executable target; this configuration "
+                            L"exports none.");
+                    }
+                }
                 else if (result == cpplivelab::artifact_missing_exit_code)
                 {
+                    initial_auto_run = InitialAutoRun::None;
                     run_requested = false;
                     log(cpplivelab::MessageKind::Error,
                         build_id +
@@ -2210,6 +2399,7 @@ public:
                 }
                 else if (result != 0)
                 {
+                    initial_auto_run = InitialAutoRun::None;
                     run_requested = false;
                     try
                     {
@@ -2331,6 +2521,10 @@ public:
         }
         if (phase == Phase::PreparingProgram)
         {
+            if (project_dialog_open && initial_auto_run == InitialAutoRun::Active)
+            {
+                return;
+            }
             if (stop_requested || (automatic_program_pending && !automatic_launch_allowed()))
             {
                 run_requested = false;
@@ -2362,6 +2556,8 @@ public:
 
     void stop()
     {
+        initial_auto_run = InitialAutoRun::None;
+        initial_switch_project.clear();
         track_placement(true);
         if (candidate_pending)
         {
@@ -2724,6 +2920,8 @@ public:
         candidate_discarding = false;
         candidate_pending = true;
         candidate_started = GetTickCount64();
+        candidate_restore_position = auto_run_preferences.keep_window_position;
+        candidate_restore_size = auto_run_preferences.keep_window_size;
         candidate_visible = 0;
         try
         {
@@ -2892,7 +3090,9 @@ public:
             if (cpplivelab::restore_application_windows(candidate_session.active_process_ids(),
                     candidate_placement,
                     candidate_restored,
-                    true) < candidate_placement.size())
+                    true,
+                    candidate_restore_position,
+                    candidate_restore_size) < candidate_placement.size())
             {
                 return;
             }
@@ -3057,8 +3257,13 @@ public:
         }
         if (restore_started && program_started && !previous_windows.empty())
         {
-            const auto restored = cpplivelab::restore_application_windows(
-                session.active_process_ids(), previous_windows, restored_windows);
+            const auto restored =
+                cpplivelab::restore_application_windows(session.active_process_ids(),
+                    previous_windows,
+                    restored_windows,
+                    false,
+                    restore_position,
+                    restore_size);
             if (restored >= previous_windows.size() || GetTickCount64() - restore_started > 15000)
             {
 #ifdef CPPLIVELAB_GUI_TEST
@@ -3144,6 +3349,11 @@ public:
                     set_auto_status(L"Changes Detected");
                 }
             }
+        }
+        if (initial_auto_run == InitialAutoRun::AwaitingTarget ||
+            initial_auto_run == InitialAutoRun::Pending)
+        {
+            return;
         }
         if (auto_build.pending() && operation_in_progress)
         {
@@ -3482,8 +3692,16 @@ public:
             auto_build.enable(auto_run_preferences.enabled);
             watcher.stop();
             start_watching();
+            if (auto_run_preferences.enabled && !operation_in_progress && !program_started)
+            {
+                initial_targets_verified = false;
+                initial_auto_run = InitialAutoRun::Pending;
+                log(cpplivelab::MessageKind::System,
+                    L"Auto Run enabled — preparing initial project build.");
+            }
             if (!auto_run_preferences.enabled)
             {
+                initial_auto_run = InitialAutoRun::None;
                 if (replacement_building)
                 {
                     replacement_build.stop();
@@ -3574,6 +3792,24 @@ public:
         {
             cpplivelab::launch_editor(cpplivelab::load_editor(), active_project_directory);
             append(L"Opened project in preferred editor. Save edits before Build/Run.\n");
+            return;
+        }
+        if (initial_auto_run == InitialAutoRun::Active && operation_in_progress &&
+            (control_id == OpenProjectButton || control_id == BrowseButton))
+        {
+            struct PickerGuard
+            {
+                bool& flag;
+                bool before;
+
+                ~PickerGuard()
+                {
+                    flag = before;
+                }
+            } guard{project_dialog_open, project_dialog_open};
+
+            project_dialog_open = true;
+            browse();
             return;
         }
         if (operation_in_progress)
@@ -3955,7 +4191,7 @@ try
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &desktop, 0);
     HWND window_handle = CreateWindowExW(WS_EX_CONTROLPARENT,
         window_class.lpszClassName,
-        L"EasierCpp — Make Your Life Easier",
+        application_title().c_str(),
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT,
         CW_USEDEFAULT,

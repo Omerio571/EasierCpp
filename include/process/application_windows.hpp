@@ -31,7 +31,9 @@ bool expects_application_window(const std::filesystem::path& executable);
 size_t restore_application_windows(const std::vector<unsigned long>& ids,
     const std::vector<ApplicationWindow>& previous,
     std::vector<HWND>& restored,
-    bool recheck = false);
+    bool recheck = false,
+    bool keep_position = true,
+    bool keep_size = true);
 RECT visible_window_bounds(RECT bounds, const RECT& previous_work, const RECT& current_work);
 
 enum class PlacementMemory
@@ -78,11 +80,15 @@ private:
 struct AutoRunPreferences
 {
     bool enabled = false;
+    // Legacy service gates remain readable; the two checkboxes are authoritative
+    // in persisted v0.1.1 preferences and the GUI derives these gates from them.
     bool restore_windows = true;
     bool force_stop = false;
     unsigned long shutdown_ms = 3000;
     PlacementMemory placement_memory = PlacementMemory::Persistent;
     ReplacementMode replacement_mode = ReplacementMode::Safe;
+    bool keep_window_position = true;
+    bool keep_window_size = false;
 };
 
 AutoRunPreferences load_auto_run_preferences(

@@ -150,8 +150,14 @@ RECT visible_window_bounds(RECT bounds, const RECT& previous_work, const RECT& c
 size_t restore_application_windows(const std::vector<unsigned long>& ids,
     const std::vector<ApplicationWindow>& previous,
     std::vector<HWND>& restored,
-    bool recheck)
+    bool recheck,
+    bool keep_position,
+    bool keep_size)
 {
+    if (!keep_position && !keep_size)
+    {
+        return previous.size();
+    }
     const PhysicalCoordinates coordinates;
     Windows state{ids, {}};
     EnumWindows(collect, reinterpret_cast<LPARAM>(&state));
@@ -181,6 +187,97 @@ size_t restore_application_windows(const std::vector<unsigned long>& ids,
         const auto recorded = std::find(restored.begin(), restored.end(), window);
         if (recorded != restored.end() && !recheck)
         {
+            continue;
+        }
+        if (keep_position != keep_size)
+        {
+            RECT actual{};
+            MONITORINFO current_monitor{sizeof(current_monitor)};
+            if (!GetWindowRect(window, &actual) ||
+                !GetMonitorInfoW(
+                    MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &current_monitor))
+            {
+                continue;
+            }
+            const bool fullscreen = !(GetWindowLongPtrW(window, GWL_STYLE) & WS_CAPTION) &&
+                                    EqualRect(&actual, &current_monitor.rcMonitor);
+            // Partial restoration must never implicitly maximize, unmaximize or
+            // resize/move an application-controlled fullscreen window.
+            bool applied =
+                IsZoomed(window) || IsIconic(window) || fullscreen || saved.borderless_fullscreen;
+            if (!applied)
+            {
+                auto normal = saved.bounds;
+                if (saved.placement.showCmd == SW_SHOWMAXIMIZED)
+                {
+                    normal = saved.placement.rcNormalPosition;
+                    OffsetRect(&normal,
+                        saved.work_area.left - saved.monitor_area.left,
+                        saved.work_area.top - saved.monitor_area.top);
+                }
+                UINT flags = SWP_NOACTIVATE | SWP_NOZORDER;
+                RECT desired = actual;
+                if (keep_position)
+                {
+                    MonitorSearch search{saved.monitor};
+                    EnumDisplayMonitors(
+                        nullptr, nullptr, find_monitor, reinterpret_cast<LPARAM>(&search));
+                    MONITORINFO destination{sizeof(destination)};
+                    if (!GetMonitorInfoW(search.found
+                                             ? search.found
+                                             : MonitorFromRect(&normal, MONITOR_DEFAULTTONEAREST),
+                            &destination))
+                    {
+                        continue;
+                    }
+                    normal.right = normal.left + actual.right - actual.left;
+                    normal.bottom = normal.top + actual.bottom - actual.top;
+                    desired = visible_window_bounds(normal, saved.work_area, destination.rcWork);
+                    flags |= SWP_NOSIZE;
+                }
+                else
+                {
+                    // Stored outer-window dimensions and current physical coordinates
+                    // use the same contract; scale only the remembered dimensions.
+                    const auto dpi = GetDpiForWindow(window);
+                    if (!dpi || !saved.dpi)
+                    {
+                        continue;
+                    }
+                    const auto width = MulDiv(normal.right - normal.left, dpi, saved.dpi);
+                    const auto height = MulDiv(normal.bottom - normal.top, dpi, saved.dpi);
+                    desired.right = desired.left +
+                                    (std::min<LONG>)(width,
+                                        current_monitor.rcWork.right - current_monitor.rcWork.left);
+                    desired.bottom = desired.top + (std::min<LONG>)(height,
+                                                       current_monitor.rcWork.bottom -
+                                                           current_monitor.rcWork.top);
+                    flags |= SWP_NOMOVE;
+                }
+                const auto matches = [&](const RECT& bounds)
+                {
+                    return keep_position
+                               ? bounds.left == desired.left && bounds.top == desired.top
+                               : bounds.right - bounds.left == desired.right - desired.left &&
+                                     bounds.bottom - bounds.top == desired.bottom - desired.top;
+                };
+                applied = matches(actual) || (SetWindowPos(window,
+                                                  nullptr,
+                                                  desired.left,
+                                                  desired.top,
+                                                  desired.right - desired.left,
+                                                  desired.bottom - desired.top,
+                                                  flags) &&
+                                                 GetWindowRect(window, &actual) && matches(actual));
+            }
+            if (applied && recorded == restored.end())
+            {
+                restored.push_back(window);
+            }
+            else if (!applied && recorded != restored.end())
+            {
+                restored.erase(recorded);
+            }
             continue;
         }
         MonitorSearch search{saved.monitor};
@@ -507,7 +604,24 @@ AutoRunPreferences load_auto_run_preferences(
             value.placement_memory = static_cast<PlacementMemory>(memory);
             value.replacement_mode = static_cast<ReplacementMode>(replacement);
         }
-        value.restore_windows = value.placement_memory != PlacementMemory::Off;
+        value.restore_windows =
+            loaded.restore_windows && value.placement_memory != PlacementMemory::Off;
+        // Old ON meant restoring the entire placement. The new UI has no session
+        // mode: migrate enabled history to persistent storage without deleting it.
+        value.keep_window_position = value.restore_windows;
+        value.keep_window_size = value.restore_windows;
+        std::string geometry_version;
+        bool position = false, size = false;
+        if (input >> geometry_version)
+        {
+            const bool valid =
+                geometry_version == "geometry-v1" && static_cast<bool>(input >> position >> size);
+            value.keep_window_position = valid && position;
+            value.keep_window_size = valid && size;
+        }
+        value.restore_windows = value.keep_window_position || value.keep_window_size;
+        value.placement_memory =
+            value.restore_windows ? PlacementMemory::Persistent : PlacementMemory::Off;
     }
     return value;
 }
@@ -528,7 +642,13 @@ void save_auto_run_preferences(
                << value.shutdown_ms << ' '
                << static_cast<unsigned>(
                       value.restore_windows ? value.placement_memory : PlacementMemory::Off)
-               << ' ' << static_cast<unsigned>(value.replacement_mode) << '\n';
+               << ' ' << static_cast<unsigned>(value.replacement_mode) << " geometry-v1 "
+               << (value.restore_windows && value.placement_memory != PlacementMemory::Off &&
+                      value.keep_window_position)
+               << ' '
+               << (value.restore_windows && value.placement_memory != PlacementMemory::Off &&
+                      value.keep_window_size)
+               << '\n';
         if (!output)
         {
             throw std::runtime_error("Cannot save Auto Run settings.");

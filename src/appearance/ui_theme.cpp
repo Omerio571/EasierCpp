@@ -87,7 +87,11 @@ void UiTheme::apply(HWND parent, ThemeChoice choice, UINT dpi)
             if (name == L"Button")
             {
                 const auto style = GetWindowLongPtrW(child, GWL_STYLE);
-                SetWindowLongPtrW(child, GWL_STYLE, (style & ~BS_TYPEMASK) | BS_OWNERDRAW);
+                // Keep native check state, keyboard toggling and accessibility.
+                if ((style & BS_TYPEMASK) != BS_AUTOCHECKBOX)
+                {
+                    SetWindowLongPtrW(child, GWL_STYLE, (style & ~BS_TYPEMASK) | BS_OWNERDRAW);
+                }
             }
             if (name == L"Edit")
             {

@@ -649,7 +649,8 @@ int managed_build(const fs::path& root,
     const std::wstring& configuration,
     const ProjectOptions& options,
     bool run,
-    bool incremental)
+    bool incremental,
+    bool require_target)
 {
     BuildProfile profile;
     initialize_build_workers();
@@ -891,7 +892,9 @@ int managed_build(const fs::path& root,
               << std::flush;
     int result = 0;
     profile.checkpoint("configure_arguments_ms");
-    if (!incremental || !fs::is_regular_file(directory / L"CMakeCache.txt"))
+    const bool configure_needed =
+        !incremental || !fs::is_regular_file(directory / L"CMakeCache.txt");
+    if (configure_needed)
     {
         result = run_process(cmake, configure, project.root, environment);
         if (result != 0)
@@ -908,6 +911,40 @@ int managed_build(const fs::path& root,
             {
                 return result;
             }
+        }
+    }
+    if (require_target && !configure_needed)
+    {
+        // Initial startup must resolve the current graph before selecting an executable.
+        // Let Ninja check its own regeneration dependencies, including external includes,
+        // without compiling application targets. Ordinary Auto Run cycles are unchanged.
+        const auto generator = read(directory / L"generator.txt");
+        const auto rules = directory / L"CMakeFiles/rules.ninja";
+        // Suppression can be set by a project without any cache entry. If the
+        // standard regeneration rule is unavailable, use normal configuration.
+        const bool regeneration_available =
+            fs::is_regular_file(rules) && read(rules).find("rule RERUN_CMAKE") != std::string::npos;
+        if ((generator == "Ninja" || generator == "Ninja Multi-Config") && regeneration_available &&
+            fs::is_regular_file(directory / L"build.ninja"))
+        {
+            result = run_process(cmake,
+                {L"--build",
+                    directory.wstring(),
+                    L"--config",
+                    configuration,
+                    L"--target",
+                    L"build.ninja"},
+                project.root,
+                environment);
+        }
+        else
+        {
+            // Other generators/suppressed regeneration need a normal authorized configure.
+            result = run_process(cmake, configure, project.root, environment);
+        }
+        if (result != 0)
+        {
+            return result;
         }
     }
     profile.checkpoint("configure_ms");
@@ -955,7 +992,7 @@ int managed_build(const fs::path& root,
             {
                 return target.name == options.target;
             });
-        if (selected == targets.end())
+        if (selected == targets.end() && !require_target)
         {
             throw std::runtime_error(
                 "Selected executable target is not present in this configuration.");
@@ -964,6 +1001,11 @@ int managed_build(const fs::path& root,
     else if (targets.size() == 1)
     {
         selected = targets.begin();
+    }
+    if (require_target && selected == targets.end())
+    {
+        std::cout << "Select an executable target; no target was compiled or launched.\n";
+        return target_selection_exit_code;
     }
     const auto selected_name = selected == targets.end() ? std::wstring{} : selected->name;
     std::vector<std::wstring> arguments{

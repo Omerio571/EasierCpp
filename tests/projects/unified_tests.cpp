@@ -11,6 +11,7 @@
 #include "projects/project_templates.hpp"
 #include "libraries/library_compatibility.hpp"
 #include "tools/tool_workflows.hpp"
+#include "process/application_windows.hpp"
 #include <fstream>
 #include <iostream>
 
@@ -339,6 +340,7 @@ BOOL CALLBACK find_program_window(HWND window, LPARAM parameter)
 
 void raylib(const fs::path& root, const fs::path& cli)
 {
+    SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     wchar_t system[MAX_PATH]{};
     GetSystemDirectoryW(system, MAX_PATH);
     const auto powershell = fs::path(system) / L"WindowsPowerShell/v1.0/powershell.exe";
@@ -407,6 +409,10 @@ void raylib(const fs::path& root, const fs::path& cli)
     write(registry / (id + ".cmake"), github_dependency_cmake(repository, commit, hash, "raylib"));
     const auto project = root / L"Raylib Generated Project";
     create_managed_project(project, "multi", id);
+    auto sized_source = read(project / L"src/main.cpp");
+    sized_source.replace(sized_source.find("screen_width = 800"), 18, "screen_width = 1280");
+    sized_source.replace(sized_source.find("screen_height = 600"), 19, "screen_height = 720");
+    write(project / L"src/main.cpp", sized_source);
     write(project / L"assets/verification.txt", "asset preserved\n");
     formatting(project);
     for (const auto* configuration : {L"Debug", L"Release"})
@@ -446,6 +452,13 @@ void raylib(const fs::path& root, const fs::path& cli)
             Sleep(10);
         }
         require(window.window != nullptr, "Generated Raylib graphical window did not open");
+        SetWindowPos(
+            window.window, nullptr, 120, 140, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        const auto remembered = capture_application_windows(program.active_process_ids());
+        RECT client{};
+        GetClientRect(window.window, &client);
+        require(client.right == 1280 && client.bottom == 720 && !remembered.empty(),
+            "First Raylib window did not use its 1280x720 program-defined client size");
         PostMessageW(window.window, WM_CLOSE, 0, 0);
         while (
             (program.running() || program.output_pending()) && GetTickCount64() - started < 20000)
@@ -455,6 +468,58 @@ void raylib(const fs::path& root, const fs::path& cli)
         }
         require(!program.running() && program.exit_code() == 0,
             "Generated Raylib window did not close normally");
+        auto resized_source = sized_source;
+        resized_source.replace(
+            resized_source.find("screen_width = 1280"), 19, "screen_width = 1600");
+        resized_source.replace(
+            resized_source.find("screen_height = 720"), 19, "screen_height = 900");
+        write(project / L"src/main.cpp", resized_source);
+        require(build(true).first == 0, "Changed Raylib window dimensions did not rebuild");
+        program.start_program(targets.front().artifact, {}, project, {});
+        ProgramWindow resized{program.process_id()};
+        const auto reopened = GetTickCount64();
+        while (!resized.window && program.running() && GetTickCount64() - reopened < 15000)
+        {
+            program.poll_output();
+            EnumWindows(find_program_window, reinterpret_cast<LPARAM>(&resized));
+            Sleep(10);
+        }
+        require(resized.window != nullptr, "Resized Raylib window did not open");
+        std::vector<HWND> restored;
+        require(restore_application_windows(
+                    program.active_process_ids(), remembered, restored, true, true, false) ==
+                    remembered.size(),
+            "Raylib position-only restoration failed");
+        RECT bounds{};
+        GetClientRect(resized.window, &client);
+        GetWindowRect(resized.window, &bounds);
+        MONITORINFO monitor{sizeof(monitor)};
+        require(
+            GetMonitorInfoW(MonitorFromWindow(resized.window, MONITOR_DEFAULTTONEAREST), &monitor),
+            "Raylib window monitor unavailable");
+        auto expected = remembered[0].bounds;
+        expected.right = expected.left + bounds.right - bounds.left;
+        expected.bottom = expected.top + bounds.bottom - bounds.top;
+        expected = visible_window_bounds(expected, remembered[0].work_area, monitor.rcWork);
+        if (client.right != 1600 || client.bottom != 900 || bounds.left != expected.left ||
+            bounds.top != expected.top)
+        {
+            throw std::runtime_error(
+                "Raylib position-only actual client " + std::to_string(client.right) + "x" +
+                std::to_string(client.bottom) + ", position " + std::to_string(bounds.left) + "," +
+                std::to_string(bounds.top) + "; expected client 1600x900, visible position " +
+                std::to_string(expected.left) + "," + std::to_string(expected.top));
+        }
+        PostMessageW(resized.window, WM_CLOSE, 0, 0);
+        while (
+            (program.running() || program.output_pending()) && GetTickCount64() - reopened < 20000)
+        {
+            program.poll_output();
+            Sleep(5);
+        }
+        require(!program.running() && program.exit_code() == 0,
+            "Resized Raylib window did not close normally");
+        write(project / L"src/main.cpp", sized_source);
         std::cout << "Verified real Raylib window opened and closed: "
                   << path_support::path_utf8(configuration) << '\n';
         ProjectWatcher watcher;

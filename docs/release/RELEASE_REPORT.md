@@ -1,5 +1,8 @@
 # EasierCPP v0.1.0 — local portable release candidate
 
+Historical v0.1.0 results. For the current v0.1.1 candidate, see
+[V0.1.1_FINAL_VERIFICATION.md](V0.1.1_FINAL_VERIFICATION.md).
+
 ## Status
 
 The local Windows x64 Release candidate has passed the executed checks below.

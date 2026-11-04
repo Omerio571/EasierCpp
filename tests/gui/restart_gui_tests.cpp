@@ -1,5 +1,6 @@
 #include "appearance/appearance.hpp"
 #include "cpplivelab/libraries.hpp"
+#include "projects/project_paths.hpp"
 #include "../workspace_test_support.hpp"
 #include <fstream>
 #include <iostream>
@@ -182,6 +183,9 @@ void tests(const fs::path& gui)
     auto main = windows(key).main;
     require(text(main).find(L"EasierCpp") == 0,
         "Renamed GUI did not display the EasierCpp application title");
+    require(
+        text(main).find(path_support::from_utf8(EASIERCPP_VERSION).wstring()) != std::wstring::npos,
+        "Actual GUI title does not display the authoritative application version");
     require(
         main && IsWindowVisible(GetDlgItem(main, 145)) && IsWindowVisible(GetDlgItem(main, 143)),
         "Program Restart and Settings controls are not visible");

@@ -1,41 +1,55 @@
-# EasierCpp v0.1.0 — local public-testing candidate
+# EasierCpp v0.1.1
 
-Core features: native Win32 GUI, standard C++20 project creation, imported CMake
-projects, discovered Windows toolchains, Debug/Release builds, interactive program
-I/O, manual lifecycle commands, Auto Run with isolated A/B builds, Safe/Seamless
-replacement, supported window-placement memory, opt-in CMake PCH, worker preferences
-and optimization, and a unified managed/read-only-detected Library Manager.
+## New features
 
-This renamed candidate uses EasierCpp.exe and EasierCpp-Gui.exe, with matching
-Windows product/version metadata and relocatable first-party runtime resources.
-It adds conservative legacy metadata/preferences migration, dual CMake ownership
-readers, and safe moved test-cache recovery. Original data and the earlier
-candidate remain intact. Development tools and the Microsoft runtime are not bundled.
-No universal hot reload, memory/state migration, embedded editor or debugger is included.
+### Independent window restoration
 
-Known limitations:
+Settings → Preferences now provides **Keep Window Position (When Restarted)** and
+**Keep Window Size (When Restarted)** independently. These apply to the user's
+application on manual Run/Restart and Safe/Seamless Auto Run, including after
+reopening EasierCpp. Position-only restoration respects program-defined dimensions.
+New projects default to position ON and size OFF.
 
-- Migration does not merge conflicting catalogs/projects or transplant build caches.
-  Original AppData must be retained where preserved absolute PCH/library references
-  still use it. Review migration-report.txt before any manual cleanup.
-- Comprehensive development tests require a non-portable source build. Portable
-  builds provide Doctor/toolchain diagnostics and an actionable test-suite message.
+### Automatic initial run
 
-- Only the available Windows 11 x64 host was tested; no clean VM/cross-machine claim.
-- The package is unsigned and is not an installer. Windows may display its normal
-  downloaded-application trust prompts. No system security setting should be disabled.
-- Private/self-hosted GitLab authentication is unsupported. Live third-party library
-  downloads/builds require separate trust and licensing review.
-- CMake dependency detection is bounded evidence, not arbitrary CMake evaluation.
-  Older replies may omit aliases/imported targets. Unknown entries stay unverified.
-- Seamless is unsuitable for some exclusive-instance/multi-window applications;
-  use Safe. Placement restoration does not restore application data/state.
-- MSVC PDB-service errors have occurred intermittently on the development host;
-  an isolated rerun passed. Keep the detailed build output if this recurs.
-- Synthetic worker recommendations and performance vary with available RAM and
-  project workload. Cached development profiles may need approved recovery after
-  application relocation, particularly when PCH hooks reference an old location.
-- Source test-suite execution is developer-only and is not shipped in this ZIP.
+Opening a project with Auto Run enabled now schedules its initial build and launch
+without a manual Run or a source save. Enabling Auto Run on an idle project does the
+same; enabling it while an application is already running does not replace that app.
+Valid previous build outputs are reused through existing dependency checks.
 
-Publication, signing, other-machine validation and user acceptance are separate
-steps. This local artifact is not an automatically published GitHub release.
+Initial startup resolves the current CMake target graph. A valid saved executable or
+the sole executable can run; multiple executables require selection before target
+compilation/launch. Changed cached graphs and suppressed regeneration are handled
+conservatively. Existing CMake configuration/write approval remains required.
+Compilation failure keeps Auto Run enabled for recovery on a later save. Stop, OFF,
+project switches, and manager closure cancel obsolete startup safely.
+
+## Improvements and compatibility
+
+- The main README is now a concise user guide covering features, prerequisites,
+  getting started, source builds, licensing, and contributions.
+- CLI, GUI title, Windows metadata, and package naming use version **0.1.1** from
+  the authoritative CMake version.
+- Existing full window restoration migrates to both options ON; previous OFF becomes
+  both OFF. Saved geometry is retained. Enabled legacy session preferences become
+  persistent in the new UI; target/configuration geometry separation remains.
+- Existing build slots, incremental builds, PCH, library management, interactive
+  console I/O, and Safe/Seamless replacement remain in use.
+
+## Known limitations
+
+- Windows 11 x64 and the supported Microsoft C++ runtime are required. Compiling
+  projects requires installed build tools/compiler/SDK; none are bundled.
+- Seamless mode overlaps application instances and is unsuitable for some exclusive
+  resources or launchers. Use Safe where necessary. Application/game state is not
+  migrated, and Windows Snap Groups are not restored.
+- Partial window restoration leaves maximized/minimized/fullscreen startup state to
+  the application. Apps can override geometry after startup. Physical mixed-DPI,
+  multiple-monitor, and individual SDL/SFML acceptance remain manual.
+- Library integration depends on each dependency's build system, platform needs,
+  options, licensing, and trust approval; arbitrary repositories are not guaranteed.
+- Initial startup can pause for configuration approval, preset configuration, or
+  executable selection. Auto Run OFF never performs automatic builds or launches.
+
+This is a locally prepared portable candidate. Publication, signing, and clean-machine
+acceptance are separate owner-approved steps; no tag or GitHub Release is created.

@@ -138,17 +138,25 @@ ProjectFormWindow::ProjectFormWindow(
         auto& field = fields[index];
         const auto id = static_cast<int>(index);
         add(L"STATIC", field.label, 3000 + id, SS_NOPREFIX);
-        const auto control = add(
-            field.multiple_selection ? L"LISTBOX" : (field.choices.empty() ? L"EDIT" : L"COMBOBOX"),
-            field.value,
-            2000 + id,
-            WS_TABSTOP | (field.multiple_selection
-                                 ? (LBS_EXTENDEDSEL | LBS_NOTIFY | WS_VSCROLL | WS_BORDER)
-                                 : (field.choices.empty()
-                                           ? (field.multiline ? ES_MULTILINE | ES_AUTOVSCROLL |
-                                                                    ES_WANTRETURN | WS_VSCROLL
-                                                              : ES_AUTOHSCROLL)
-                                           : CBS_DROPDOWNLIST)));
+        const auto control =
+            add(field.checkbox             ? L"BUTTON"
+                : field.multiple_selection ? L"LISTBOX"
+                                           : (field.choices.empty() ? L"EDIT" : L"COMBOBOX"),
+                field.checkbox ? field.label : field.value,
+                2000 + id,
+                WS_TABSTOP | (field.checkbox ? BS_AUTOCHECKBOX
+                                 : field.multiple_selection
+                                     ? (LBS_EXTENDEDSEL | LBS_NOTIFY | WS_VSCROLL | WS_BORDER)
+                                     : (field.choices.empty()
+                                               ? (field.multiline ? ES_MULTILINE | ES_AUTOVSCROLL |
+                                                                        ES_WANTRETURN | WS_VSCROLL
+                                                                  : ES_AUTOHSCROLL)
+                                               : CBS_DROPDOWNLIST)));
+        if (field.checkbox)
+        {
+            SendMessageW(
+                control, BM_SETCHECK, field.value == L"Yes" ? BST_CHECKED : BST_UNCHECKED, 0);
+        }
         if (!field.placeholder.empty() && field.choices.empty())
         {
             SendMessageW(control,
@@ -417,6 +425,17 @@ void ProjectFormWindow::layout()
             advanced_heading = true;
         }
         const int id = static_cast<int>(index);
+        if (field.checkbox)
+        {
+            place(3000 + id, 0, 0, 0, 0, false);
+            place(2000 + id, 20, y, content_width - 34, 32, visible);
+            place(4000 + id, width - 48, y + 4, 24, 24, visible);
+            if (visible)
+            {
+                y += 44;
+            }
+            continue;
+        }
         place(3000 + id, 20, y, content_width - 34, 22, visible);
         place(4000 + id, width - 48, y - 1, 24, 24, visible);
         const bool browse = field.browse != BrowseKind::None;
@@ -592,7 +611,12 @@ void ProjectFormWindow::read_fields()
     for (size_t index = 0; index < fields_.size(); ++index)
     {
         const auto control = GetDlgItem(window, 2000 + static_cast<int>(index));
-        if (fields_[index].multiple_selection)
+        if (fields_[index].checkbox)
+        {
+            fields_[index].value =
+                SendMessageW(control, BM_GETCHECK, 0, 0) == BST_CHECKED ? L"Yes" : L"No";
+        }
+        else if (fields_[index].multiple_selection)
         {
             fields_[index].value.clear();
             for (size_t item = 0; item < fields_[index].choices.size(); ++item)
@@ -718,7 +742,14 @@ void ProjectFormWindow::command(int id, int notification)
         for (size_t index = 0; index < fields_.size(); ++index)
         {
             const auto control = GetDlgItem(window, 2000 + static_cast<int>(index));
-            if (fields_[index].choices.empty())
+            if (fields_[index].checkbox)
+            {
+                SendMessageW(control,
+                    BM_SETCHECK,
+                    fields_[index].value == L"Yes" ? BST_CHECKED : BST_UNCHECKED,
+                    0);
+            }
+            else if (fields_[index].choices.empty())
             {
                 SetWindowTextW(control, fields_[index].value.c_str());
             }
