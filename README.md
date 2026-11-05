@@ -1,4 +1,4 @@
-# EasierCpp
+# EasierCpp v0.1.2
 
 **Make Your Life Easier**
 
@@ -30,10 +30,21 @@ application process, and supported dependencies.
   approval where applicable.
 - **Build settings:** Debug/Release, configurable parallel workers, optional CMake
   precompiled headers, and installed toolchain discovery.
+- **Two-tree incremental builds:** the original build and one alternate normally
+  rotate during Auto Run, retaining each tree's compiled dependencies and caches.
 - **Program controls:** Build, Run, Stop, Restart, interactive console input/output,
   and launching your editor.
 
-  ## Technologies
+## What's new in v0.1.2
+
+Auto Run now returns to the original compilation tree after its first alternate
+update, avoiding a third cold build. Compatible unchanged projects can launch
+without preparing the compiler SDK; compilation still initializes it when needed.
+Existing caches, project layouts and replacement safety checks are preserved.
+See [release notes and compatibility guidance](docs/release/RELEASE_NOTES.md).
+This is a locally prepared candidate until publication is approved.
+
+## Technologies
 
 EasierCpp is built using **C++20** and native Windows technologies, with a focus on performance, lightweight design, and compatibility with existing C++ development workflows.
 
@@ -66,10 +77,11 @@ EasierCpp is designed to work alongside existing code editors and IDEs rather th
    [releases page](https://github.com/Omerio571/EasierCpp/releases).
 2. Extract the **entire ZIP** into a writable folder.
 3. Launch **EasierCpp-Gui.exe**. Keep the companion executable and resources together.
-4. Create a project or open an existing CMake project.
-5. Enable **Auto Run** to build and launch. Projects with Auto Run already enabled
+4. Install the required compiler/SDK and build tools below if missing; run Doctor.
+5. Create a project or open an existing CMake project.
+6. Enable **Auto Run** to build and launch. Projects with Auto Run already enabled
    start automatically when opened. If multiple executables exist, select one.
-6. Edit and save files in your preferred editor. Check build output for errors and
+7. Edit and save files in your preferred editor. Check build output for errors and
    approve CMake configuration when prompted.
 
 If no release is published yet, use the source-build instructions below.
@@ -114,7 +126,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMod
 
 The build script initializes the developer environment for its own processes.
 See the [development guide](docs/development/ARCHITECTURE_MAP.md) for focused testing
-and the [v0.1.1 release notes](docs/release/RELEASE_NOTES.md) for release behavior.
+and the [v0.1.2 release notes](docs/release/RELEASE_NOTES.md) for release behavior.
+
+## Upgrading and troubleshooting
+
+Close EasierCpp and its managed applications, extract the new ZIP to a fresh folder,
+then launch it. Keep existing project folders, settings and build caches. Older A/B
+and recovery slots remain supported. Older binaries may not understand v0.1.2's
+`base` active-slot pointer; avoid sharing state between versions or downgrading
+without reviewing the [two-tree compatibility guide](docs/development/AUTO_RUN_BUILD_TREES.md).
+For missing resources, toolchain or runtime errors, see the
+[portable troubleshooting guide](docs/release/README.md).
 
 ## License
 

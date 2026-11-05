@@ -9,6 +9,7 @@
 #include "process/application_windows.hpp"
 #include "build/build_lease.hpp"
 #include "build/build_freshness.hpp"
+#include "build/build_profile.hpp"
 #include "gui/console_view.hpp"
 #include "appearance/ui_theme.hpp"
 #include "cpplivelab/workspace.hpp"
@@ -29,6 +30,7 @@
 #include <string>
 #include <vector>
 #include <stdexcept>
+#include <utility>
 
 namespace
 {
@@ -166,6 +168,7 @@ public:
     enum class Phase
     {
         Idle,
+        PreparingBuild,
         Building,
         Checking,
         PreparingProgram,
@@ -186,6 +189,8 @@ public:
     {
         cpplivelab::Environment environment;
         fs::path ninja;
+        double discovery_ms = 0;
+        double preparation_ms = 0;
     };
 
     std::future<PreparedTools> environment_future;
@@ -199,7 +204,20 @@ public:
     bool probe_pending = false;
     std::string probe_output;
     bool environment_ready = false;
+    bool sdk_probe_active = false;
+    bool fast_runtime = false;
+
+    struct PendingBuild
+    {
+        bool run;
+        bool automatic;
+        bool incremental;
+        bool recovery;
+    };
+
+    std::optional<PendingBuild> pending_build;
 #ifdef CPPLIVELAB_GUI_TEST
+    unsigned environment_preparations = 0;
     bool reuse_worker_environment = true;
     fs::path worker_benchmark_cli;
     std::function<void(const char*)> auto_run_trace;
@@ -1087,6 +1105,7 @@ public:
         initial_targets_verified = false;
         initial_switch_project.clear();
         active_project_directory = candidate;
+        fast_runtime = false;
         auto_run_preferences = cpplivelab::load_auto_run_preferences(
             candidate, cpplivelab::legacy_auto_build_enabled(preference_store));
         if (!fs::exists(cpplivelab::workspace_directory(candidate) / L"auto-run.settings"))
@@ -1679,18 +1698,48 @@ public:
             build_directory()};
     }
 
+    bool collect_environment()
+    {
+        if (environment_future.valid() &&
+            environment_future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready)
+        {
+            auto prepared = environment_future.get();
+            if (cpplivelab::BuildProfile::enabled())
+            {
+                log(cpplivelab::MessageKind::System,
+                    L"EASIERCPP_PROFILE gui_tool_discovery_ms=" +
+                        std::to_wstring(prepared.discovery_ms));
+                log(cpplivelab::MessageKind::System,
+                    L"EASIERCPP_PROFILE gui_sdk_environment_ms=" +
+                        std::to_wstring(prepared.preparation_ms));
+            }
+            program_environment = std::move(prepared.environment);
+            ninja_executable = std::move(prepared.ninja);
+            environment_ready = true;
+            fast_runtime = false;
+        }
+        return environment_ready;
+    }
+
     void request_environment()
     {
         if (!environment_ready && !environment_future.valid())
         {
+#ifdef CPPLIVELAB_GUI_TEST
+            ++environment_preparations;
+#endif
             // Developer setup can invoke utilities. Run it once in a worker and
             // retain its result only in memory, never in a file or diagnostic log.
             environment_future = std::async(std::launch::async,
                 []
                 {
+                    const auto started = std::chrono::steady_clock::now();
                     const auto tools =
                         cpplivelab::discover_toolchain(cpplivelab::system_discovery_inputs());
                     PreparedTools prepared;
+                    const auto discovered = std::chrono::steady_clock::now();
+                    prepared.discovery_ms =
+                        std::chrono::duration<double, std::milli>(discovered - started).count();
                     for (const auto& tool : tools.tools)
                     {
                         if (tool.name == "ninja")
@@ -1703,12 +1752,19 @@ public:
                         prepared.environment =
                             cpplivelab::developer_environment(tools.developer_command);
                     }
+                    prepared.preparation_ms = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - discovered)
+                                                  .count();
                     return prepared;
                 });
         }
     }
 
-    void start(bool run, bool automatic = false, bool incremental = false, bool recovery = false)
+    void start(bool run,
+        bool automatic = false,
+        bool incremental = false,
+        bool recovery = false,
+        bool checked = false)
     {
         if (operation_in_progress || replacement_building || active_project_directory.empty())
         {
@@ -1718,16 +1774,36 @@ public:
         {
             initial_auto_run = InitialAutoRun::None;
         }
+        const bool check_cached = !checked && !recovery && !environment_ready &&
+                                  (run || initial_auto_run == InitialAutoRun::Active) &&
+                                  fs::is_regular_file(build_directory() / L"CMakeCache.txt");
+        if (!check_cached && !collect_environment())
+        {
+            // Prepare once in the GUI; the existing validated marker lets the
+            // owned worker reuse this block instead of running VsDevCmd again.
+            pending_build = PendingBuild{run, automatic, incremental, recovery};
+            request_environment();
+            operation_in_progress = true;
+            phase = Phase::PreparingBuild;
+            stop_requested = false;
+            run_requested = run_requested || run;
+            SetWindowTextW(find_control(StatusLabel), L"Preparing compiler environment");
+            refresh();
+            return;
+        }
         if (run)
         {
             auto_launch_armed = true;
             run_requested = true;
-            request_environment();
+            if (!check_cached)
+            {
+                request_environment();
+            }
             select_console(true);
             bool can_reuse = false;
             try
             {
-                can_reuse = freshness.can_probe(current_identity()) &&
+                can_reuse = !check_cached && freshness.can_probe(current_identity()) &&
                             fs::is_regular_file(build_directory() / L"build.ninja");
             }
             catch (const std::exception&)
@@ -1762,7 +1838,9 @@ public:
             watcher.consume_changes();
             auto_build.cancel();
         }
-        std::vector<std::wstring> arguments{recovery ? L"manage-rebuild" : L"manage-build",
+        std::vector<std::wstring> arguments{check_cached ? L"manage-probe"
+                                            : recovery   ? L"manage-rebuild"
+                                                         : L"manage-build",
             active_project_directory.wstring(),
             L"--config",
             selected_configuration()};
@@ -1808,7 +1886,7 @@ public:
             log(cpplivelab::MessageKind::Warning,
                 L"Freshness cannot be recorded: " + decode_console_text(error.what()));
         }
-        if (run)
+        if (run && !check_cached)
         {
             request_environment();
             select_console(true);
@@ -1832,7 +1910,7 @@ public:
         operation_in_progress = true;
         should_run_program = run_requested || automatic_launch_allowed();
         automatic_program_pending = false;
-        if (should_run_program)
+        if (should_run_program && !check_cached)
         {
             request_environment();
         }
@@ -1841,6 +1919,11 @@ public:
         input_closed = false;
         stop_requested = false;
         phase = Phase::Building;
+        sdk_probe_active = check_cached;
+        if (!check_cached)
+        {
+            fast_runtime = false;
+        }
         output_decoder.reset();
         pending_build_line.clear();
         build_diagnostics.clear();
@@ -1873,7 +1956,7 @@ public:
 
     void begin_program()
     {
-        if (!environment_ready)
+        if (!fast_runtime && !collect_environment())
         {
             if (!environment_future.valid() ||
                 environment_future.wait_for(std::chrono::milliseconds(0)) !=
@@ -1881,10 +1964,7 @@ public:
             {
                 return;
             }
-            auto prepared = environment_future.get();
-            program_environment = std::move(prepared.environment);
-            ninja_executable = std::move(prepared.ninja);
-            environment_ready = true;
+            collect_environment();
         }
         if (!launch_latest && !freshness.can_probe(current_identity()))
         {
@@ -2251,6 +2331,44 @@ public:
         poll_initial_auto_run();
         poll_watcher();
         poll_auto_run();
+        if (phase == Phase::PreparingBuild)
+        {
+            if (stop_requested || close_requested ||
+                (pending_build && pending_build->automatic && !auto_build.enabled() &&
+                    !pending_build->run))
+            {
+                pending_build.reset();
+                run_requested = false;
+                finish_operation(L"Compiler preparation cancelled");
+            }
+            else
+            {
+                try
+                {
+                    if (collect_environment() && pending_build)
+                    {
+                        const auto action = *pending_build;
+                        pending_build.reset();
+                        operation_in_progress = false;
+                        phase = Phase::Idle;
+                        start(action.run,
+                            action.automatic,
+                            action.incremental,
+                            action.recovery,
+                            true);
+                    }
+                }
+                catch (const std::exception& error)
+                {
+                    pending_build.reset();
+                    run_requested = false;
+                    initial_auto_run = InitialAutoRun::None;
+                    auto_build.cancel();
+                    log(cpplivelab::MessageKind::Error, decode_console_text(error.what()));
+                    finish_operation(L"Compiler environment preparation failed");
+                }
+            }
+        }
         if (phase == Phase::Idle && run_requested && !auto_build.pending() && !close_requested)
         {
             start(true);
@@ -2329,6 +2447,7 @@ public:
             {
                 append_build_output(output_decoder.append(session.poll(), true), true);
                 const int result = session.exit_code();
+                const bool was_sdk_probe = std::exchange(sdk_probe_active, false);
                 const bool blocked = result == cpplivelab::build_deferred_exit_code;
                 if (stop_requested)
                 {
@@ -2353,6 +2472,13 @@ public:
                         build_id + L": Build cancelled by user. Pending automatic work cancelled; "
                                    L"save again or Build to resume.");
                     finish_operation(L"Build Cancelled");
+                }
+                else if (was_sdk_probe && result != 0 && !blocked)
+                {
+                    const bool automatic = automatic_operation;
+                    const bool run = run_requested;
+                    finish_operation(L"Build required - preparing compiler environment");
+                    start(run, automatic, true, false, true);
                 }
                 else if (blocked)
                 {
@@ -2417,6 +2543,22 @@ public:
                 }
                 else
                 {
+                    if (was_sdk_probe)
+                    {
+                        try
+                        {
+                            program_environment =
+                                cpplivelab::cached_runtime_environment(build_directory());
+                            fast_runtime = true;
+                        }
+                        catch (const std::exception& error)
+                        {
+                            run_requested = false;
+                            log(cpplivelab::MessageKind::Error, decode_console_text(error.what()));
+                            finish_operation(L"Cached runtime environment unavailable");
+                            return;
+                        }
+                    }
                     log(cpplivelab::MessageKind::Success,
                         build_id + L": Build Successful (exit 0)");
                     std::ifstream libraries(build_directory() / L"libraries.txt");
@@ -2697,6 +2839,12 @@ public:
         {
             return;
         }
+        if (!collect_environment())
+        {
+            request_environment();
+            set_auto_status(L"Preparing compiler environment; current application retained");
+            return;
+        }
         replacement_options = project_options();
         if (replacement_options.target.empty())
         {
@@ -2704,9 +2852,8 @@ public:
             log(cpplivelab::MessageKind::Warning, L"Auto Run needs a selected executable target.");
             return;
         }
-        const auto current = build_directory().filename().wstring();
-        replacement_options.recovery_slot =
-            current.ends_with(L"-fresh-auto-a") ? L"fresh-auto-b" : L"fresh-auto-a";
+        replacement_options = cpplivelab::replacement_build_options(
+            active_project_directory, selected_configuration(), replacement_options);
         replacement_sources =
             cpplivelab::ProjectWatcher::source_fingerprints(active_project_directory);
         std::vector<std::wstring> arguments{L"manage-build",
@@ -2822,7 +2969,10 @@ public:
         probe_pending = false;
         operation_in_progress = true;
         phase = Phase::PreparingProgram;
-        request_environment();
+        if (!fast_runtime)
+        {
+            request_environment();
+        }
     }
 
     void track_placement(bool flush = false)
@@ -3747,7 +3897,10 @@ public:
                 probe_pending = false;
                 operation_in_progress = true;
                 phase = Phase::PreparingProgram;
-                request_environment();
+                if (!fast_runtime)
+                {
+                    request_environment();
+                }
             }
             return;
         }

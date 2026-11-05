@@ -396,7 +396,7 @@ struct Host
     }
 };
 
-void benchmark_project(const fs::path& project, unsigned samples)
+void benchmark_project(const fs::path& project, unsigned samples, unsigned debounce = 150)
 {
     std::ifstream marker(project / L".easiercpp-benchmark");
     std::string ownership;
@@ -411,6 +411,10 @@ void benchmark_project(const fs::path& project, unsigned samples)
     SetEnvironmentVariableW(L"EASIERCPP_PROFILE_BUILD", L"1");
     Host host(project);
     auto& app = host.app;
+    const bool console = fs::exists(project / L".console-benchmark");
+    require(debounce >= 100 && debounce <= 5000, "Benchmark debounce is outside preference range");
+    app.preferences.debounce_ms = debounce;
+    app.auto_build.set_debounce(debounce);
     // The script marks and owns this complete copy. Original source-generating
     // CMake commands are approved only inside the disposable benchmark project.
     app.configure_writes_authorized = true;
@@ -441,10 +445,16 @@ void benchmark_project(const fs::path& project, unsigned samples)
             reinterpret_cast<LPARAM>(&search));
         return search.window;
     };
+    const auto console_ready = [&]()
+    {
+        return read_control_text(app.program_console.window)
+                   .find(L"READY " + std::to_wstring(app.session.process_id())) !=
+               std::wstring::npos;
+    };
     host.await(
         [&]
         {
-            return find_window() != nullptr;
+            return console ? console_ready() : find_window() != nullptr;
         },
         "FarmGame initial window missing");
     std::cout << "FARM_COLD,manual_run_to_window_ms=" << GetTickCount64() - cold_started << '\n';
@@ -478,9 +488,12 @@ void benchmark_project(const fs::path& project, unsigned samples)
             return GetTickCount64() - initial_visible >= 500;
         },
         "FarmGame startup did not settle");
-    SetWindowPos(find_window(), nullptr, 80, 80, 900, 650, SWP_NOZORDER | SWP_NOACTIVATE);
     RECT expected{};
-    GetWindowRect(find_window(), &expected);
+    if (!console)
+    {
+        SetWindowPos(find_window(), nullptr, 80, 80, 900, 650, SWP_NOZORDER | SWP_NOACTIVATE);
+        GetWindowRect(find_window(), &expected);
+    }
     if (!app.auto_build.enabled())
     {
         app.command(AutoRunButton);
@@ -545,15 +558,23 @@ void benchmark_project(const fs::path& project, unsigned samples)
                         peak = (std::max)(peak, memory.PeakWorkingSetSize);
                     }
                 }
-                return trace.contains("restored") && app.session.process_id() != old_process &&
-                       app.program_started && !app.restore_started && find_window() != nullptr;
+                return (console ? console_ready() : trace.contains("restored")) &&
+                       app.session.process_id() != old_process && app.program_started &&
+                       !app.restore_started && (console || find_window() != nullptr);
             },
             "FarmGame replacement did not reach a restored window",
             180000);
         app.auto_run_trace = {};
+        if (console)
+        {
+            trace["restored"] =
+                GetTickCount64(); // Console endpoint is rendered READY, not a window.
+            host.send(L"hello");
+            host.prompt(L"ECHO hello");
+        }
         RECT actual{};
         GetWindowRect(find_window(), &actual);
-        if (!EqualRect(&expected, &actual))
+        if (!console && !EqualRect(&expected, &actual))
         {
             std::cerr << "Placement expected " << expected.left << ',' << expected.top << ','
                       << expected.right << ',' << expected.bottom << "; actual " << actual.left
@@ -565,12 +586,9 @@ void benchmark_project(const fs::path& project, unsigned samples)
             require(fs::last_write_time(path) == written,
                 "An ordinary source/project-header edit unnecessarily regenerated stable PCH");
         }
-        if (sample < 2)
-        {
-            continue;
-        }
-        const auto index =
-            sample == samples + 2 ? std::string("header") : std::to_string(sample - 2);
+        const auto index = sample < 2              ? std::string("warmup") + std::to_string(sample)
+                           : sample == samples + 2 ? std::string("header")
+                                                   : std::to_string(sample - 2);
         std::cout << "FARM_TIMING," << index << ','
                   << encode_utf8(app.build_directory().filename().wstring()) << ','
                   << trace.at("detect") - saved << ',' << trace.at("build") - trace.at("detect")
@@ -586,6 +604,101 @@ void benchmark_project(const fs::path& project, unsigned samples)
         std::cout << "FARM_WORKER_START," << index << ',' << trace.at("build") << '\n'
                   << std::flush;
     }
+    // Confirm content-equivalent saves do not rebuild or replace the active application.
+    const auto unchanged_process = app.session.process_id();
+    unsigned builds = 0;
+
+    struct ResetAuditTrace
+    {
+        Application& app;
+
+        ~ResetAuditTrace()
+        {
+            app.auto_run_trace = {};
+        }
+    } reset_audit_trace{app};
+
+    app.auto_run_trace = [&](const char* stage)
+    {
+        if (std::string_view(stage) == "build")
+        {
+            ++builds;
+        }
+    };
+    std::ifstream unchanged_input(source, std::ios::binary);
+    const std::string unchanged{std::istreambuf_iterator<char>(unchanged_input), {}};
+    unchanged_input.close();
+    const auto noop_start = GetTickCount64();
+    std::ofstream(source, std::ios::binary) << unchanged;
+    host.await(
+        [&]
+        {
+            return GetTickCount64() - noop_start >= 1200;
+        },
+        "No-op observation stalled");
+    require(builds == 0 && app.session.process_id() == unchanged_process,
+        "Content-equivalent save unnecessarily rebuilt or restarted");
+    std::cout << "AUDIT_NOOP,observed_ms=" << GetTickCount64() - noop_start << ",builds=0\n";
+    const auto rapid_start = GetTickCount64();
+    for (unsigned edit = 0; edit < 5; ++edit)
+    {
+        std::ofstream(source, std::ios::binary) << original << "\n// rapid latest " << edit << '\n';
+        pump();
+        Sleep(20);
+    }
+    host.await(
+        [&]
+        {
+            return builds > 0 && app.session.process_id() != unchanged_process &&
+                   app.program_started && !app.restore_started && !app.replacement_building &&
+                   (console ? console_ready() : find_window() != nullptr);
+        },
+        "Rapid saves did not reach the updated application");
+    std::cout << "AUDIT_RAPID,first_save_to_ready_ms=" << GetTickCount64() - rapid_start
+              << ",builds=" << builds << '\n'
+              << std::flush;
+    app.auto_run_trace = {};
+    const auto measure = [&](const char* name, const std::function<void()>& operation)
+    {
+        std::vector<double> times;
+        for (unsigned sample = 0; sample < 9; ++sample)
+        {
+            const auto start = std::chrono::steady_clock::now();
+            operation();
+            times.push_back(
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start)
+                    .count());
+        }
+        std::sort(times.begin(), times.end());
+        std::cout << "AUDIT_OPERATION," << name << ",median_ms=" << times[4]
+                  << ",max_ms=" << times.back() << '\n';
+    };
+    // Isolated costs after timed replacements; these are not additional pipeline stages.
+    measure("source_snapshot",
+        [&]
+        {
+            cpplivelab::ProjectWatcher::source_fingerprints(project);
+        });
+    measure("project_options",
+        [&]
+        {
+            app.project_options();
+        });
+    measure("current_identity",
+        [&]
+        {
+            app.current_identity();
+        });
+    measure("runtime_environment",
+        [&]
+        {
+            cpplivelab::runtime_environment(app.program_environment, app.build_directory());
+        });
+    measure("owned_windows",
+        [&]
+        {
+            cpplivelab::capture_application_windows(app.session.active_process_ids());
+        });
     app.stop();
     host.idle();
     std::uintmax_t pch = 0, ilk = 0, pdb = 0;
@@ -702,8 +815,11 @@ void replacement_benchmark(const fs::path& fixtures)
                 .count();
         };
         double old_gone = -1, new_visible = -1, build_start = -1, build_end = -1;
+        double restored = -1, candidate_launch = -1;
+        std::map<std::string, double> stages;
         app.auto_run_trace = [&](const char* stage)
         {
+            stages.try_emplace(stage, elapsed());
             if (std::string_view(stage) == "build")
             {
                 build_start = elapsed();
@@ -723,9 +839,20 @@ void replacement_benchmark(const fs::path& fixtures)
                                            : nullptr;
                 const auto active =
                     app.session.process_id() != old_process ? managed_window(app) : nullptr;
+                if (candidate_launch < 0 && app.candidate_pending)
+                {
+                    candidate_launch = now;
+                }
                 if (new_visible < 0 && (candidate || active))
                 {
                     new_visible = now;
+                }
+                RECT current{};
+                if (restored < 0 && (candidate || active) &&
+                    GetWindowRect(candidate ? candidate : active, &current) &&
+                    EqualRect(&expected, &current))
+                {
+                    restored = now;
                 }
                 if (build_start >= 0 && build_end < 0 && !app.replacement_building)
                 {
@@ -752,6 +879,13 @@ void replacement_benchmark(const fs::path& fixtures)
                   << new_visible << ',' << (std::max)(0.0, new_visible - old_gone) << ','
                   << build_end - build_start << '\n'
                   << std::flush;
+        std::cout << "REPLACEMENT_DETAIL," << index << ",candidate_observed=" << candidate_launch
+                  << ",placement_observed=" << restored << ",old_gone=" << old_gone;
+        for (const auto& [stage, time] : stages)
+        {
+            std::cout << ',' << stage << '=' << time;
+        }
+        std::cout << '\n' << std::flush;
     }
     app.command(StopButton);
     host.idle();
@@ -967,6 +1101,8 @@ void initial_auto_run_workflow(const fs::path& fixtures)
         app.command(AutoRunButton);
         wait_running(host);
         host.prompt(L"initial hello");
+        require(app.environment_preparations == 1,
+            "Cold initial startup did not share one GUI-prepared compiler environment");
         require(
             app.build_sequence == 1 &&
                 read_control_text(app.system_console.window).find(L"Initial Auto Run completed.") !=
@@ -985,6 +1121,51 @@ void initial_auto_run_workflow(const fs::path& fixtures)
         require(read_control_text(app.system_console.window).find(L"no work to do") !=
                     std::wstring::npos,
             "Initial reopen did not reuse Ninja's dependency checks");
+        app.stop();
+        host.idle();
+    }
+    {
+        Host host(project);
+        auto& app = host.app;
+        wait_running(host);
+        host.prompt(L"initial hello");
+        require(app.fast_runtime && !app.environment_ready && !app.environment_future.valid(),
+            "Cached Initial Auto Run unnecessarily initialized the SDK");
+        app.command(AutoRunButton);
+        app.stop();
+        host.idle();
+        app.command(RunButton);
+        wait_running(host);
+        require(app.fast_runtime && !app.environment_future.valid(),
+            "Cached manual Run unnecessarily initialized the SDK");
+        const auto previous = app.session.process_id();
+        app.command(ProgramRestartButton);
+        host.await(
+            [&]
+            {
+                return app.program_started && app.session.process_id() != previous;
+            },
+            "Fast cached Restart did not replace the owned process");
+        require(!app.environment_future.valid(), "Cached Restart initialized the SDK");
+        app.command(AutoRunButton);
+        app.environment_future = std::async(std::launch::async,
+            []() -> Application::PreparedTools
+            {
+                throw std::runtime_error("Owned SDK preparation failure");
+            });
+        const auto retained = app.session.process_id();
+        std::ofstream(project / L"main.cpp", std::ios::app) << "\n// SDK failure save\n";
+        host.await(
+            [&]
+            {
+                return read_control_text(app.system_console.window)
+                           .find(L"Owned SDK preparation failure") != std::wstring::npos;
+            },
+            "Failed SDK preparation was not reported");
+        settle(host, 600);
+        require(app.session.process_id() == retained && app.session.running() &&
+                    !app.replacement_building && !app.auto_build.pending(),
+            "SDK failure lost the running application or scheduled repeated retries");
         app.stop();
         host.idle();
     }
@@ -1072,6 +1253,27 @@ void initial_auto_run_workflow(const fs::path& fixtures)
             "Closing did not cancel initial work");
         require(!app.session.running(), "Closing retained the obsolete initial process tree");
     }
+    {
+        Host host(create(L"initial-sdk-close", true, source("must not launch")));
+        auto& app = host.app;
+        host.await(
+            [&]
+            {
+                return app.phase == Application::Phase::PreparingBuild &&
+                       app.environment_future.valid();
+            },
+            "Compiler initialization did not start asynchronously");
+        SendMessageW(app.window_handle, WM_CLOSE, 0, 0);
+        host.await(
+            [&]
+            {
+                return !IsWindow(app.window_handle);
+            },
+            "Closing during SDK initialization did not finish",
+            30000);
+        require(!app.session.running() && !app.program_started,
+            "Closing during SDK initialization launched an obsolete program");
+    }
     for (const unsigned graph : {0u, 1u, 2u})
     {
         const auto multi = create(graph == 0   ? L"initial-multiple"
@@ -1114,7 +1316,7 @@ void initial_auto_run_workflow(const fs::path& fixtures)
         dialog.stop();
         require(driver.target_prompt && driver.no_selection && !app.program_started &&
                     app.initial_auto_run == Application::InitialAutoRun::AwaitingTarget &&
-                    app.build_sequence == 1,
+                    app.build_sequence == (graph == 0 ? 1u : 2u),
             "Initial startup guessed or compiled ambiguous/stale target metadata");
         SendMessageW(app.find_control(ExecutableInput),
             CB_SELECTSTRING,
@@ -2385,6 +2587,16 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
         "Rapid native saves did not coalesce into a maximized replacement",
         90000);
     require(IsZoomed(native_window()), "Actual restarted application lost maximization");
+    auto slot_options = app.project_options();
+    slot_options.recovery_slot = L"fresh-auto-a";
+    const auto alternate_a =
+        cpplivelab::managed_build_directory(window_project, L"Debug", slot_options);
+    slot_options.recovery_slot = L"fresh-auto-b";
+    const auto alternate_b =
+        cpplivelab::managed_build_directory(window_project, L"Debug", slot_options);
+    require(!fs::exists(alternate_a / L"CMakeCache.txt") ||
+                !fs::exists(alternate_b / L"CMakeCache.txt"),
+        "Auto Run created a third compilation tree instead of reusing the original");
     // Both slots are warm now. Time equivalent source-only edits through the real
     // controller, retaining the delayed-window/DLL/assets fixture for both modes.
     app.reuse_worker_environment = !baseline_worker_environment;
@@ -2616,9 +2828,11 @@ int wmain(int argc, wchar_t** argv)
         workspace_test::Fixture isolated_state;
         flow_tests::baseline_worker_environment =
             argc == 3 && std::wstring_view(argv[2]) == L"--baseline-sdk";
-        if (argc == 4 && std::wstring_view(argv[1]) == L"--benchmark-project")
+        if ((argc == 4 || argc == 5) && std::wstring_view(argv[1]) == L"--benchmark-project")
         {
-            flow_tests::benchmark_project(argv[2], static_cast<unsigned>(std::stoul(argv[3])));
+            flow_tests::benchmark_project(argv[2],
+                static_cast<unsigned>(std::stoul(argv[3])),
+                argc == 5 ? static_cast<unsigned>(std::stoul(argv[4])) : 150);
         }
         else if (argc == 2 && std::wstring_view(argv[1]) == L"--compilation-workers")
         {

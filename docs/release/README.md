@@ -1,8 +1,26 @@
-# EasierCpp — Make Your Life Easier
+# EasierCpp v0.1.2 — Make Your Life Easier
 
 A lightweight C++ development companion for standard CMake projects. EasierCpp
 builds and runs your code while you edit it in Visual Studio or another editor.
 It does not include an editor/debugger or preserve game/application memory.
+
+## Upgrading from v0.1.1
+
+Close EasierCpp and managed applications. Extract the complete new ZIP into a fresh
+folder and launch EasierCpp-Gui.exe there. Preserve existing projects, settings,
+library caches and build trees; do not delete old manager data as an upgrade step.
+
+Auto Run normally rotates original -> alternate -> original, reusing compiled
+dependencies, PCH and incremental-link state. The first alternate may still be cold.
+Existing A/B and recovery slots remain supported. Compatible unchanged default
+MSVC/Ninja projects can launch without compiler SDK initialization; compilation
+prepares the SDK when required. Presets/custom toolchains retain conservative setup.
+
+**Downgrade caveat:** v0.1.2 can persist `base` in an active-slot pointer. Older
+binaries may not understand it. Do not run versions concurrently on shared state.
+Use an isolated `CPPLIVELAB_STATE_HOME` for older-version comparisons, or review and
+back up the relevant state before a downgrade. Never delete build caches to upgrade.
+See RELEASE_NOTES.md beside this file for scope and measured performance limits.
 
 In Settings → Preferences, **Keep Window Position (When Restarted)** and **Keep Window
 Size (When Restarted)** independently control the open project's application window.

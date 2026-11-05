@@ -14,6 +14,7 @@
 #include "process/application_windows.hpp"
 #include <fstream>
 #include <iostream>
+#include <cwchar>
 
 namespace
 {
@@ -181,6 +182,35 @@ void unit(const fs::path& root)
     }
     const auto base = managed_build_directory(project, L"Debug", {});
     const auto pointer = fs::path(base.wstring() + L".active");
+    require(replacement_build_options(project, L"Debug", {}).recovery_slot == L"fresh-auto-a",
+        "Fresh base did not select its alternate");
+    ProjectOptions explicit_base;
+    explicit_base.recovery_slot = L"base";
+    write(base / L"CMakeCache.txt", "owned fixture cache");
+    for (const auto* active : {L"fresh-auto-a", L"fresh-auto-b", L"fresh-recovery-123"})
+    {
+        write(pointer, fs::path(active).string());
+        require(replacement_build_options(project, L"Debug", {}).recovery_slot == L"base" &&
+                    managed_build_directory(project, L"Debug", explicit_base) == base,
+            "Old active/recovery slot did not reuse the warm original tree");
+    }
+    write(pointer, "base");
+    require(managed_build_directory(project, L"Debug", {}) == base,
+        "Persisted base pointer did not resolve the original directory");
+    fs::remove(base / L"CMakeCache.txt");
+    ProjectOptions old_peer;
+    old_peer.recovery_slot = L"fresh-auto-b";
+    const auto peer = managed_build_directory(project, L"Debug", old_peer);
+    write(peer / L"CMakeCache.txt", "preserve old peer");
+    write(pointer, "fresh-auto-a");
+    require(replacement_build_options(project, L"Debug", {}).recovery_slot == L"fresh-auto-b",
+        "A/B-only installation abandoned its warm peer");
+    write(pointer, "base");
+    require(replacement_build_options(project, L"Debug", {}).recovery_slot == L"fresh-auto-b" &&
+                read(peer / L"CMakeCache.txt") == "preserve old peer",
+        "Base did not reuse an existing B cache without modifying it");
+    require(replacement_build_options(project, L"Release", {}).recovery_slot == L"fresh-auto-a",
+        "Debug cache leaked into Release slot selection");
     write(pointer, "../unowned-project");
     refuses(
         [&]
@@ -232,6 +262,66 @@ void projects(const fs::path& root)
     const auto previous = managed_build_directory(project, L"Debug", {});
     const auto artifact = executable_targets(project, L"Debug", {}).front().artifact;
     const auto stamp = fs::last_write_time(artifact);
+    SetEnvironmentVariableW(L"EASIERCPP_TEST_RUNTIME_VALUE", L"inherited-value");
+    const auto runtime = cached_runtime_environment(previous);
+    require(std::wstring(runtime.begin(), runtime.end())
+                    .find(L"EASIERCPP_TEST_RUNTIME_VALUE=inherited-value") != std::wstring::npos,
+        "Fast runtime preparation discarded an inherited user variable");
+    SetEnvironmentVariableW(L"EASIERCPP_TEST_RUNTIME_VALUE", nullptr);
+    require(
+        probe_managed_launch(project, L"Debug", {}) == 0 && fs::last_write_time(artifact) == stamp,
+        "Cached executable did not pass a no-SDK dependency check");
+    SetEnvironmentVariableW(L"EASIERCPP_REQUIRE_DEVELOPER_ENV", L"1");
+    require(probe_managed_launch(project, L"Debug", {}) == launch_build_required_exit_code,
+        "Explicit SDK runtime requirement was ignored");
+    SetEnvironmentVariableW(L"EASIERCPP_REQUIRE_DEVELOPER_ENV", nullptr);
+    for (const auto& file :
+        {project / L"src/main.cpp", project / L"include/greeting.hpp", project / L"CMakeLists.txt"})
+    {
+        const auto contents = read(file);
+        const auto written = fs::last_write_time(file);
+        write(file, contents + "\n// SDK launch probe changed input\n");
+        require(probe_managed_launch(project, L"Debug", {}) == launch_build_required_exit_code,
+            "Changed source/header/CMake input was considered safe to launch");
+        write(file, contents);
+        fs::last_write_time(file, written);
+    }
+    ProjectOptions explicit_profile;
+    explicit_profile.preset = L"named-profile";
+    require(probe_managed_launch(project, L"Debug", explicit_profile) ==
+                launch_build_required_exit_code,
+        "Explicit profile bypassed its full toolchain preparation");
+    ProjectOptions default_override;
+    default_override.preset = L"-";
+    require(managed_build(project, L"Debug", default_override, false, true) == 0,
+        "Explicit default Ninja profile did not build");
+    write(project / L"CMakePresets.json", "{\"version\":3,\"configurePresets\":[]}\n");
+    require(probe_managed_launch(project, L"Debug", default_override) == 0,
+        "Explicit no-preset profile unnecessarily required the SDK");
+    fs::remove(project / L"CMakePresets.json");
+    const auto held_artifact = fs::path(artifact.wstring() + L".held");
+    fs::rename(artifact, held_artifact);
+    require(probe_managed_launch(project, L"Debug", {}) == launch_build_required_exit_code,
+        "Missing executable was accepted by the launch probe");
+    write(artifact, "not an executable image\n");
+    require(probe_managed_launch(project, L"Debug", {}) == launch_build_required_exit_code,
+        "Invalid executable image was accepted by the launch probe");
+    fs::remove(artifact);
+    fs::rename(held_artifact, artifact);
+    auto alternate = replacement_build_options(project, L"Debug", {});
+    require(managed_build(project, L"Debug", alternate, false, true) == 0,
+        "Alternate tree could not build");
+    activate_build_slot(project, L"Debug", alternate);
+    require(managed_build_directory(project, L"Debug", {}) != previous,
+        "Alternate activation did not persist");
+    auto original_slot = replacement_build_options(project, L"Debug", {});
+    require(original_slot.recovery_slot == L"base" &&
+                managed_build(project, L"Debug", original_slot, false, true) == 0 &&
+                fs::last_write_time(artifact) == stamp,
+        "Returning to the original tree unnecessarily rebuilt its artifact");
+    activate_build_slot(project, L"Debug", original_slot);
+    require(managed_build_directory(project, L"Debug", {}) == previous,
+        "Base activation failed to survive a fresh options lookup");
     const auto cache_file = previous / L"CMakeCache.txt";
     const auto valid_cache = read(cache_file);
     for (const auto* field : {"CMAKE_GENERATOR:INTERNAL=", "CMAKE_HOME_DIRECTORY:INTERNAL="})

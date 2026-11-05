@@ -12,6 +12,12 @@ $root = Join-Path $env:TEMP ('EasierPortable-' + [Guid]::NewGuid().ToString('N')
 $extracted = Join-Path $root 'Extracted package with spaces'
 [IO.Directory]::CreateDirectory($root) | Out-Null
 $originalHash = (Get-FileHash -LiteralPath $Archive -Algorithm SHA256).Hash
+$checksumFile = $Archive + '.sha256'
+if (-not (Test-Path -LiteralPath $checksumFile) -or
+    [IO.File]::ReadAllText($checksumFile).Trim() -ne
+        ($originalHash.ToLowerInvariant() + '  ' + [IO.Path]::GetFileName($Archive))) {
+    throw 'Portable ZIP checksum file is missing or does not match.'
+}
 Expand-Archive -LiteralPath $Archive -DestinationPath $extracted
 $bundle = @(Get-ChildItem -LiteralPath $extracted -Directory)[0].FullName
 $cli = Join-Path $bundle 'EasierCpp.exe'
@@ -24,6 +30,7 @@ foreach ($name in @('CPPLIVELAB_PREPARED_VS','VSINSTALLDIR','VCINSTALLDIR','VCTo
     [Environment]::SetEnvironmentVariable($name, $null, 'Process')
 }
 $passed = [Collections.Generic.List[string]]::new()
+$passed.Add('zip-checksum')
 function Run-Check($name, $executable, $arguments) {
     $log = Join-Path $ReportDirectory "$name.log"
     $previous = $ErrorActionPreference
@@ -48,6 +55,21 @@ try {
             }
         }
         $passed.Add('windows-version-metadata')
+        # Scan only pristine extracted runtime files, before adding test controllers.
+        # No environment values or matching secret bytes are written to the log.
+        $privatePath = [Environment]::GetFolderPath('UserProfile')
+        foreach ($file in Get-ChildItem -LiteralPath $bundle -File -Recurse) {
+            $bytes = [IO.File]::ReadAllBytes($file.FullName)
+            foreach ($encoding in @([Text.Encoding]::UTF8, [Text.Encoding]::Unicode)) {
+                $text = $encoding.GetString($bytes)
+                if ($text.IndexOf($privatePath, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                    $text.IndexOf($privatePath.Replace('\','/'), [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                    $text -match '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|github_pat_[A-Za-z0-9_]{30,}|gh[pousr]_[A-Za-z0-9]{30,}|glpat-[A-Za-z0-9_-]{20,}') {
+                    throw "Private path or credential signature found in $($file.Name)."
+                }
+            }
+        }
+        $passed.Add('private-path-and-credential-signatures')
         Run-Check doctor $cli @('doctor')
         $doctor = [IO.File]::ReadAllText((Join-Path $ReportDirectory 'doctor.log'))
         if ($doctor -notmatch 'cl: Installed: Yes \| Available in current terminal: No') { throw 'Doctor did not verify ordinary-terminal discovery.' }
@@ -101,6 +123,36 @@ try {
         Run-Check packaged-ui-library-audit (Join-Path $bundle 'ui_audit_tests.exe') @('--quick')
         Run-Check packaged-workers (Join-Path $bundle 'gui_flow_tests.exe') @('--compilation-workers')
         Run-Check packaged-local-library-consumer (Join-Path $bundle 'library_management_tests.exe') @('consumers')
+        # Benchmark controllers stay outside the archive. Their children use only
+        # this extracted CLI/resources, ordinary-terminal discovery and isolated state.
+        $benchmark = Join-Path $root 'Owned portable performance fixture'
+        [IO.Directory]::CreateDirectory((Join-Path $benchmark 'Source')) | Out-Null
+        [IO.Directory]::CreateDirectory((Join-Path $benchmark 'Include')) | Out-Null
+        Set-Content -LiteralPath (Join-Path $benchmark '.easiercpp-benchmark') 'EasierCpp owned Phase 3 copy'
+        Set-Content -LiteralPath (Join-Path $benchmark 'Include/Config.h') '#pragma once'
+        $nativeSample = Join-Path (Split-Path $PSScriptRoot -Parent) 'tests/consumers/native_window.cpp'
+        $nativeSource = '#include "Config.h"' + "`n" + [IO.File]::ReadAllText($nativeSample)
+        [IO.File]::WriteAllText((Join-Path $benchmark 'Source/main.cpp'), $nativeSource)
+        @'
+int dependency_value()
+{
+    return 42;
+}
+'@ | Set-Content -LiteralPath (Join-Path $benchmark 'Source/dependency.cpp')
+        @'
+cmake_minimum_required(VERSION 3.24)
+project(PortablePerformance LANGUAGES CXX)
+add_library(dependency STATIC Source/dependency.cpp)
+target_compile_features(dependency PUBLIC cxx_std_20)
+target_precompile_headers(dependency PRIVATE <string> <vector>)
+add_executable(app Source/main.cpp)
+target_compile_features(app PRIVATE cxx_std_20)
+target_include_directories(app PRIVATE Include)
+target_precompile_headers(app PRIVATE <string> <vector>)
+target_link_libraries(app PRIVATE dependency user32)
+'@ | Set-Content -LiteralPath (Join-Path $benchmark 'CMakeLists.txt')
+        Run-Check packaged-two-tree-performance (Join-Path $bundle 'gui_flow_tests.exe') @('--benchmark-project', $benchmark, '5', '150')
+        Run-Check packaged-replacement-performance (Join-Path $bundle 'gui_flow_tests.exe') @('--benchmark-replacement')
         $files = @(Get-ChildItem -LiteralPath $bundle -File -Recurse | ForEach-Object {
             $_.FullName.Substring($bundle.Length + 1).Replace('\','/')
         })
@@ -112,7 +164,7 @@ try {
 } finally {
     $passed | Set-Content (Join-Path $ReportDirectory 'completed-checks.txt')
     # Preserve a failed fixture for diagnosis; successful cleanup is explicitly owned.
-    if ($passed.Contains('packaged-local-library-consumer')) {
+    if ($passed.Contains('packaged-replacement-performance')) {
         $absolute = [IO.Path]::GetFullPath($root)
         if ([IO.Path]::GetDirectoryName($absolute) -ne [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\') -or
             [IO.Path]::GetFileName($absolute) -notmatch '^EasierPortable-[0-9a-f]{32}$') { throw 'Unsafe portable fixture cleanup path.' }

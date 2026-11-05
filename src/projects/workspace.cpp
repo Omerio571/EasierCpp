@@ -7,6 +7,7 @@
 #include "projects/directory_scan.hpp"
 #include "build/build_lease.hpp"
 #include "build/build_profile.hpp"
+#include "build/build_freshness.hpp"
 #include "build/build_workers.hpp"
 #include "projects/project_paths.hpp"
 #include "tools/tool_workflows.hpp"
@@ -19,6 +20,7 @@
 #include <regex>
 #include <memory>
 #include <cctype>
+#include <set>
 
 namespace cpplivelab
 {
@@ -412,7 +414,9 @@ fs::path managed_build_directory(
     {
         slot = wide(read(fs::path(base.wstring() + L".active")));
     }
-    if (slot.empty())
+    // "base" explicitly selects the original tree even when an active pointer exists.
+    // Empty still means follow that pointer, preserving existing callers and settings.
+    if (slot.empty() || slot == L"base")
     {
         return base;
     }
@@ -430,6 +434,29 @@ fs::path managed_build_directory(
     return directory;
 }
 
+ProjectOptions replacement_build_options(
+    const fs::path& root, const std::wstring& configuration, const ProjectOptions& options)
+{
+    const auto current = managed_build_directory(root, configuration, options);
+    auto candidate = options;
+    // Prefer the original compilation tree. An old A/B-only installation instead
+    // retains its warm peer; no cache is moved, copied or deleted during admission.
+    for (const auto* slot : {L"base", L"fresh-auto-a", L"fresh-auto-b"})
+    {
+        candidate.recovery_slot = slot;
+        const auto directory = managed_build_directory(root, configuration, candidate);
+        if (directory != current && fs::is_regular_file(directory / L"CMakeCache.txt"))
+        {
+            return candidate;
+        }
+    }
+    candidate.recovery_slot = L"base";
+    candidate.recovery_slot = current == managed_build_directory(root, configuration, candidate)
+                                  ? L"fresh-auto-a"
+                                  : L"base";
+    return candidate;
+}
+
 void activate_build_slot(
     const fs::path& root, const std::wstring& configuration, const ProjectOptions& options)
 {
@@ -437,13 +464,13 @@ void activate_build_slot(
     {
         throw std::runtime_error("An explicit verified build slot is required.");
     }
-    const auto directory = managed_build_directory(root, configuration, options);
     if (executable_targets(root, configuration, options).empty())
     {
         throw std::runtime_error("No executable metadata in replacement build.");
     }
-    auto base = directory.wstring();
-    base.resize(base.size() - options.recovery_slot.size() - 1);
+    auto original = options;
+    original.recovery_slot = L"base";
+    const auto base = managed_build_directory(root, configuration, original).wstring();
     const auto temporary = fs::path(base + L".active-new");
     write(temporary, narrow(options.recovery_slot));
     if (!MoveFileExW(temporary.c_str(),
@@ -643,6 +670,265 @@ std::vector<ExecutableTarget> executable_targets(
             "Target metadata read failed: " + path_support::path_utf8(manifest));
     }
     return targets;
+}
+
+Environment cached_runtime_environment(const fs::path& directory)
+{
+    // Preserve compiler-local runtime DLL lookup where the installation provides it.
+    // Keep every inherited user variable; compilation-only INCLUDE/LIB are not synthesized.
+    std::ifstream cache(directory / L"CMakeCache.txt");
+    for (std::string line; std::getline(cache, line);)
+    {
+        if (line.starts_with("CMAKE_CXX_COMPILER:") && line.find('=') != line.npos)
+        {
+            return prepend_environment_paths(
+                {}, {path_support::from_utf8(line.substr(line.find('=') + 1)).parent_path()});
+        }
+    }
+    throw std::runtime_error("Cached compiler runtime path is missing; build the project again.");
+}
+
+static bool cached_runtime_dependencies(const fs::path& executable,
+    const fs::path& compiler,
+    const fs::path& directory,
+    const fs::path& working)
+{
+    const auto dumpbin = compiler.parent_path() / L"dumpbin.exe";
+    if (!fs::is_regular_file(dumpbin))
+    {
+        return false;
+    }
+    wchar_t system[MAX_PATH]{}, windows[MAX_PATH]{};
+    GetSystemDirectoryW(system, MAX_PATH);
+    GetWindowsDirectoryW(windows, MAX_PATH);
+    std::vector<fs::path> search{executable.parent_path(), system, windows, working};
+    const auto environment = runtime_environment(cached_runtime_environment(directory), directory);
+    for (const wchar_t* item = environment.data(); *item; item += std::wcslen(item) + 1)
+    {
+        if (_wcsnicmp(item, L"PATH=", 5) == 0)
+        {
+            std::wistringstream paths(item + 5);
+            for (std::wstring path; std::getline(paths, path, L';');)
+            {
+                if (!path.empty())
+                {
+                    search.emplace_back(path);
+                }
+            }
+        }
+    }
+    std::vector<fs::path> modules{executable};
+    std::set<std::string> visited;
+    for (size_t index = 0; index < modules.size() && index < 16; ++index)
+    {
+        if (!visited.insert(key(modules[index])).second)
+        {
+            continue;
+        }
+        // DUMPBIN reads PE imports without executing DLL entry points. Unknown
+        // output, missing tools/imports or a large graph use the full SDK path.
+        ConsoleSession inspect;
+        inspect.start_worker(
+            dumpbin, {L"/nologo", L"/dependents", modules[index].wstring()}, working);
+        std::string output;
+        while (inspect.running() || inspect.output_pending())
+        {
+            output += inspect.poll();
+            if (output.size() > 131072)
+            {
+                inspect.stop();
+                return false;
+            }
+            if (inspect.root_exited())
+            {
+                inspect.finish_build();
+            }
+            Sleep(5);
+        }
+        output += inspect.poll();
+        if (inspect.exit_code() != 0 ||
+            (output.find("File Type: EXECUTABLE IMAGE") == output.npos &&
+                output.find("File Type: DLL") == output.npos))
+        {
+            return false;
+        }
+        std::istringstream lines(output);
+        for (std::string line; std::getline(lines, line);)
+        {
+            const auto first = line.find_first_not_of(" \r\t");
+            if (first == line.npos)
+            {
+                continue;
+            }
+            line = line.substr(first, line.find_last_not_of(" \r\t") - first + 1);
+            std::transform(line.begin(),
+                line.end(),
+                line.begin(),
+                [](unsigned char value)
+                {
+                    return static_cast<char>(std::tolower(value));
+                });
+            if (!line.ends_with(".dll"))
+            {
+                continue;
+            }
+            if (line.find_first_of(" :/\\\t") != line.npos || std::any_of(line.begin(),
+                                                                  line.end(),
+                                                                  [](unsigned char value)
+                                                                  {
+                                                                      return value > 127;
+                                                                  }))
+            {
+                if (first == 0)
+                {
+                    continue; // DUMPBIN's unindented input-file banner is not an import.
+                }
+                return false;
+            }
+            if (line.starts_with("api-ms-") || line.starts_with("ext-ms-"))
+            {
+                continue; // Windows API-set contracts do not require a physical DLL here.
+            }
+            const auto found = std::find_if(search.begin(),
+                search.end(),
+                [&](const auto& path)
+                {
+                    return fs::is_regular_file(path / path_support::from_utf8(line));
+                });
+            if (found == search.end())
+            {
+                return false;
+            }
+            const auto dependency = *found / path_support::from_utf8(line);
+            if (!path_support::is_within_directory(dependency, fs::path(system)) &&
+                !path_support::is_within_directory(dependency, compiler.parent_path()))
+            {
+                modules.push_back(dependency);
+            }
+        }
+    }
+    return modules.size() <= 16;
+}
+
+int probe_managed_launch(
+    const fs::path& root, const std::wstring& configuration, const ProjectOptions& options)
+{
+    BuildProfile profile;
+    const auto project = inspect_project(root);
+    profile.checkpoint("project_inspection_ms");
+    wchar_t require_sdk[2]{};
+    const bool runtime_requires_sdk =
+        GetEnvironmentVariableW(L"EASIERCPP_REQUIRE_DEVELOPER_ENV", require_sdk, 2) == 1 &&
+        require_sdk[0] == L'1';
+    const bool explicit_default = options.preset == L"-";
+    if (runtime_requires_sdk || (!options.preset.empty() && !explicit_default) ||
+        !options.vcpkg.empty() || ((project.presets || project.user_presets) && !explicit_default))
+    {
+        return launch_build_required_exit_code;
+    }
+    const auto directory = managed_build_directory(root, configuration, options);
+    if (!fs::is_regular_file(directory / L"CMakeCache.txt"))
+    {
+        return launch_build_required_exit_code;
+    }
+    const BuildLease gate(workspace_directory(root) / L"library-mutation");
+    const BuildLease lease(directory);
+    if (fs::exists(workspace_directory(root) / L"library-transaction/pending"))
+    {
+        return launch_build_required_exit_code;
+    }
+    std::map<std::string, std::string> cache;
+    std::ifstream input(directory / L"CMakeCache.txt");
+    for (std::string line; std::getline(input, line);)
+    {
+        const auto colon = line.find(':');
+        const auto equal = line.find('=');
+        if (colon < equal && equal != line.npos)
+        {
+            cache[line.substr(0, colon)] = line.substr(equal + 1);
+        }
+    }
+    if (cache["CMAKE_GENERATOR"] != "Ninja" || !cache["CMAKE_TOOLCHAIN_FILE"].empty() ||
+        key(path_support::from_utf8(cache["CMAKE_HOME_DIRECTORY"])) != key(project.root) ||
+        read(directory / L"CMakeFiles/rules.ninja").find("rule RERUN_CMAKE") == std::string::npos ||
+        !reusable_target_metadata(root, directory, configuration, options))
+    {
+        return launch_build_required_exit_code;
+    }
+    const auto tools = discover_toolchain(system_discovery_inputs(true));
+    profile.checkpoint("tool_discovery_ms");
+    const auto compiler = tool(tools, "cl");
+    const auto ninja = tool(tools, "ninja");
+    if (compiler.empty() || ninja.empty() ||
+        key(compiler) != key(path_support::from_utf8(cache["CMAKE_CXX_COMPILER"])))
+    {
+        return launch_build_required_exit_code;
+    }
+    const auto targets = executable_targets(root, configuration, options);
+    if (std::any_of(targets.begin(),
+            targets.end(),
+            [&](const auto& item)
+            {
+                return !path_support::is_within_directory(
+                    fs::weakly_canonical(item.artifact), fs::weakly_canonical(directory));
+            }))
+    {
+        return launch_build_required_exit_code;
+    }
+    const auto target = std::find_if(targets.begin(),
+        targets.end(),
+        [&](const auto& item)
+        {
+            return options.target.empty() ? targets.size() == 1 : item.name == options.target;
+        });
+    if (target == targets.end() || !fs::is_regular_file(target->artifact))
+    {
+        return launch_build_required_exit_code;
+    }
+    BuildFreshness freshness;
+    const BuildIdentity identity{project.root, configuration, target->artifact, directory};
+    const auto sources = freshness.begin(identity);
+    if (!freshness.succeeded(identity, sources))
+    {
+        return launch_build_required_exit_code;
+    }
+    if (!cached_runtime_dependencies(target->artifact,
+            compiler,
+            directory,
+            options.working_directory.empty() ? project.root : options.working_directory))
+    {
+        return launch_build_required_exit_code;
+    }
+    profile.checkpoint("runtime_dependency_check_ms");
+    ConsoleSession probe;
+    probe.start_worker(ninja, {L"-n", target->name}, directory);
+    std::string output;
+    while (probe.running() || probe.output_pending())
+    {
+        output += probe.poll();
+        if (output.size() > 131072)
+        {
+            probe.stop();
+            return launch_build_required_exit_code;
+        }
+        if (probe.root_exited())
+        {
+            probe.finish_build();
+        }
+        Sleep(5);
+    }
+    output += probe.poll();
+    const auto result = probe.exit_code();
+    profile.checkpoint("dependency_check_ms");
+    profile.value("sdk_preparations", 0);
+    profile.value("ninja_commands", 0);
+    if (!ninja_reports_current(output, result) || !freshness.can_probe(identity) ||
+        !reusable_target_metadata(root, directory, configuration, options))
+    {
+        return launch_build_required_exit_code;
+    }
+    std::cout << output << "Verified current executable without SDK preparation.\n";
+    return 0;
 }
 
 int managed_build(const fs::path& root,

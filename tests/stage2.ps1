@@ -89,7 +89,10 @@ int main() {
     Invoke-Lab @('build', $hello, '--config', 'Wrong') '' 2 | Out-Null
     Invoke-Lab @('build', $hello, '--config') '' 2 | Out-Null
     Invoke-Lab @('build', $hello, '--unknown', 'value') '' 2 | Out-Null
-    $managerChild = Join-Path (Split-Path (Split-Path (Split-Path $App))) 'ForbiddenUserProject'
+    # The application directory is protected in both source and portable builds.
+    # A portable binary deliberately has no source-checkout identity, and arbitrary
+    # build-directory depth cannot identify that checkout safely.
+    $managerChild = Join-Path (Split-Path $App) ('ForbiddenUserProject-' + [guid]::NewGuid().ToString('N'))
     Invoke-Lab @('create', $managerChild) '' -1 | Out-Null
     Assert (-not (Test-Path $managerChild)) 'User project was created within manager'
     Assert ($env:PATH -ceq $originalPath) 'Parent PATH changed'

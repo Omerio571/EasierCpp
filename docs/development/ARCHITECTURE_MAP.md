@@ -3,6 +3,10 @@
 Read AGENTS.md first. This map is an entry point, not a request to read every file.
 Search a named symbol in its subsystem, then read a small surrounding section.
 For opt-in PCH usage and compatibility boundaries, see [PCH.md](PCH.md).
+For two-tree rotation and existing cache compatibility, see
+[AUTO_RUN_BUILD_TREES.md](AUTO_RUN_BUILD_TREES.md).
+For cached launch eligibility and lazy SDK preparation, see
+[the SDK startup report](../reports/auto-run/SDK_STARTUP_OPTIMIZATION_REPORT.md).
 
 | Concern | Starting files/symbols | Relevant tests |
 |---|---|---|

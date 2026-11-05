@@ -14,7 +14,7 @@ std::optional<int> workspace_command(int argc, wchar_t** argv)
     const std::wstring command = argv[1];
     if (command != L"inspect" && command != L"manage-build" && command != L"manage-run" &&
         command != L"new" && command != L"targets" && command != L"edit" &&
-        command != L"manage-rebuild" && command != L"pch-config")
+        command != L"manage-rebuild" && command != L"pch-config" && command != L"manage-probe")
     {
         return {};
     }
@@ -147,6 +147,10 @@ std::optional<int> workspace_command(int argc, wchar_t** argv)
     if (command == L"manage-rebuild")
     {
         return recover_managed_build(inspected.root, configuration, options, approved_recovery);
+    }
+    if (command == L"manage-probe")
+    {
+        return probe_managed_launch(inspected.root, configuration, options);
     }
     return managed_build(inspected.root,
         configuration,

@@ -3,11 +3,13 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include "cpplivelab/process.hpp"
 
 namespace cpplivelab
 {
 inline constexpr int artifact_missing_exit_code = 76;
 inline constexpr int target_selection_exit_code = 77;
+inline constexpr int launch_build_required_exit_code = 78;
 
 struct ProjectInspection
 {
@@ -49,6 +51,10 @@ std::filesystem::path workspace_directory(const std::filesystem::path& root);
 std::filesystem::path managed_build_directory(const std::filesystem::path& root,
     const std::wstring& configuration,
     const ProjectOptions& options);
+// Select an inactive owned tree, retaining existing base/A/B caches without copying them.
+ProjectOptions replacement_build_options(const std::filesystem::path& root,
+    const std::wstring& configuration,
+    const ProjectOptions& options);
 // Activate a verified manager-owned slot without changing project configuration.
 void activate_build_slot(const std::filesystem::path& root,
     const std::wstring& configuration,
@@ -70,6 +76,11 @@ int managed_build(const std::filesystem::path& root,
     bool run,
     bool incremental,
     bool require_target = false);
+// Read-only dependency probe. Unsupported/dirty profiles require the normal build path.
+int probe_managed_launch(const std::filesystem::path& root,
+    const std::wstring& configuration,
+    const ProjectOptions& options);
+Environment cached_runtime_environment(const std::filesystem::path& directory);
 // Explicit approval is required. Preserves all old outputs and switches the
 // manager's active directory only after the fresh build succeeds.
 int recover_managed_build(const std::filesystem::path& root,

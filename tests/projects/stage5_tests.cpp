@@ -496,6 +496,17 @@ void projects(const fs::path& parent, const fs::path& cli)
     result = execute(cli, {L"manage-run", regeneration.wstring(), L"--target", L"app"}, parent);
     require(result.code == 0, "Initial local DLL consumer failed: " + result.output);
     const auto regenerated_directory = managed_build_directory(regeneration, L"Debug", {});
+    ProjectOptions runtime_target;
+    runtime_target.target = L"app";
+    require(probe_managed_launch(regeneration, L"Debug", runtime_target) == 0,
+        "Unchanged DLL consumer did not pass the no-SDK runtime probe");
+    const auto dll = regenerated_directory / L"helper.dll";
+    const auto held_dll = regenerated_directory / L"helper.dll.held";
+    fs::rename(dll, held_dll);
+    require(probe_managed_launch(regeneration, L"Debug", runtime_target) ==
+                launch_build_required_exit_code,
+        "Missing required DLL incorrectly passed the cached launch probe");
+    fs::rename(held_dll, dll);
     const auto previous_snapshot = read(regenerated_directory / L"file-api.snapshot");
     write(regeneration / L"CMakeLists.txt",
         cmake + "set_target_properties(app PROPERTIES OUTPUT_NAME renamed)\n"
@@ -782,7 +793,9 @@ void presets(const fs::path& parent, const fs::path& cli)
 {"name":"base","hidden":true,"cacheVariables":{"REQUIRED_OPTION":"preserved"}},
 {"name":"ninja","inherits":"base","generator":"Ninja","binaryDir":"${sourceDir}/do-not-touch"},
 {"name":"multi","inherits":"base","generator":"Ninja Multi-Config","binaryDir":"${sourceDir}/multi-do-not-touch"},
+{"name":"custom","inherits":"base","generator":"Ninja","toolchainFile":"${sourceDir}/fixture.cmake","binaryDir":"${sourceDir}/custom-do-not-touch"},
 {"name":"vs2022","inherits":"base","generator":"Visual Studio 17 2022","architecture":"x64","binaryDir":"${sourceDir}/also-do-not-touch"}]})json");
+    write(project / L"fixture.cmake", "set(SDK_TOOLCHAIN_PROOF preserved CACHE STRING \"\")\n");
     const auto before = snapshot(project);
     auto result = execute(cli, {L"manage-build", project.wstring()}, parent);
     require(result.code != 0 &&
@@ -819,6 +832,19 @@ void presets(const fs::path& parent, const fs::path& cli)
         "Ninja Multi-Config preset failed without a developer terminal: " + result.output);
     require(before == snapshot(project),
         "Preset build overwrote original preset or binary directories");
+    result = execute(cli,
+        {L"manage-run", project.wstring(), L"--preset", L"custom", L"--target", L"chosen"},
+        parent);
+    ProjectOptions custom;
+    custom.preset = L"custom";
+    custom.target = L"chosen";
+    require(
+        result.code == 0 && result.output.find("PRESET OK") != result.output.npos &&
+            read(managed_build_directory(project, L"Debug", custom) / L"CMakeCache.txt")
+                    .find("SDK_TOOLCHAIN_PROOF:STRING=preserved") != std::string::npos &&
+            probe_managed_launch(project, L"Debug", custom) == launch_build_required_exit_code &&
+            before == snapshot(project),
+        "Custom toolchain/preset was changed, skipped or incorrectly fast-launched");
 }
 
 void libraries(const fs::path& parent, const fs::path& cli)
