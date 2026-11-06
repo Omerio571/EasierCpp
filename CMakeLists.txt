@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     EasierCpp
-    VERSION 0.1.2
+    VERSION 0.1.3
     LANGUAGES CXX
 )
 
@@ -13,7 +13,7 @@ set(portable_default OFF)
 if(DEFINED CPPLIVELAB_PORTABLE)
     set(portable_default "${CPPLIVELAB_PORTABLE}")
 endif()
-option(EASIERCPP_PORTABLE "Resolve runtime support beside the executables only" ${portable_default})
+option(EASIERCPP_PORTABLE "Build the public distribution without source-only features" ${portable_default})
 if(CPPLIVELAB_PORTABLE AND NOT EASIERCPP_PORTABLE)
     message(FATAL_ERROR "Conflicting portable options: use EASIERCPP_PORTABLE, and set the legacy CPPLIVELAB_PORTABLE=OFF when disabling portable mode.")
 endif()
@@ -178,14 +178,22 @@ add_executable(
     ${EASIERCPP_GUI_SOURCES}
 )
 
-install(TARGETS EasierCpp EasierCpp-Gui
-    RUNTIME DESTINATION . CONFIGURATIONS Release COMPONENT Runtime
-)
-install(DIRECTORY "${CMAKE_BINARY_DIR}/resources/" DESTINATION resources COMPONENT Runtime)
-install(FILES LICENSE THIRD_PARTY_NOTICES.md docs/release/RELEASE_NOTES.md
-    DESTINATION . COMPONENT Runtime
-)
-install(FILES docs/release/README.md DESTINATION . COMPONENT Runtime)
+if(EASIERCPP_PORTABLE)
+    target_compile_definitions(EasierCpp-Gui PRIVATE EASIERCPP_PUBLIC_GUI)
+    install(TARGETS EasierCpp EasierCpp-Gui
+        RUNTIME DESTINATION . CONFIGURATIONS Release COMPONENT Runtime
+    )
+    install(DIRECTORY "${CMAKE_BINARY_DIR}/resources/" DESTINATION resources COMPONENT Runtime)
+    install(FILES LICENSE THIRD_PARTY_NOTICES.md docs/release/README.md
+        DESTINATION . COMPONENT Runtime
+    )
+    install(FILES "docs/release/notes/v${PROJECT_VERSION}.md"
+        DESTINATION . RENAME RELEASE_NOTES.md COMPONENT Runtime
+    )
+    install(FILES assets/branding/EasierCpp.ico assets/branding/EasierCpp.svg
+        DESTINATION resources/branding COMPONENT Runtime
+    )
+endif()
 
 target_compile_definitions(
     EasierCpp-Gui
@@ -315,6 +323,8 @@ if(BUILD_TESTING)
             EasierCppCore
             user32
             advapi32
+            gdi32
+            gdiplus
     )
 
     add_dependencies(

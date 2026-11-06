@@ -13,7 +13,7 @@ class UiTheme
 public:
     ~UiTheme();
     ThemePalette palette;
-    void apply(HWND parent, ThemeChoice choice, UINT dpi);
+    void apply(HWND parent, ThemeChoice choice, UINT dpi, bool desktop_shell = false);
     void active_button(HWND button, bool active);
     void round_controls();
     void paint_panels(HDC dc);

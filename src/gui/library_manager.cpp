@@ -2,6 +2,7 @@
 #include "projects/project_paths.hpp"
 #include "libraries/library_compatibility.hpp"
 #include <algorithm>
+#include <cwctype>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -430,6 +431,15 @@ bool apply_library_change(const LibraryManagerContext& context,
     return success;
 }
 
+bool present_editor(const LibraryManagerContext& context,
+    const std::wstring& title,
+    std::vector<FormField>& fields,
+    FormOptions& options)
+{
+    return context.present_editor ? context.present_editor(title, fields, options)
+                                  : project_form(context.owner, title, fields, options);
+}
+
 void add(const LibraryManagerContext& context, const Snapshot& state)
 {
     FormOptions method_options;
@@ -438,17 +448,23 @@ void add(const LibraryManagerContext& context, const Snapshot& state)
         L"Choose metadata you already have. Packages use the configured toolchain/package manager. "
         L"Precompiled libraries need a CMake package with imported targets. Local CMake code "
         L"executes only after the separate preview approval.";
+    constexpr auto known = L"Known library";
+    constexpr auto repository = L"GitHub / GitLab repository";
     std::vector<FormField> method{{L"Integration method",
-        L"Known / GitHub / GitLab library",
-        {L"Known / GitHub / GitLab library",
+        known,
+        {known,
             L"Installed CMake package",
             L"Local CMake source",
             L"Local header-only directory"}}};
-    if (!project_form(context.owner, L"Add Library", method, method_options))
+    if (context.present_editor)
+    {
+        method.front().choices.insert(method.front().choices.begin() + 1, repository);
+    }
+    if (!present_editor(context, L"Add Library", method, method_options))
     {
         return;
     }
-    if (method[0].value != L"Known / GitHub / GitLab library")
+    if (method[0].value != known && method[0].value != repository)
     {
         LibraryRecord record;
         record.integration = method[0].value == L"Installed CMake package" ? "package"
@@ -466,7 +482,7 @@ void add(const LibraryManagerContext& context, const Snapshot& state)
         {
             return values[0].value.empty() ? L"Enter a library name." : L"";
         };
-        if (!project_form(context.owner, L"Configure Library Integration", fields, method_options))
+        if (!present_editor(context, L"Configure Library Integration", fields, method_options))
         {
             return;
         }
@@ -521,12 +537,30 @@ void add(const LibraryManagerContext& context, const Snapshot& state)
     options.note = L"Add one or more libraries. Existing project dependencies are retained. "
                    L"The next step previews the exact configuration changes.";
     options.accept_label = L"Preview Addition";
-    options.add_github_library = [&](HWND owner)
+    if (method.front().value == repository)
     {
-        return github_library_dialog(owner, context.theme, context.cli, context.output);
-    };
+        const auto id = github_library_dialog(context.owner,
+            context.theme,
+            context.cli,
+            context.output,
+            {},
+            LibraryEdit::Add,
+            context.present_editor);
+        if (!id || context.restarting())
+        {
+            return;
+        }
+        options.libraries.push_back(*id);
+    }
+    if (!context.present_editor)
+    {
+        options.add_github_library = [&](HWND owner)
+        {
+            return github_library_dialog(owner, context.theme, context.cli, context.output);
+        };
+    }
     std::vector<FormField> fields;
-    if (!project_form(context.owner, L"Add Project Libraries", fields, options) ||
+    if (!present_editor(context, L"Add Project Libraries", fields, options) ||
         options.libraries.empty())
     {
         return;
@@ -624,7 +658,8 @@ void caches(const LibraryManagerContext& context,
         }
     };
     options.changed(fields);
-    while (project_form(context.owner, L"Dependency Cache", fields, options))
+    options.confirm_inline_discard = false;
+    while (present_editor(context, L"Dependency Cache", fields, options))
     {
         if (fields[1].value == L"Inspect")
         {
@@ -713,53 +748,115 @@ void manage_libraries_dialog(const LibraryManagerContext& context)
             context.output(L"No known library entries. Use Add Library to register one.\n");
             return;
         }
+
         FormOptions options;
         options.theme = context.theme;
         options.accept_label = L"Continue";
-        options.note =
-            L"Add attaches libraries; management changes only an explicitly selected entry. "
-            L"Project-specific pins survive catalog deletion. Cache actions require separate "
-            L"confirmation. "
-            L"Alt+R requests a safe application restart, including during background tasks.";
-        std::vector<FormField> fields{{L"Project libraries and catalog", labels.front(), labels},
-            {L"Action", L"Inspect", {}},
-            {L"Selected library details", details(state, state.libraries.front()), {}, true}};
-        fields[2].read_only = true;
-        fields[2].multiline_height = 150;
+        options.confirm_inline_discard = false;
+        options.note = L"Review the selected library and choose an action. External dependencies "
+                       L"are read-only.";
+        const bool in_page = static_cast<bool>(context.present_editor);
+        const size_t selection = in_page ? 2 : 0;
+        const size_t action_index = selection + 1;
+        const size_t detail_index = selection + 2;
+        constexpr auto managed = L"Project Libraries";
+        constexpr auto external = L"Detected External Dependencies";
+        constexpr auto available = L"Available Libraries";
+        constexpr auto no_match = L"No matching libraries";
+        const auto attached = [&](const LibraryRecord& record)
+        {
+            return std::any_of(state.project_records.begin(),
+                state.project_records.end(),
+                [&](const auto& entry)
+                {
+                    return entry.id == record.id;
+                });
+        };
+        std::vector<FormField> fields;
+        if (in_page)
+        {
+            fields = {{L"Category",
+                          state.project_records.empty() ? available : managed,
+                          {managed, external, available}},
+                {L"Search libraries", L""}};
+            options.observe_edits = true;
+        }
+        fields.push_back({L"Library", labels.front(), labels});
+        fields.push_back({L"Action", L"Inspect", {L"Inspect"}});
+        fields.push_back({L"Details", L"", {}, true});
+        fields[detail_index].read_only = true;
+        fields[detail_index].multiline_height = 150;
         options.changed = [&](auto& values)
         {
+            if (in_page)
+            {
+                const auto lower = [](std::wstring text)
+                {
+                    std::transform(text.begin(),
+                        text.end(),
+                        text.begin(),
+                        [](wchar_t character)
+                        {
+                            return static_cast<wchar_t>(std::towlower(character));
+                        });
+                    return text;
+                };
+                const auto search = lower(values[1].value);
+                auto& choices = values[selection].choices;
+                choices.clear();
+                for (size_t i = 0; i < labels.size(); ++i)
+                {
+                    const auto& record = state.libraries[i];
+                    const auto category = state.observations.contains(record.id) ? external
+                                          : attached(record)                     ? managed
+                                                                                 : available;
+                    if (values[0].value == category &&
+                        lower(labels[i]).find(search) != std::wstring::npos)
+                    {
+                        choices.push_back(labels[i]);
+                    }
+                }
+                if (choices.empty())
+                {
+                    choices.push_back(no_match);
+                }
+                if (std::find(choices.begin(), choices.end(), values[selection].value) ==
+                    choices.end())
+                {
+                    values[selection].value = choices.front();
+                }
+            }
             const auto index = static_cast<size_t>(
-                std::find(labels.begin(), labels.end(), values[0].value) - labels.begin());
+                std::find(labels.begin(), labels.end(), values[selection].value) - labels.begin());
+            auto& actions = values[action_index];
             if (index < state.libraries.size())
             {
-                values[2].value = details(state, state.libraries[index]);
                 const auto& record = state.libraries[index];
-                const bool attached = std::any_of(state.project_records.begin(),
-                    state.project_records.end(),
-                    [&](const auto& item)
-                    {
-                        return item.id == record.id;
-                    });
-                values[1].choices = library_manager_actions(
-                    state.observations.contains(record.id), attached, record);
-                if (std::find(values[1].choices.begin(),
-                        values[1].choices.end(),
-                        values[1].value) == values[1].choices.end())
-                {
-                    values[1].value = L"Inspect";
-                }
+                values[detail_index].value = details(state, record);
+                actions.choices = library_manager_actions(
+                    state.observations.contains(record.id), attached(record), record);
+            }
+            else
+            {
+                values[detail_index].value = L"No entries match this category and search.";
+                actions.choices = {L"Refresh", L"Add Library"};
+            }
+            if (std::find(actions.choices.begin(), actions.choices.end(), actions.value) ==
+                actions.choices.end())
+            {
+                actions.value = actions.choices.front();
             }
         };
         options.changed(fields);
-        if (!project_form(context.owner, L"Manage Libraries", fields, options) ||
-            context.restarting())
+        if (!present_editor(context, L"Manage Libraries", fields, options) || context.restarting())
         {
             return;
         }
+        const auto action = fields[action_index].value;
         const auto index = static_cast<size_t>(
-            std::find(labels.begin(), labels.end(), fields[0].value) - labels.begin());
-        const auto record = state.libraries.at(index);
-        const auto action = fields[1].value;
+            std::find(labels.begin(), labels.end(), fields[selection].value) - labels.begin());
+        const auto record =
+            index < state.libraries.size() ? state.libraries[index] : LibraryRecord{};
         try
         {
             if (action == L"Inspect" || action == L"Refresh")
@@ -874,13 +971,13 @@ void manage_libraries_dialog(const LibraryManagerContext& context)
                         edit[0].read_only = true;
                         edit[1].read_only = true;
                     }
-                    if (confirm(context,
-                            L"Edit Library Integration",
-                            L"FetchContent versions/source changes use Update Version and its "
-                            L"pinned repository verification. The next step previews project "
-                            L"changes; upstream source is never edited.",
-                            L"Preview Changes",
-                            edit))
+                    FormOptions edit_options;
+                    edit_options.theme = context.theme;
+                    edit_options.note =
+                        L"Use Update Version to verify a new FetchContent version or source. "
+                        L"The next step previews project changes.";
+                    edit_options.accept_label = L"Preview Changes";
+                    if (present_editor(context, L"Edit Library Integration", edit, edit_options))
                     {
                         current->version = path_support::path_utf8(edit[0].value);
                         current->local_path = path_support::path_utf8(edit[1].value);
@@ -932,8 +1029,13 @@ void manage_libraries_dialog(const LibraryManagerContext& context)
                         apply_library_change(context, records);
                         continue;
                     }
-                    const auto selected = github_library_dialog(
-                        context.owner, context.theme, context.cli, context.output, editing, mode);
+                    const auto selected = github_library_dialog(context.owner,
+                        context.theme,
+                        context.cli,
+                        context.output,
+                        editing,
+                        mode,
+                        context.present_editor);
                     if (selected && !context.restarting())
                     {
                         auto updated = *known_library(*selected);

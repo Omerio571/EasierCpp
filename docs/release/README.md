@@ -1,10 +1,10 @@
-# EasierCpp v0.1.2 — Make Your Life Easier
+# EasierCpp portable Windows guide
 
 A lightweight C++ development companion for standard CMake projects. EasierCpp
 builds and runs your code while you edit it in Visual Studio or another editor.
 It does not include an editor/debugger or preserve game/application memory.
 
-## Upgrading from v0.1.1
+## Upgrading from an earlier release
 
 Close EasierCpp and managed applications. Extract the complete new ZIP into a fresh
 folder and launch EasierCpp-Gui.exe there. Preserve existing projects, settings,
@@ -22,7 +22,7 @@ Use an isolated `CPPLIVELAB_STATE_HOME` for older-version comparisons, or review
 back up the relevant state before a downgrade. Never delete build caches to upgrade.
 See RELEASE_NOTES.md beside this file for scope and measured performance limits.
 
-In Settings → Preferences, **Keep Window Position (When Restarted)** and **Keep Window
+In Settings → Window & Process, **Keep Window Position (When Restarted)** and **Keep Window
 Size (When Restarted)** independently control the open project's application window.
 New projects default to position ON and size OFF, so code-defined dimensions take
 effect. Choices persist across manager sessions; existing ON preferences retain both.
@@ -106,15 +106,14 @@ stay separate. Removing this folder does not remove user projects or cached stat
 If resources are missing, re-extract the complete ZIP. If moving the application
 invalidates an existing PCH/CMake cache, review and approve Clean & Rebuild through
 the normal recovery flow; do not manually rewrite or delete unrelated project files.
-The source regression-suite command in Tools requires a non-portable source build;
-the portable package explains how to use Toolchain Diagnostics/Doctor instead.
-Doctor and normal runtime features
-remain available. Tools are not bundled; network libraries need network access.
+Use Tools → Summary Doctor or Detailed Report for diagnostics. Development builds
+include a separate regression runner for contributors. External build tools are
+installed separately. Network libraries need network access.
 
 ## Manual release acceptance
 
 1. Extract to a new folder containing spaces, outside the source repository. Launch
-   the GUI, run Doctor, and confirm no repository files are needed.
+   the GUI, run Doctor, and confirm Tools shows only public actions.
 2. Create a disposable console project; build/run both Debug and Release. Test
    console input, then reopen an existing disposable CMake project.
 3. Turn Auto Run on. Save a source edit and expect updated output. Introduce an

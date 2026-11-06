@@ -344,8 +344,14 @@ std::optional<std::string> github_library_dialog(HWND owner,
     const fs::path& manager_cli,
     const LibraryOutput& output,
     const std::optional<LibraryRecord>& existing,
-    LibraryEdit operation)
+    LibraryEdit operation,
+    const LibraryFormPresenter& present_editor)
 {
+    const auto edit = [&](const std::wstring& title, auto& fields, auto& options)
+    {
+        return present_editor ? present_editor(title, fields, options)
+                              : project_form(owner, title, fields, options);
+    };
     FormOptions options;
     std::vector<FormField> repository;
     restart_cancelled = false;
@@ -358,7 +364,7 @@ std::optional<std::string> github_library_dialog(HWND owner,
                                                              : L"https://github.com/") +
             path_support::from_utf8(existing->repository).wstring();
     }
-    if (!existing && !project_form(owner, L"GitHub / GitLab Repository", repository, options))
+    if (!existing && !edit(L"GitHub / GitLab Repository", repository, options))
     {
         return {};
     }
@@ -491,7 +497,7 @@ std::optional<std::string> github_library_dialog(HWND owner,
         options.note += L"\nCurrent pin: " + decode_console_text(existing->version) + L" " +
                         decode_console_text(existing->revision);
     }
-    while (select_version && project_form(owner, L"Library Version", selection, options))
+    while (select_version && edit(L"Library Version", selection, options))
     {
         if (passive(L"Resolve", selection[1].value))
         {
@@ -821,7 +827,7 @@ std::optional<std::string> github_library_dialog(HWND owner,
             }
             else
             {
-                if (!project_form(owner, L"Select Library Targets", choose, options))
+                if (!edit(L"Select Library Targets", choose, options))
                 {
                     return {};
                 }

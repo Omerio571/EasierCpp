@@ -11,8 +11,8 @@ fields start empty. Preserve imported projects and require explicit recovery app
 
 For ALL UI work, read and follow [UI_DESIGN_GUIDELINES.md](docs/design/UI_DESIGN_GUIDELINES.md)
 before implementation. This applies to every future stage. Reuse shared Win32 styling,
-keep one settings destination and one action/state implementation, preserve customized
-palettes, and add relevant native-control and manual acceptance tests.
+keep the approved sidebar and one settings destination, preserve existing preference
+and console behavior, and add relevant native-control and manual acceptance tests.
 
 ## Efficient navigation
 
@@ -53,6 +53,9 @@ the relevant failure tail.
 
 ## Verification and handoff
 
+- Follow [RELEASE_POLICY.md](docs/release/RELEASE_POLICY.md) when preparing a
+  public distribution. Publication requires separate owner approval.
+
 - Format changed maintained C++ with discovered clang-format (`-i`, then
   `--dry-run --Werror` on those files). Full `scripts/format.ps1`/`-Check` remains
   available for repository-wide work; do not reformat unrelated edits.
@@ -71,8 +74,8 @@ the relevant failure tail.
 
 ## Permanent Stage 5 workflow constraints
 
-Keep Project/Tools left and one Settings destination right. Preserve the no-project
-welcome state. Shared form layout must survive resize, DPI and repeated Advanced
+Keep the approved Home, Workspace, Libraries, Project, Tools and Settings sidebar.
+Preserve the no-project welcome state. Shared form layout must survive resize, DPI and repeated Advanced
 Options toggles with erased parent borders and regenerated regions. Keep help subtle
 and keyboard accessible. GitHub metadata discovery is passive; configuring third-party
 code requires explicit repository/commit approval. Preview and separately approve any

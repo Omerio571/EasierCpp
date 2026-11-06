@@ -2024,10 +2024,8 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     cpplivelab::configure_project_pch(project.root, L"Release", pch_recipe);
     cpplivelab::configure_project_pch(project.root, L"Debug", pch_recipe);
     Host host(project.root, snapshots);
-    require(
-        read_control_text(host.app.window_handle).find(L"EasierCpp \u2014 Make Your Life Easier") !=
-            std::wstring::npos,
-        "Displayed identity/tagline lost its Unicode spelling in the active project");
+    require(read_control_text(host.app.window_handle) == L"EasierCpp",
+        "Native title contains extra branding or project details");
     {
         const auto capture = fixtures / L"diagnostic location.txt";
         cpplivelab::save_editor({L"Custom",
@@ -2097,25 +2095,26 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     require(!(GetWindowLongPtrW(app.find_control(BrowseButton), GWL_STYLE) & WS_VISIBLE),
         "Welcome-only Open Existing button remains visible inside the active workspace");
     require(GetMenu(app.window_handle) == nullptr, "Old menu bar competes with themed navigation");
-    int settings_entries = 0;
-    for (const auto section : {NavigationProject, NavigationTools, NavigationSettings})
+    const auto visible = [&](int id)
     {
-        require(app.find_control(section) != nullptr, "Themed navigation section missing");
-        for (const auto& action : app.navigation_actions(section))
-        {
-            require(action.second != AutoBuildButton &&
-                        action.first.find(L"Auto Build") == std::wstring::npos,
-                "Retired Auto Build action remains in a navigation popup");
-            if (action.second == AppearanceMenu)
-            {
-                ++settings_entries;
-            }
-        }
+        return (GetWindowLongPtrW(app.find_control(id), GWL_STYLE) & WS_VISIBLE) != 0;
+    };
+    for (const auto [page, action] : {std::pair{NavigationHome, BrowseButton},
+             std::pair{NavigationLibraries, ManageLibrariesMenu},
+             std::pair{NavigationProject, ProjectSettingsMenu},
+             std::pair{NavigationTools, EditProjectButton},
+             std::pair{NavigationSettings, AppearanceMenu},
+             std::pair{NavigationWorkspace, BuildButton}})
+    {
+        SendMessageW(app.window_handle, WM_COMMAND, MAKEWPARAM(page, BN_CLICKED), 0);
+        require(app.shell_page == page && visible(page) && visible(action),
+            "A sidebar destination did not expose its existing action");
+        require(visible(AppearanceMenu) == (page == NavigationSettings),
+            "Appearance has more than one settings entry");
     }
-    require(settings_entries == 1, "Appearance has more than one settings entry");
     require(app.find_control(NavigationBuild) == nullptr &&
-                app.navigation_actions(NavigationTools)[0].second == EditProjectButton,
-        "Navigation duplicates implementation instead of routing to existing actions");
+                app.find_control(AutoBuildButton) == nullptr,
+        "Retired Auto Build or a duplicate build destination exists");
     const auto before_manual_build = app.build_sequence;
     SendMessageW(app.window_handle, WM_COMMAND, MAKEWPARAM(BuildButton, BN_CLICKED), 0);
     require(app.build_sequence == before_manual_build + 1,
@@ -2130,11 +2129,26 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     app.command(RunButton);
     host.running();
     host.prompt(L"Your name:");
-    if (!snapshots.empty())
+    const auto theme_before = app.preferences.theme;
+    const auto pid_before_theme = app.session.process_id();
+    const auto program_before_theme = read_control_text(app.program_console.window);
+    const auto system_before_theme = read_control_text(app.system_console.window);
+    for (const auto theme : {cpplivelab::ThemeChoice::Dark, cpplivelab::ThemeChoice::Light})
     {
-        for (const auto theme : {cpplivelab::ThemeChoice::Dark, cpplivelab::ThemeChoice::Light})
+        app.apply_appearance_choice(theme);
+        const auto background = cpplivelab::theme_palette(theme).console.background;
+        for (const auto pane : {app.program_console.window, app.system_console.window})
         {
-            app.apply_appearance_choice(theme);
+            require(SendMessageW(pane, EM_SETBKGNDCOLOR, 0, background) == background,
+                "A Rich Edit console retained the wrong theme background");
+        }
+        require(read_control_text(app.program_console.window) == program_before_theme &&
+                    read_control_text(app.system_console.window) == system_before_theme &&
+                    app.session.process_id() == pid_before_theme &&
+                    IsWindowEnabled(app.find_control(ProgramInput)),
+            "Changing themes altered output, process identity, or input availability");
+        if (!snapshots.empty())
+        {
             ShowWindow(app.window_handle, SW_SHOWNOACTIVATE);
             UpdateWindow(app.window_handle);
             ui_test::capture(app.window_handle,
@@ -2142,6 +2156,7 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
                                                                     : L"workspace-light.png"));
         }
     }
+    app.apply_appearance_choice(theme_before);
     require(app.build_sequence == builds, "Up-to-date Run rebuilt instead of probing Ninja");
     require(read_control_text(app.system_console.window).find(L"Build is up to date") !=
                 std::wstring::npos,
@@ -2196,6 +2211,10 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
         },
         "Integrated runner failed to capture actual background output");
     const auto test_pid = app.test_session.process_id();
+    app.command(NavigationTools);
+    require(IsWindowEnabled(app.find_control(CancelTestsMenu)) &&
+                !IsWindowEnabled(app.find_control(TestRunnerMenu)),
+        "The Tools page did not expose cancellation for an active test");
     app.command(TestRunnerMenu);
     require(app.test_session.process_id() == test_pid,
         "Overlapping runner request replaced a running test process");
@@ -2212,6 +2231,9 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     require(read_control_text(app.system_console.window).find(L"Tests cancelled; exit") !=
                 std::wstring::npos,
         "Integrated runner did not report actual cancellation/exit status");
+    require(!IsWindowEnabled(app.find_control(CancelTestsMenu)) &&
+                IsWindowEnabled(app.find_control(TestRunnerMenu)),
+        "Test actions did not return to idle after cancellation");
     fs::remove(test_script);
 
     app.command(ClearProgram);

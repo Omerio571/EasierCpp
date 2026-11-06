@@ -6,6 +6,8 @@
 namespace cpplivelab
 {
 using LibraryOutput = std::function<void(const std::wstring&)>;
+using LibraryFormPresenter =
+    std::function<bool(const std::wstring&, std::vector<FormField>&, FormOptions&)>;
 enum class LibraryEdit
 {
     Add,
@@ -34,5 +36,6 @@ std::optional<std::string> github_library_dialog(HWND owner,
     const std::filesystem::path& manager_cli,
     const LibraryOutput& output,
     const std::optional<LibraryRecord>& existing = {},
-    LibraryEdit operation = LibraryEdit::Add);
+    LibraryEdit operation = LibraryEdit::Add,
+    const LibraryFormPresenter& present_editor = {});
 } // namespace cpplivelab

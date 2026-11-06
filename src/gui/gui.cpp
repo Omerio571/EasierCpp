@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <shobjidl.h>
 #include <shellapi.h>
+#include <oleacc.h>
+#include <uxtheme.h>
 #include "cpplivelab/session.hpp"
 #include "process/output_decoder.hpp"
 #include "build/auto_build.hpp"
@@ -25,6 +27,7 @@
 #include <future>
 #include <chrono>
 #include <algorithm>
+#include <array>
 #include "cpplivelab/doctor.hpp"
 #include <filesystem>
 #include <string>
@@ -38,8 +41,7 @@ namespace fs = std::filesystem;
 
 std::wstring application_title()
 {
-    return L"EasierCpp — Make Your Life Easier (v" +
-           cpplivelab::decode_console_text(EASIERCPP_VERSION) + L")";
+    return L"EasierCpp";
 }
 
 // Fixed IDs route Windows messages and identify controls to accessibility tools.
@@ -97,8 +99,71 @@ enum ControlId
     WelcomeTitle = 150,
     WelcomeNote = 151,
     WelcomeRecent = 152,
-    OpenWelcomeRecent = 153
+    OpenWelcomeRecent = 153,
+    NavigationHome = 154,
+    NavigationWorkspace,
+    NavigationLibraries,
+    ShellHeading,
+    ShellDescription,
+    ShellProject,
+    ShellVersion,
+    ShellTheme,
+    ShellBrand,
+    ShellLogo,
+    WelcomeLogo,
+    BuildConfigurationLabel,
+    AutoRunHelp,
+    TargetHelp,
+    RestartHelp,
+    InputHelp,
+    ShellCardOne,
+    ShellCardTwo,
+    ShellCardThree,
+    ShellCardFour,
+    ShellCardNote,
+    ShellCardDetail,
+    ShellLibraryList,
+    OptimizeWorkersButton,
+    ForgetWelcomeRecent,
+    ShellInlineHost,
+    WorkspaceLibraries
 };
+
+constexpr int navigation_pages[] = {NavigationHome,
+    NavigationWorkspace,
+    NavigationLibraries,
+    NavigationProject,
+    NavigationTools,
+    NavigationSettings};
+
+struct ShellHelp
+{
+    int id;
+    const wchar_t* name;
+    const wchar_t* explanation;
+};
+
+constexpr ShellHelp shell_help[] = {{AutoRunHelp,
+                                        L"About Auto Run",
+                                        L"Watch for saved changes. A failed build keeps the "
+                                        L"running program. Stop pauses automatic launch."},
+    {TargetHelp,
+        L"About executable target",
+        L"Choose an executable for the selected build configuration. If the list is empty, "
+        L"build the project to discover its targets."},
+    {RestartHelp,
+        L"About program restart",
+        L"Restart the selected program. Restart EasierCpp in Tools restarts the manager itself."},
+    {InputHelp,
+        L"About program input",
+        L"Send one line to the running program. End Input closes standard input until the next "
+        L"launch."}};
+
+HICON application_icon(int width, int height)
+{
+    return static_cast<HICON>(LoadImageW(
+        GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101), IMAGE_ICON, width, height, LR_SHARED));
+}
 
 std::wstring read_control_text(HWND control)
 {
@@ -150,6 +215,16 @@ public:
     // Fonts are GDI objects: DeleteObject releases them, not CloseHandle.
     // They outlive the child controls and are released with this Application.
     HFONT interface_font = nullptr;
+    HFONT heading_font = nullptr;
+    int shell_page = NavigationHome;
+    bool inline_active = false;
+    bool inline_abandoned = false;
+    std::optional<MSG> inline_next_message;
+    HWND shell_tooltip = nullptr;
+    int tracked_help = 0;
+    bool hover_help = false;
+    IAccPropServices* shell_accessibility = nullptr;
+    std::vector<RECT> shell_panels;
     HFONT output_font = nullptr;
     cpplivelab::ConsoleSession session;
     cpplivelab::ConsoleOutputDecoder output_decoder;
@@ -159,8 +234,10 @@ public:
     cpplivelab::ConsolePane system_console;
     bool program_tab_active = true;
     bool welcome_output = false;
+#ifndef EASIERCPP_PUBLIC_GUI
     cpplivelab::ConsoleSession test_session;
     cpplivelab::ConsoleOutputDecoder test_decoder;
+#endif
     bool tests_active = false;
     bool tests_cancelled = false;
     ULONGLONG tests_started = 0;
@@ -302,7 +379,13 @@ public:
     {
         const auto old_interface = interface_font;
         const auto old_output = output_font;
-        interface_font = CreateFontW(-cpplivelab::scale_pixels(16, dpi),
+        const auto old_heading = heading_font;
+        LOGFONTW heading{};
+        heading.lfHeight = -cpplivelab::scale_pixels(24, dpi);
+        heading.lfWeight = FW_SEMIBOLD;
+        wcscpy_s(heading.lfFaceName, L"Segoe UI");
+        heading_font = CreateFontIndirectW(&heading);
+        interface_font = CreateFontW(-cpplivelab::scale_pixels(14, dpi),
             0,
             0,
             0,
@@ -335,6 +418,10 @@ public:
         {
             const auto font = child == program_console.window || child == system_console.window
                                   ? output_font
+                              : GetDlgCtrlID(child) == ShellHeading ||
+                                      GetDlgCtrlID(child) == ProjectIdentityLabel ||
+                                      GetDlgCtrlID(child) == WelcomeTitle
+                                  ? heading_font
                                   : interface_font;
             SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
             wchar_t name[64]{};
@@ -356,6 +443,10 @@ public:
         {
             DeleteObject(old_output);
         }
+        if (old_heading)
+        {
+            DeleteObject(old_heading);
+        }
     }
 
     std::wstring preference_store = L"Software\\EasierCpp\\Preferences";
@@ -376,12 +467,23 @@ public:
             return;
         }
         applying_appearance = true;
-        appearance.apply(window_handle, preferences.theme, dpi);
+        appearance.apply(window_handle, preferences.theme, dpi, true);
+        if (shell_tooltip)
+        {
+            SetWindowTheme(shell_tooltip, L"", L"");
+            SendMessageW(shell_tooltip, TTM_SETTIPBKCOLOR, appearance.palette.panel, 0);
+            SendMessageW(shell_tooltip, TTM_SETTIPTEXTCOLOR, appearance.palette.text, 0);
+        }
         program_console.set_colors(appearance.palette.console);
         system_console.set_colors(appearance.palette.console);
         appearance.active_button(find_control(ProgramTab), program_tab_active);
         appearance.active_button(find_control(SystemTab), !program_tab_active);
         appearance.active_button(find_control(AutoRunButton), auto_run_preferences.enabled);
+        appearance.active_button(find_control(RunButton), true);
+        for (const int page : navigation_pages)
+        {
+            appearance.active_button(find_control(page), shell_page == page);
+        }
         applying_appearance = false;
     }
 
@@ -401,76 +503,6 @@ public:
         preferences.debounce_ms = debounce;
         auto_build.set_debounce(debounce);
         persist_preferences();
-    }
-
-    std::vector<std::pair<std::wstring, int>> navigation_actions(int section) const
-    {
-        if (section == NavigationProject)
-        {
-            return {{L"New Project...", NewProjectMenu},
-                {L"Open Existing Project...", BrowseButton},
-                {L"Recent Projects...", RecentProjectsMenu},
-                {L"Project Settings...", ProjectSettingsMenu},
-                {L"Manage Libraries...", ManageLibrariesMenu},
-                {L"Copy Project Path", CopyProjectPath}};
-        }
-        if (section == NavigationTools)
-        {
-            return {{L"Open Preferred Editor", EditProjectButton},
-                {L"Review Build Errors...", ReviewErrorsMenu},
-                {L"Clean && Rebuild (Fresh Directory)...", RecoverBuildMenu},
-                {L"Toolchain Diagnostics", DoctorMenu},
-                {L"Detailed Toolchain Diagnostics", DetailedDoctorMenu},
-                {L"Run EasierCpp Tests...", TestRunnerMenu},
-                {L"Cancel Running Tests", CancelTestsMenu},
-                {L"Restart EasierCpp Manager...", RestartButton}};
-        }
-        return {{L"Appearance...", AppearanceMenu},
-            {L"Preferences...", WindowPreferencesMenu},
-            {L"Preferred Editor...", EditorSettingsMenu},
-            {L"Build Preferences...", BuildPreferencesMenu}};
-    }
-
-    void show_navigation(int section)
-    {
-        const auto actions = navigation_actions(section);
-        const auto menu = CreatePopupMenu();
-        for (const auto& action : actions)
-        {
-            bool enabled = action.second != CancelTestsMenu || tests_active;
-            if (action.second == BuildButton || action.second == RunButton ||
-                action.second == StopButton || action.second == EditProjectButton)
-            {
-                enabled = IsWindowEnabled(find_control(action.second)) != FALSE;
-            }
-            else if (action.second == CopyProjectPath)
-            {
-                enabled = !active_project_directory.empty();
-            }
-            else if (section == NavigationProject || action.second == EditorSettingsMenu)
-            {
-                enabled = !operation_in_progress;
-            }
-            AppendMenuW(menu,
-                MF_OWNERDRAW | (enabled ? MF_ENABLED : MF_GRAYED),
-                action.second,
-                reinterpret_cast<LPCWSTR>(action.first.c_str()));
-        }
-        RECT anchor{};
-        GetWindowRect(find_control(section), &anchor);
-        const int selected = TrackPopupMenuEx(menu,
-            TPM_RETURNCMD | TPM_NONOTIFY |
-                (section == NavigationSettings ? TPM_RIGHTALIGN : TPM_LEFTALIGN),
-            section == NavigationSettings ? anchor.right : anchor.left,
-            anchor.bottom,
-            window_handle,
-            nullptr);
-        DestroyMenu(menu);
-        // RETURNCMD + NONOTIFY prevents a second WM_COMMAND dispatch.
-        if (selected)
-        {
-            command(selected);
-        }
     }
 
     void copy_project_path()
@@ -511,7 +543,7 @@ public:
         options.appearance_field = 0;
         options.note = L"Uses your existing customized palette. Changes apply to all EasierCpp "
                        L"windows after OK.";
-        if (show_project_form(L"Appearance", fields, options))
+        if (show_project_form(L"Appearance", fields, options, shell_page == NavigationSettings))
         {
             apply_appearance_choice(static_cast<cpplivelab::ThemeChoice>(
                 std::find(choices.begin(), choices.end(), fields[0].value) - choices.begin()));
@@ -684,7 +716,7 @@ public:
             L"Window/replacement settings apply to this project; compilation workers are global "
             L"and save immediately. Seamless overlaps instances: use Safe for exclusive "
             L"resources. Mode changes apply to the next replacement.";
-        if (show_project_form(L"Preferences", fields, options))
+        if (show_project_form(L"Preferences", fields, options, shell_page == NavigationSettings))
         {
             auto_run_preferences.keep_window_position = fields[0].value == L"Yes";
             auto_run_preferences.keep_window_size = fields[1].value == L"Yes";
@@ -737,7 +769,10 @@ public:
             }
             return L"Debounce must be 100–5000 ms; shutdown timeout must be 100–30000 ms.";
         };
-        if (show_project_form(L"Build Preferences", fields, options))
+        if (show_project_form(L"Build Preferences",
+                fields,
+                options,
+                shell_page == NavigationSettings || shell_page == NavigationTools))
         {
             apply_build_preferences(static_cast<DWORD>(std::stoul(fields[0].value)));
             auto_run_preferences.shutdown_ms = std::stoul(fields[1].value);
@@ -760,6 +795,10 @@ public:
         {
             DeleteObject(output_font);
         }
+        if (heading_font)
+        {
+            DeleteObject(heading_font);
+        }
     }
 
     HWND create_control(
@@ -781,25 +820,86 @@ public:
             reinterpret_cast<HMENU>(static_cast<INT_PTR>(control_id)),
             GetModuleHandleW(nullptr),
             nullptr);
-        SendMessageW(
-            child_window_handle, WM_SETFONT, reinterpret_cast<WPARAM>(interface_font), TRUE);
+        SendMessageW(child_window_handle,
+            WM_SETFONT,
+            reinterpret_cast<WPARAM>(control_id == ShellHeading ||
+                                             control_id == ProjectIdentityLabel ||
+                                             control_id == WelcomeTitle
+                                         ? heading_font
+                                         : interface_font),
+            TRUE);
         return child_window_handle;
     }
 
     void create()
     {
+        SetWindowTextW(window_handle, application_title().c_str());
         cpplivelab::initialize_build_workers();
         dpi = GetDpiForWindow(window_handle);
         update_fonts();
         auto_build.enable(false);
         auto_build.set_debounce(preferences.debounce_ms);
-        create_control(L"BUTTON", L"Project", NavigationProject, WS_TABSTOP);
-
-        create_control(L"BUTTON", L"Tools", NavigationTools, WS_TABSTOP);
-        create_control(L"BUTTON", L"Settings", NavigationSettings, WS_TABSTOP);
+        constexpr const wchar_t* page_names[] = {
+            L"Home", L"Workspace", L"Libraries", L"Project", L"Tools", L"Settings"};
+        for (size_t index = 0; index < std::size(navigation_pages); ++index)
+        {
+            create_control(
+                L"BUTTON", page_names[index], navigation_pages[index], WS_TABSTOP | BS_LEFT);
+        }
+        create_control(L"STATIC", L"", ShellHeading, SS_NOPREFIX);
+        create_control(L"STATIC", L"", ShellDescription, SS_NOPREFIX);
+        for (const int id : {ShellCardOne,
+                 ShellCardTwo,
+                 ShellCardThree,
+                 ShellCardFour,
+                 ShellCardNote,
+                 ShellCardDetail})
+        {
+            create_control(L"STATIC", L"", id, SS_NOPREFIX);
+        }
+        create_control(
+            L"LISTBOX", L"", ShellLibraryList, WS_TABSTOP | WS_VSCROLL | LBS_NOINTEGRALHEIGHT);
+        create_control(L"STATIC",
+            (L"EasierCpp v" + decode_console_text(EASIERCPP_VERSION)).c_str(),
+            ShellVersion,
+            SS_NOPREFIX);
+        const auto inline_host = create_control(L"STATIC", L"", ShellInlineHost, WS_CLIPCHILDREN);
+        SetWindowLongPtrW(inline_host,
+            GWL_EXSTYLE,
+            GetWindowLongPtrW(inline_host, GWL_EXSTYLE) | WS_EX_CONTROLPARENT);
+        for (const auto [id, size] : {std::pair{WelcomeLogo, 64}})
+        {
+            const auto logo = create_control(L"STATIC", L"", id, SS_ICON | SS_CENTERIMAGE);
+            const int pixels = cpplivelab::scale_pixels(size, dpi);
+            SendMessageW(
+                logo, STM_SETICON, reinterpret_cast<WPARAM>(application_icon(pixels, pixels)), 0);
+        }
+        for (const auto [id, caption] : std::initializer_list<std::pair<int, const wchar_t*>>{
+                 {RecentProjectsMenu, L"Recent Projects"},
+                 {ProjectSettingsMenu, L"Project Settings"},
+                 {CopyProjectPath, L"Copy"},
+                 {DoctorMenu, L"Summary Doctor"},
+                 {DetailedDoctorMenu, L"Detailed Report"},
+                 {ReviewErrorsMenu, L"Build Errors"},
+                 {RecoverBuildMenu, L"Clean and Rebuild"},
+                 {RestartButton, L"Restart EasierCpp"},
+#ifndef EASIERCPP_PUBLIC_GUI
+                 {TestRunnerMenu, L"Run Tests"},
+                 {CancelTestsMenu, L"Cancel Tests"},
+#endif
+                 {OptimizeWorkersButton, L"Optimize Workers"},
+                 {AppearanceMenu, L"Appearance"},
+                 {EditorSettingsMenu, L"Preferred Editor"},
+                 {BuildPreferencesMenu, L"Build Preferences"},
+                 {WindowPreferencesMenu, L"Window & Process"}})
+        {
+            create_control(L"BUTTON", caption, id, WS_TABSTOP);
+        }
+        create_control(L"STATIC", L"Configuration", BuildConfigurationLabel);
         create_control(L"BUTTON", L"Restart", ProgramRestartButton, WS_TABSTOP);
         create_control(L"BUTTON", L"Add Library", AddLibraryButton, WS_TABSTOP);
         create_control(L"BUTTON", L"Manage Libraries", ManageLibrariesMenu, WS_TABSTOP);
+        create_control(L"BUTTON", L"Manage libraries", WorkspaceLibraries, WS_TABSTOP);
         create_control(
             L"STATIC", L"Libraries: none managed", LibrarySummary, SS_ENDELLIPSIS | SS_NOPREFIX);
         create_control(L"STATIC",
@@ -817,33 +917,44 @@ public:
                 reinterpret_cast<LPARAM>(label));
         }
         SendMessageW(find_control(ConfigurationSelector), CB_SETCURSEL, 0, 0);
-        create_control(L"STATIC", L"Target", 202);
+        create_control(L"STATIC", L"Executable target", 202);
         create_control(L"COMBOBOX", L"", ExecutableInput, WS_TABSTOP | CBS_DROPDOWNLIST);
         create_control(L"BUTTON", L"Build", BuildButton, WS_TABSTOP);
         create_control(L"BUTTON", L"Run", RunButton, WS_TABSTOP);
         create_control(L"BUTTON", L"Stop", StopButton, WS_TABSTOP);
         create_control(L"BUTTON", L"Program Console", ProgramTab, WS_TABSTOP);
         create_control(L"BUTTON", L"Build & System", SystemTab, WS_TABSTOP);
-        create_control(L"BUTTON", L"Clear Program", ClearProgram, WS_TABSTOP);
-        create_control(L"BUTTON", L"Clear Build & System", ClearSystem, WS_TABSTOP);
+        create_control(L"BUTTON", L"Clear Console", ClearProgram, WS_TABSTOP);
+        create_control(L"BUTTON", L"Clear Console", ClearSystem, WS_TABSTOP);
         program_console.create(window_handle, OutputPane, output_font);
         system_console.create(window_handle, SystemOutputPane, output_font);
         select_console(true);
-        create_control(L"STATIC", L"Program input (type a line, then Send or Enter)", 204);
+        create_control(L"STATIC", L"Program input", 204);
         create_control(L"EDIT", L"", ProgramInput, WS_TABSTOP | ES_AUTOHSCROLL);
         SendMessageW(find_control(ProgramInput), EM_SETLIMITTEXT, 1000, 0);
         create_control(L"BUTTON", L"Send", SendButton, WS_TABSTOP);
         create_control(L"BUTTON", L"End Input", EndInputButton, WS_TABSTOP);
         create_control(L"STATIC", L"Ready", StatusLabel);
         create_control(L"BUTTON", L"Auto Run: OFF", AutoRunButton, WS_TABSTOP);
-        create_control(L"STATIC", L"EasierCpp — Make Your Life Easier", WelcomeTitle);
-        create_control(L"STATIC", L"Create or open a C++ project. Recent projects:", WelcomeNote);
+        create_control(L"STATIC", L"Open or create a CMake project", WelcomeTitle);
+        create_control(L"STATIC", L"Choose a folder or start a new project.", WelcomeNote);
         create_control(L"BUTTON", L"New Project...", NewProjectMenu, WS_TABSTOP);
         create_control(L"BUTTON", L"Open Existing Project...", BrowseButton, WS_TABSTOP);
         create_control(
             L"LISTBOX", L"Recent projects", WelcomeRecent, WS_TABSTOP | WS_VSCROLL | LBS_NOTIFY);
-        create_control(L"BUTTON", L"Open Selected Recent", OpenWelcomeRecent, WS_TABSTOP);
+        create_control(L"BUTTON", L"Open", OpenWelcomeRecent, WS_TABSTOP);
+        create_control(L"BUTTON", L"Remove", ForgetWelcomeRecent, WS_TABSTOP);
+        reload_welcome_recents();
+        refresh();
+        create_shell_help();
+        apply_appearance();
+        SetTimer(window_handle, 1, 50, nullptr);
+    }
+
+    void reload_welcome_recents()
+    {
         welcome_recents = cpplivelab::recent_projects();
+        SendDlgItemMessageW(window_handle, WelcomeRecent, LB_RESETCONTENT, 0, 0);
         for (const auto& path : welcome_recents)
         {
             const auto label = path.filename().wstring() + L" - " + path.wstring();
@@ -853,115 +964,535 @@ public:
                 0,
                 reinterpret_cast<LPARAM>(label.c_str()));
         }
-        refresh();
-        apply_appearance();
-        SetTimer(window_handle, 1, 50, nullptr);
+    }
+
+    void create_shell_help()
+    {
+        CoCreateInstance(CLSID_AccPropServices,
+            nullptr,
+            CLSCTX_INPROC_SERVER,
+            IID_PPV_ARGS(&shell_accessibility));
+        shell_tooltip = CreateWindowExW(WS_EX_TOPMOST,
+            TOOLTIPS_CLASSW,
+            nullptr,
+            WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            window_handle,
+            nullptr,
+            GetModuleHandleW(nullptr),
+            nullptr);
+        SendMessageW(shell_tooltip, TTM_SETMAXTIPWIDTH, 0, cpplivelab::scale_pixels(340, dpi));
+        for (const auto& item : shell_help)
+        {
+            const auto button = create_control(L"BUTTON", L"ⓘ", item.id, WS_TABSTOP);
+            if (shell_accessibility)
+            {
+                shell_accessibility->SetHwndPropStr(
+                    button, OBJID_CLIENT, CHILDID_SELF, PROPID_ACC_NAME, item.name);
+            }
+            // The GUI also runs with legacy Comctl32, which rejects the
+            // larger structure containing the unused reserved pointer.
+            TOOLINFOW tool{TTTOOLINFOW_V2_SIZE};
+            tool.uFlags = TTF_TRACK | TTF_TRANSPARENT;
+            tool.hwnd = window_handle;
+            tool.uId = static_cast<UINT_PTR>(item.id);
+            tool.lpszText = const_cast<wchar_t*>(item.explanation);
+            SendMessageW(shell_tooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
+            SetWindowSubclass(button, help_focus, 2, reinterpret_cast<DWORD_PTR>(this));
+        }
+    }
+
+    void destroy_shell_help()
+    {
+        if (shell_accessibility)
+        {
+            const MSAAPROPID property = PROPID_ACC_NAME;
+            for (const auto& item : shell_help)
+            {
+                shell_accessibility->ClearHwndProps(
+                    find_control(item.id), OBJID_CLIENT, CHILDID_SELF, &property, 1);
+            }
+            shell_accessibility->Release();
+            shell_accessibility = nullptr;
+        }
+        if (shell_tooltip)
+        {
+            DestroyWindow(shell_tooltip);
+            shell_tooltip = nullptr;
+        }
+    }
+
+    void dismiss_shell_help()
+    {
+        if (tracked_help)
+        {
+            TOOLINFOW tool{TTTOOLINFOW_V2_SIZE};
+            tool.hwnd = window_handle;
+            tool.uId = static_cast<UINT_PTR>(std::exchange(tracked_help, 0));
+            SendMessageW(shell_tooltip, TTM_TRACKACTIVATE, FALSE, reinterpret_cast<LPARAM>(&tool));
+        }
+    }
+
+    void show_shell_help(int id, bool hover = false)
+    {
+        if (tracked_help == id)
+        {
+            hover_help = hover_help && hover;
+            return;
+        }
+        dismiss_shell_help();
+        tracked_help = id;
+        hover_help = hover;
+        RECT bounds{};
+        GetWindowRect(find_control(id), &bounds);
+        TOOLINFOW tool{TTTOOLINFOW_V2_SIZE};
+        tool.hwnd = window_handle;
+        tool.uId = static_cast<UINT_PTR>(id);
+        // Without TTF_ABSOLUTE the native tooltip adjusts to the monitor edges.
+        SendMessageW(shell_tooltip, TTM_SETMAXTIPWIDTH, 0, cpplivelab::scale_pixels(340, dpi));
+        SendMessageW(shell_tooltip,
+            TTM_TRACKPOSITION,
+            0,
+            MAKELPARAM(bounds.left, bounds.bottom + cpplivelab::scale_pixels(4, dpi)));
+        SendMessageW(shell_tooltip, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&tool));
+        // Measure the native tooltip after activation so wrapped text and the
+        // taskbar work area are taken into account, including on legacy controls.
+        RECT popup{};
+        MONITORINFO monitor{sizeof(monitor)};
+        if (GetWindowRect(shell_tooltip, &popup) &&
+            GetMonitorInfoW(MonitorFromRect(&bounds, MONITOR_DEFAULTTONEAREST), &monitor))
+        {
+            const auto& work = monitor.rcWork;
+            const auto width = popup.right - popup.left;
+            const auto height = popup.bottom - popup.top;
+            const auto gap = cpplivelab::scale_pixels(4, dpi);
+            const auto below = bounds.bottom + gap;
+            const auto top = below + height <= work.bottom ? below : bounds.top - height - gap;
+            SetWindowPos(shell_tooltip,
+                nullptr,
+                (std::max)(work.left, (std::min)(bounds.left, work.right - width)),
+                (std::max)(work.top, (std::min)(top, work.bottom - height)),
+                0,
+                0,
+                SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER);
+        }
+    }
+
+    static LRESULT CALLBACK help_focus(
+        HWND window, UINT message, WPARAM wparam, LPARAM lparam, UINT_PTR id, DWORD_PTR owner)
+    {
+        auto& app = *reinterpret_cast<Application*>(owner);
+        const auto control = GetDlgCtrlID(window);
+        if (message == WM_MOUSEMOVE && app.tracked_help != control)
+        {
+            TRACKMOUSEEVENT tracking{
+                sizeof(tracking), TME_HOVER | TME_LEAVE, window, HOVER_DEFAULT};
+            TrackMouseEvent(&tracking);
+        }
+        else if (message == WM_MOUSEHOVER && (!app.tracked_help || app.hover_help))
+        {
+            app.show_shell_help(control, true);
+        }
+        else if ((message == WM_KILLFOCUS || (message == WM_MOUSELEAVE && app.hover_help)) &&
+                 app.tracked_help == control)
+        {
+            app.dismiss_shell_help();
+        }
+        else if (message == WM_SETFOCUS)
+        {
+            app.show_shell_help(control);
+        }
+        else if (message == WM_GETDLGCODE && (wparam == VK_ESCAPE || wparam == VK_RETURN))
+        {
+            return DLGC_WANTMESSAGE | DLGC_BUTTON;
+        }
+        else if (message == WM_KEYDOWN && wparam == VK_ESCAPE)
+        {
+            app.dismiss_shell_help();
+            return 0;
+        }
+        else if (message == WM_KEYDOWN && wparam == VK_RETURN)
+        {
+            app.show_shell_help(control);
+            return 0;
+        }
+        if (message == WM_NCDESTROY)
+        {
+            RemoveWindowSubclass(window, help_focus, id);
+        }
+        return DefSubclassProc(window, message, wparam, lparam);
+    }
+
+    void navigate_to(int page)
+    {
+        dismiss_shell_help();
+        shell_page = page;
+        update_test_actions();
+        for (const int id : navigation_pages)
+        {
+            appearance.active_button(find_control(id), id == page);
+        }
+        RECT client{};
+        GetClientRect(window_handle, &client);
+        layout(client.right, client.bottom);
+    }
+
+    void paint_shell(HDC dc)
+    {
+        const auto& palette = appearance.palette;
+        RECT client{};
+        GetClientRect(window_handle, &client);
+        const auto fill = [&](RECT bounds, COLORREF color)
+        {
+            SetDCBrushColor(dc, color);
+            FillRect(dc, &bounds, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        };
+        fill({0, 0, cpplivelab::scale_pixels(156, dpi), client.bottom},
+            palette.dark ? RGB(20, 33, 39) : RGB(246, 248, 248));
+        const auto pen = CreatePen(PS_SOLID, 1, palette.border);
+        const auto previous_pen = SelectObject(dc, pen);
+        const auto previous_brush = SelectObject(dc, GetStockObject(DC_BRUSH));
+        SetDCBrushColor(dc, palette.panel);
+        const auto diameter = cpplivelab::scale_pixels(16, dpi);
+        for (const auto& bounds : shell_panels)
+        {
+            RoundRect(dc, bounds.left, bounds.top, bounds.right, bounds.bottom, diameter, diameter);
+        }
+        SelectObject(dc, previous_brush);
+        SelectObject(dc, previous_pen);
+        DeleteObject(pen);
     }
 
     void layout(int width, int height)
     {
         width = MulDiv(width, 96, static_cast<int>(dpi));
         height = MulDiv(height, 96, static_cast<int>(dpi));
+        if (width < 620 || height < 480)
+        {
+            return;
+        }
+        const auto px = [&](int value)
+        {
+            return cpplivelab::scale_pixels(value, dpi);
+        };
+        shell_panels.clear();
+        std::vector<int> visible;
+        const auto move = [&](int id, int x, int y, int w, int h)
+        {
+            if (const auto control = find_control(id))
+            {
+                MoveWindow(control, px(x), px(y), px(w), px(h), FALSE);
+            }
+        };
         const auto place = [&](int id, int x, int y, int w, int h)
         {
-            MoveWindow(find_control(id),
-                cpplivelab::scale_pixels(x, dpi),
-                cpplivelab::scale_pixels(y, dpi),
-                cpplivelab::scale_pixels(w, dpi),
-                cpplivelab::scale_pixels(h, dpi),
-                FALSE);
+            move(id, x, y, w, h);
+            visible.push_back(id);
         };
-        place(NavigationProject, 16, 8, 104, 36);
-        place(NavigationTools, 128, 8, 96, 36);
-        place(NavigationSettings, width - 128, 8, 112, 36);
-        place(ProgramRestartButton, 340, 128, 96, 34);
-        place(ProjectIdentityLabel, 16, 60, width - 32, 24);
-        place(ProjectPathLabel, 16, 88, width - 32, 24);
-        place(BuildButton, 16, 128, 96, 34);
-        place(RunButton, 124, 128, 96, 34);
-        place(StopButton, 232, 128, 96, 34);
-        place(EditProjectButton, 448, 128, 144, 34);
-        place(AddLibraryButton, 16, 178, 144, 34);
-        place(ManageLibrariesMenu, 172, 178, 172, 34);
-        place(LibrarySummary, 356, 184, width - 372, 24);
-        place(ConfigurationSelector, 16, 222, 120, 180);
-        place(202, 152, 228, 52, 22);
-        place(ExecutableInput, 212, 222, (std::min)(width - 580, 300), 180);
-        place(AutoRunButton, (std::min)(width - 220, 532), 222, 196, 32);
-        place(StatusLabel, 16, 266, width - 32, 24);
-        place(ProgramTab, 16, 298, 178, 30);
-        place(SystemTab, 202, 298, 230, 30);
-        place(ClearProgram, width - 180, 298, 164, 30);
-        place(ClearSystem, width - 202, 298, 186, 30);
-        place(OutputPane, 16, 336, width - 32, height - 434);
-        place(SystemOutputPane, 16, 336, width - 32, height - 434);
-        place(204, 16, height - 86, width - 32, 20);
-        place(ProgramInput, 16, height - 60, width - 226, 30);
-        place(SendButton, width - 198, height - 60, 76, 30);
-        place(EndInputButton, width - 110, height - 60, 94, 30);
-        const bool welcome = active_project_directory.empty();
-        for (int id : {WelcomeTitle,
-                 WelcomeNote,
-                 NewProjectMenu,
-                 BrowseButton,
-                 WelcomeRecent,
-                 OpenWelcomeRecent})
+        const auto panel = [&](int x, int y, int w, int h)
         {
-            ShowWindow(find_control(id), welcome ? SW_SHOW : SW_HIDE);
+            shell_panels.push_back({px(x), px(y), px(x + w), px(y + h)});
+        };
+        const auto caption = [&](int id, const wchar_t* text, int x, int y, int w, int h)
+        {
+            SetWindowTextW(find_control(id), text);
+            place(id, x, y, w, h);
+        };
+        const bool selected = !active_project_directory.empty();
+        const int left = 180;
+        const int right = width - 24;
+        const int content = right - left;
+        const int half = (content - 12) / 2;
+        const int second = left + half + 12;
+
+        for (size_t index = 0; index < std::size(navigation_pages); ++index)
+        {
+            place(navigation_pages[index], 10, 24 + static_cast<int>(index) * 38, 136, 32);
         }
-        for (int id : std::initializer_list<int>{ProjectIdentityLabel,
-                 ProjectPathLabel,
-                 BuildButton,
-                 RunButton,
-                 StopButton,
-                 ProgramRestartButton,
-                 AddLibraryButton,
-                 ManageLibrariesMenu,
-                 LibrarySummary,
-                 EditProjectButton,
-                 ConfigurationSelector,
-                 202,
-                 ExecutableInput,
-                 AutoRunButton,
-                 ProgramTab,
-                 SystemTab,
-                 ClearProgram,
-                 ClearSystem,
-                 OutputPane,
-                 SystemOutputPane,
-                 204,
-                 ProgramInput,
-                 SendButton,
-                 EndInputButton})
+        int detail_top = 0;
+        if (shell_page == NavigationWorkspace && selected)
         {
-            const bool visible =
-                !welcome || (welcome_output && (id == SystemOutputPane || id == ClearSystem));
-            ShowWindow(find_control(id), visible ? SW_SHOW : SW_HIDE);
+            place(ProjectIdentityLabel, left, 22, content - 140, 35);
+            caption(ShellDescription, L"Active project", left, 57, content, 20);
+            place(EditProjectButton, right - 111, 22, 111, 34);
+            panel(left, 85, content, 113);
+            place(BuildConfigurationLabel, left + 10, 93, 96, 18);
+            place(ConfigurationSelector, left + 10, 114, 92, 180);
+            place(202, left + 113, 93, 110, 18);
+            place(TargetHelp, left + 225, 90, 22, 22);
+            place(ExecutableInput, left + 113, 114, (std::min)(218, content - 324), 180);
+            place(AutoRunButton, right - 181, 111, 145, 32);
+            place(AutoRunHelp, right - 31, 116, 22, 22);
+            place(BuildButton, left + 10, 154, 66, 34);
+            place(RunButton, left + 82, 154, 62, 34);
+            place(StopButton, left + 150, 154, 62, 34);
+            place(ProgramRestartButton, left + 218, 154, 84, 34);
+            place(RestartHelp, left + 307, 160, 22, 22);
+
+            place(StatusLabel, left + 8, 212, content - 170, 22);
+            place(WorkspaceLibraries, right - 143, 204, 135, 31);
+
+            const int tabs_y = 245;
+            panel(left, tabs_y, content, height - tabs_y - 12);
+            place(ProgramTab, left + 10, tabs_y + 5, 147, 31);
+            place(SystemTab, left + 164, tabs_y + 5, 155, 31);
+            place(
+                program_tab_active ? ClearProgram : ClearSystem, right - 122, tabs_y + 5, 112, 31);
+            // The hidden Rich Edit also needs a viewport for wrapped diagnostics.
+            const int console_height = (std::max)(30, height - tabs_y - 96);
+            move(OutputPane, left + 9, tabs_y + 42, content - 18, console_height);
+            move(SystemOutputPane, left + 9, tabs_y + 42, content - 18, console_height);
+            visible.push_back(program_tab_active ? OutputPane : SystemOutputPane);
+            place(204, left + 10, height - 43, 99, 24);
+            place(InputHelp, left + 112, height - 43, 22, 22);
+            place(ProgramInput, left + 141, height - 46, content - 317, 30);
+            place(SendButton, right - 167, height - 46, 62, 30);
+            place(EndInputButton, right - 98, height - 46, 88, 30);
         }
-        if (welcome)
+        else if (shell_page == NavigationHome || shell_page == NavigationWorkspace)
         {
-            place(WelcomeTitle, 20, 66, width - 40, 28);
-            place(WelcomeNote, 20, 106, width - 40, 24);
-            place(NewProjectMenu, 20, 148, 200, 36);
-            place(BrowseButton, 232, 148, 240, 36);
-            place(WelcomeRecent, 20, 204, width - 40, welcome_output ? 72 : height - 300);
-            place(OpenWelcomeRecent, 20, welcome_output ? 284 : height - 84, 220, 34);
-            place(StatusLabel, 20, height - 36, width - 40, 24);
-            if (welcome_output)
+            caption(ShellHeading, L"Welcome to EasierCpp", left, 59, content, 35);
+            caption(ShellDescription, L"Build and run your C++ projects.", left, 97, content, 22);
+            panel(left, 129, content, 126);
+            place(WelcomeTitle, left + 16, 145, content - 110, 33);
+            place(WelcomeNote, left + 16, 181, content - 109, 22);
+            place(WelcomeLogo, right - 84, 155, 64, 64);
+            place(NewProjectMenu, left + 16, 211, 119, 34);
+            place(BrowseButton, left + 143, 211, 165, 34);
+            if (inline_active)
             {
-                place(ClearSystem, width - 220, 284, 200, 34);
-                place(SystemOutputPane, 20, 330, width - 40, (std::max)(60, height - 380));
+                detail_top = 269;
+            }
+            else
+            {
+                panel(left, 269, half, 166);
+                panel(second, 269, content - half - 12, 166);
+                caption(ShellCardOne, L"Recent projects", left + 12, 279, half - 24, 22);
+                caption(ShellCardTwo, L"Development environment", second + 12, 279, half - 24, 22);
+                place(WelcomeRecent, left + 12, 306, half - 24, 77);
+                place(OpenWelcomeRecent, left + 12, 391, (half - 30) / 2, 34);
+                place(ForgetWelcomeRecent, left + 18 + (half - 30) / 2, 391, (half - 30) / 2, 34);
+                place(DoctorMenu, second + 12, 307, half - 24, 34);
+                place(StatusLabel, second + 12, 351, half - 24, 65);
+                if (!selected && welcome_output)
+                {
+                    place(ClearSystem, right - 113, 442, 113, 28);
+                    place(SystemOutputPane, left, 476, content, (std::max)(24, height - 493));
+                }
             }
         }
         else
         {
-            select_console(program_tab_active);
+            detail_top = layout_destination(
+                place, panel, caption, left, right, half, second, height, selected);
+            if (shell_page == NavigationSettings)
+            {
+                place(ShellVersion, left, height - 30, content, 22);
+            }
+        }
+        if (inline_active && detail_top)
+        {
+            const int detail_height =
+                height - detail_top - (shell_page == NavigationSettings ? 40 : 12);
+            panel(left, detail_top, content, detail_height);
+            place(ShellInlineHost, left + 1, detail_top + 1, content - 2, detail_height - 2);
+            if (const auto child = GetWindow(find_control(ShellInlineHost), GW_CHILD))
+            {
+                MoveWindow(child, 0, 0, px(content - 2), px(detail_height - 2), FALSE);
+            }
+        }
+        for (auto child = GetWindow(window_handle, GW_CHILD); child;
+            child = GetWindow(child, GW_HWNDNEXT))
+        {
+            const bool show =
+                std::find(visible.begin(), visible.end(), GetDlgCtrlID(child)) != visible.end();
+            if (show != ((GetWindowLongPtrW(child, GWL_STYLE) & WS_VISIBLE) != 0))
+            {
+                if (child == program_console.window)
+                {
+                    program_console.set_visible(show);
+                }
+                else if (child == system_console.window)
+                {
+                    system_console.set_visible(show);
+                }
+                else
+                {
+                    ShowWindow(child, show ? SW_SHOWNA : SW_HIDE);
+                }
+            }
         }
         appearance.round_controls();
         RedrawWindow(window_handle,
             nullptr,
             nullptr,
             RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
+    }
+
+    int layout_destination(const auto& place,
+        const auto& panel,
+        const auto& caption,
+        int left,
+        int right,
+        int half,
+        int second,
+        int height,
+        bool selected)
+    {
+        const int width = right - left;
+        const auto card =
+            [&](int x, int y, int heading, const wchar_t* title, std::initializer_list<int> actions)
+        {
+            panel(x, y, half, 48 + 35 * static_cast<int>(actions.size()));
+            caption(heading, title, x + 12, y + 10, half - 24, 22);
+            int row = y + 40;
+            for (const auto id : actions)
+            {
+                place(id, x + 12, row, half - 24, 32);
+                row += 35;
+            }
+        };
+        if (shell_page == NavigationLibraries)
+        {
+            caption(ShellHeading, L"Library Manager", left, 59, width, 35);
+            caption(ShellDescription,
+                L"Manage integrations and review existing dependencies.",
+                left,
+                97,
+                width,
+                22);
+            panel(left, 129, width, inline_active ? 87 : 185);
+            place(LibrarySummary, left + 12, 141, width - 24, 24);
+            place(AddLibraryButton, left + 12, 170, 124, 34);
+            place(ManageLibrariesMenu, left + 146, 170, 156, 34);
+            if (inline_active)
+            {
+                return 228;
+            }
+            place(ShellLibraryList, left + 12, 218, width - 24, 85);
+            panel(left, 326, half, 132);
+            panel(second, 326, half, 132);
+            caption(ShellCardOne, L"Supported ways to add", left + 12, 338, half - 24, 22);
+            caption(ShellCardTwo, L"Safety and verification", second + 12, 338, half - 24, 22);
+            caption(ShellCardNote,
+                L"Known libraries, GitHub and GitLab, installed CMake packages, local sources and "
+                L"headers.",
+                left + 12,
+                369,
+                half - 24,
+                76);
+            caption(ShellCardDetail,
+                L"Inspect detected dependencies and preview managed changes before approval.",
+                second + 12,
+                369,
+                half - 24,
+                76);
+        }
+        else if (shell_page == NavigationProject)
+        {
+            caption(ShellHeading, L"Project Settings", left, 59, width, 35);
+            caption(ShellDescription,
+                L"Project-specific configuration, independent from global preferences.",
+                left,
+                97,
+                width,
+                22);
+            card(left,
+                129,
+                ShellCardOne,
+                L"Project identity",
+                {NewProjectMenu, BrowseButton, RecentProjectsMenu});
+            card(second,
+                129,
+                ShellCardTwo,
+                L"Paths and launch",
+                {ProjectSettingsMenu, CopyProjectPath});
+            if (selected)
+            {
+                place(ProjectPathLabel, second + 12, 259, half - 24, 24);
+            }
+            if (inline_active)
+            {
+                return 294;
+            }
+            caption(ShellCardNote,
+                L"Imported CMake files remain under your control. Project changes use the existing "
+                L"review workflow.",
+                left,
+                337,
+                width,
+                46);
+        }
+
+        else if (shell_page == NavigationTools)
+        {
+            caption(ShellHeading, L"Tools", left, 22, width - 130, 35);
+            caption(ShellDescription,
+                L"Diagnostics, build recovery and isolated tests.",
+                left,
+                58,
+                width,
+                22);
+            place(EditProjectButton, right - 126, 22, 126, 34);
+            const int cell = (width - 24) / 4;
+            const auto row = [&](int y, std::initializer_list<int> actions)
+            {
+                int x = left;
+                for (const auto id : actions)
+                {
+                    place(id, x, y, cell, 31);
+                    x += cell + 8;
+                }
+            };
+            row(89, {DoctorMenu, DetailedDoctorMenu, ReviewErrorsMenu, RecoverBuildMenu});
+#ifndef EASIERCPP_PUBLIC_GUI
+            row(128,
+                {TestRunnerMenu, CancelTestsMenu, BuildPreferencesMenu, OptimizeWorkersButton});
+#else
+            row(128, {BuildPreferencesMenu, OptimizeWorkersButton});
+#endif
+            row(167, {RestartButton});
+            if (inline_active)
+            {
+                return 212;
+            }
+            caption(ShellCardOne, L"Build & System", left, 214, half, 22);
+            place(ClearSystem, right - 112, 204, 112, 31);
+            panel(left, 241, width, height - 253);
+            place(SystemOutputPane, left + 1, 242, width - 2, height - 255);
+        }
+        else
+        {
+            caption(ShellHeading, L"Settings", left, 59, width, 35);
+            caption(ShellDescription,
+                L"Appearance, editor, build preferences, and project-specific restart behavior.",
+                left,
+                97,
+                width,
+                22);
+            card(left, 129, ShellCardOne, L"Preferences", {AppearanceMenu, EditorSettingsMenu});
+            card(second,
+                129,
+                ShellCardTwo,
+                L"Build and restart",
+                {BuildPreferencesMenu, WindowPreferencesMenu});
+            if (inline_active)
+            {
+                return 259;
+            }
+            caption(ShellCardNote,
+                L"Keep window position and size independently, and select Safe or Seamless "
+                L"Replacement. Replacement restarts the program and does not preserve application "
+                L"memory.",
+                left,
+                263,
+                width,
+                62);
+        }
+        return 0;
     }
 
     void update_console_badges()
@@ -979,13 +1510,15 @@ public:
         program_tab_active = program;
         program_console.history.set_active(program);
         system_console.history.set_active(!program);
-        program_console.set_visible(program);
-        system_console.set_visible(!program);
-        ShowWindow(find_control(ClearProgram), program ? SW_SHOW : SW_HIDE);
-        ShowWindow(find_control(ClearSystem), program ? SW_HIDE : SW_SHOW);
         appearance.active_button(find_control(ProgramTab), program);
         appearance.active_button(find_control(SystemTab), !program);
         update_console_badges();
+        if (shell_page == NavigationWorkspace && !active_project_directory.empty())
+        {
+            RECT client{};
+            GetClientRect(window_handle, &client);
+            layout(client.right, client.bottom);
+        }
     }
 
     void log(cpplivelab::MessageKind kind, const std::wstring& message)
@@ -1071,6 +1604,19 @@ public:
             selected && !operation_in_progress && !replacement_building);
         EnableWindow(find_control(ManageLibrariesMenu),
             selected && !operation_in_progress && !replacement_building);
+        EnableWindow(find_control(ProjectSettingsMenu),
+            selected && !operation_in_progress && !replacement_building);
+        EnableWindow(find_control(CopyProjectPath), selected);
+        EnableWindow(find_control(WindowPreferencesMenu), selected);
+        const bool can_change_project = !operation_in_progress && !replacement_building;
+        EnableWindow(find_control(NewProjectMenu), can_change_project);
+        EnableWindow(find_control(RecentProjectsMenu), can_change_project);
+        EnableWindow(find_control(OpenWelcomeRecent), can_change_project);
+        EnableWindow(find_control(ForgetWelcomeRecent), can_change_project);
+        EnableWindow(find_control(BrowseButton),
+            can_change_project || (initial_auto_run == InitialAutoRun::Active && !program_started));
+        EnableWindow(find_control(OptimizeWorkersButton), can_change_project && !candidate_pending);
+        update_test_actions();
         for (int control_id : {ProgramInput, SendButton, EndInputButton})
         {
             EnableWindow(find_control(control_id),
@@ -1105,6 +1651,14 @@ public:
         initial_targets_verified = false;
         initial_switch_project.clear();
         active_project_directory = candidate;
+        if (shell_page != NavigationProject)
+        {
+            shell_page = NavigationWorkspace;
+        }
+        for (const int page : navigation_pages)
+        {
+            appearance.active_button(find_control(page), page == shell_page);
+        }
         fast_runtime = false;
         auto_run_preferences = cpplivelab::load_auto_run_preferences(
             candidate, cpplivelab::legacy_auto_build_enabled(preference_store));
@@ -1120,10 +1674,8 @@ public:
         configure_writes = inspection.configure_writes;
         configure_writes_authorized = false;
         SetWindowTextW(find_control(ProjectPathLabel), active_project_directory.c_str());
-        SetWindowTextW(find_control(ProjectIdentityLabel),
-            (L"Active project: " + active_project_directory.filename().wstring()).c_str());
-        SetWindowTextW(window_handle,
-            (application_title() + L" - " + active_project_directory.filename().wstring()).c_str());
+        SetWindowTextW(
+            find_control(ProjectIdentityLabel), active_project_directory.filename().c_str());
         std::ifstream last_config(cpplivelab::workspace_directory(candidate) / L"last-config.txt");
         std::string configuration;
         last_config >> configuration;
@@ -1136,6 +1688,7 @@ public:
         GetClientRect(window_handle, &client);
         layout(client.right, client.bottom);
         cpplivelab::remember_project(candidate);
+        reload_welcome_recents();
         SetWindowTextW(find_control(StatusLabel), L"Ready");
         append(L"Opened: " + active_project_directory.wstring() + L"\n");
         append(L"Read-only import; manager builds and metadata: " +
@@ -1365,7 +1918,8 @@ public:
 
     bool show_project_form(const std::wstring& title,
         std::vector<cpplivelab::FormField>& fields,
-        cpplivelab::FormOptions& options)
+        cpplivelab::FormOptions& options,
+        bool in_page = false)
     {
         // A modal dialog pumps Windows messages. Hold automatic dispatch until
         // its settings are accepted/cancelled so an operation cannot start halfway
@@ -1382,7 +1936,65 @@ public:
         } guard{project_dialog_open, project_dialog_open};
 
         project_dialog_open = true;
-        return cpplivelab::project_form(window_handle, title, fields, options);
+        if (!in_page)
+        {
+            return cpplivelab::project_form(window_handle, title, fields, options);
+        }
+        const auto focus = GetFocus();
+        inline_abandoned = false;
+        inline_active = true;
+        options.inline_host = find_control(ShellInlineHost);
+        const auto relayout = [&]
+        {
+            RECT client{};
+            GetClientRect(window_handle, &client);
+            layout(client.right, client.bottom);
+        };
+        relayout();
+        const auto finish = [&]
+        {
+            options.inline_host = nullptr;
+            inline_active = false;
+            relayout();
+            if (IsWindow(focus) && IsWindowVisible(focus) && IsWindowEnabled(focus))
+            {
+                SetFocus(focus);
+            }
+            if (const auto next = std::exchange(inline_next_message, std::nullopt))
+            {
+                PostMessageW(window_handle, next->message, next->wParam, next->lParam);
+            }
+        };
+        bool accepted;
+        try
+        {
+            accepted = cpplivelab::project_form(window_handle, title, fields, options);
+        }
+        catch (...)
+        {
+            finish();
+            throw;
+        }
+        finish();
+        return accepted;
+    }
+
+    bool leave_inline(UINT message, WPARAM wparam = 0, LPARAM lparam = 0)
+    {
+        if (!inline_active)
+        {
+            return false;
+        }
+        if (const auto child = GetWindow(find_control(ShellInlineHost), GW_CHILD))
+        {
+            if (cpplivelab::request_inline_form_close(child))
+            {
+                inline_abandoned = true;
+                inline_next_message = MSG{window_handle, message, wparam, lparam};
+            }
+            return true;
+        }
+        return false;
     }
 
     bool show_project_form(const std::wstring& title, std::vector<cpplivelab::FormField>& fields)
@@ -1414,7 +2026,7 @@ public:
         options.library_picker = true;
         options.add_github_library = [&](HWND owner)
         {
-            reveal_system_output();
+            select_console(false);
             return cpplivelab::github_library_dialog(owner,
                 preferences.theme,
                 application_directory() / L"EasierCpp.exe",
@@ -1443,7 +2055,10 @@ public:
             }
             return L"";
         };
-        if (show_project_form(L"New Project", fields, options))
+        if (show_project_form(L"New Project",
+                fields,
+                options,
+                shell_page == NavigationHome || shell_page == NavigationProject))
         {
             std::string libraries;
             for (const auto& id : options.libraries)
@@ -1476,10 +2091,11 @@ public:
         {
             cpplivelab::remember_project(path, true);
         };
-        if (show_project_form(L"Recent Projects", fields, options))
+        if (show_project_form(L"Recent Projects", fields, options, shell_page == NavigationProject))
         {
             open(options.selected_recent);
         }
+        reload_welcome_recents();
     }
 
     void project_settings()
@@ -1523,7 +2139,8 @@ public:
             }
             return L"";
         };
-        if (show_project_form(L"Project Settings", fields, options))
+        if (show_project_form(
+                L"Project Settings", fields, options, shell_page == NavigationProject))
         {
             auto changed = original;
             changed.working_directory = fields[0].value;
@@ -1576,7 +2193,8 @@ public:
                        L"automatic detection.";
         options.custom_editor_field = 0;
         options.expanded = !editor.executable.empty() || !editor.arguments.empty();
-        if (show_project_form(L"Preferred Editor", fields, options))
+        if (show_project_form(
+                L"Preferred Editor", fields, options, shell_page == NavigationSettings))
         {
             editor.choice = fields[0].value;
             editor.executable = fields[1].value;
@@ -1607,6 +2225,7 @@ public:
     {
         std::wstring text = L"Libraries: ";
         const auto records = cpplivelab::project_libraries(active_project_directory);
+        SendDlgItemMessageW(window_handle, ShellLibraryList, LB_RESETCONTENT, 0, 0);
         for (const auto& record : records)
         {
             if (text != L"Libraries: ")
@@ -1614,6 +2233,13 @@ public:
                 text += L", ";
             }
             text += decode_console_text(record.name);
+            const auto row =
+                decode_console_text(record.name + "  |  " + record.version + "  |  Managed");
+            SendDlgItemMessageW(window_handle,
+                ShellLibraryList,
+                LB_ADDSTRING,
+                0,
+                reinterpret_cast<LPARAM>(row.c_str()));
         }
         if (records.empty())
         {
@@ -1637,6 +2263,7 @@ public:
 
         project_dialog_open = true;
         cpplivelab::LibraryManagerContext context;
+        bool left_library_page = false;
         context.owner = window_handle;
         context.theme = preferences.theme;
         context.project = active_project_directory;
@@ -1645,7 +2272,10 @@ public:
         context.options = project_options();
         context.output = [&](const auto& text)
         {
-            reveal_system_output();
+            if (shell_page != NavigationLibraries)
+            {
+                reveal_system_output();
+            }
             system_console.append(cpplivelab::classify_build_line(text), text);
             update_console_badges();
         };
@@ -1664,8 +2294,17 @@ public:
         };
         context.restarting = [&]
         {
-            return restart_pending || close_requested;
+            return restart_pending || close_requested || left_library_page;
         };
+        if (shell_page == NavigationLibraries)
+        {
+            context.present_editor = [&](const auto& title, auto& fields, auto& options)
+            {
+                const bool accepted = show_project_form(title, fields, options, true);
+                left_library_page = inline_abandoned;
+                return accepted;
+            };
+        }
         if (adding)
         {
             cpplivelab::add_project_libraries_dialog(context);
@@ -2092,11 +2731,12 @@ public:
     {
         welcome_output = true;
         select_console(false);
-        RECT client{};
-        GetClientRect(window_handle, &client);
-        layout(client.right, client.bottom);
+        navigate_to(shell_page == NavigationTools      ? NavigationTools
+                    : active_project_directory.empty() ? NavigationHome
+                                                       : NavigationWorkspace);
     }
 
+#ifndef EASIERCPP_PUBLIC_GUI
     void run_tests_dialog()
     {
         reveal_system_output();
@@ -2131,7 +2771,8 @@ public:
             }
             return L"Worker count must be a whole number from 1 to 16.";
         };
-        if (cpplivelab::project_form(window_handle, L"Run EasierCpp Tests", fields, options))
+        if (show_project_form(
+                L"Run EasierCpp Tests", fields, options, shell_page == NavigationTools))
         {
             const auto workers = std::stoi(fields[1].value);
             const auto command = cpplivelab::test_command(fields[0].value, workers);
@@ -2139,6 +2780,7 @@ public:
             tests_cancelled = false;
             test_session.start_worker(command.executable, command.arguments, command.repository);
             tests_active = true;
+            update_test_actions();
             tests_started = GetTickCount64();
             append(L"Starting " + fields[0].value + L" tests with " + std::to_wstring(workers) +
                    L" workers.");
@@ -2178,7 +2820,18 @@ public:
                     std::to_wstring((GetTickCount64() - tests_started) / 1000.0) + L" seconds.");
             test_session.release_completed();
             tests_active = false;
+            update_test_actions();
         }
+    }
+
+#endif
+
+    void update_test_actions()
+    {
+#ifndef EASIERCPP_PUBLIC_GUI
+        EnableWindow(find_control(TestRunnerMenu), !tests_active);
+        EnableWindow(find_control(CancelTestsMenu), tests_active);
+#endif
     }
 
     void request_restart()
@@ -2225,11 +2878,13 @@ public:
         {
             cpplivelab::cancel_library_task();
         }
+#ifndef EASIERCPP_PUBLIC_GUI
         if (tests_active)
         {
             tests_cancelled = true;
             test_session.stop();
         }
+#endif
         if (operation_in_progress || replacement_building)
         {
             stop();
@@ -2317,7 +2972,9 @@ public:
 
     void tick()
     {
+#ifndef EASIERCPP_PUBLIC_GUI
         poll_tests();
+#endif
         poll_restart();
         if (!IsWindow(window_handle) || restart_launch)
         {
@@ -2785,8 +3442,8 @@ public:
     {
         SetWindowTextW(find_control(AutoRunButton),
             !auto_run_preferences.enabled ? L"Auto Run: OFF"
-            : auto_launch_armed           ? L"Auto Run: ON"
-                                          : L"Auto Run: ON (paused)");
+            : auto_launch_armed           ? L"Auto Run: On"
+                                          : L"Auto Run: Paused");
         appearance.active_button(find_control(AutoRunButton), auto_run_preferences.enabled);
     }
 
@@ -3645,7 +4302,7 @@ public:
                 cpplivelab::BrowseKind::None,
                 false,
                 true}};
-        if (!show_project_form(L"Build Errors", fields, options))
+        if (!show_project_form(L"Build Errors", fields, options, shell_page == NavigationTools))
         {
             return;
         }
@@ -3676,12 +4333,26 @@ public:
         const HWND console = find_control(SystemOutputPane);
         CHARRANGE selection{};
         SendMessageW(console, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&selection));
-        const auto line = SendMessageW(console, EM_EXLINEFROMCHAR, 0, selection.cpMin);
-        std::wstring text(8192, L'\0');
-        *reinterpret_cast<WORD*>(text.data()) = 8191;
-        text.resize(SendMessageW(console, EM_GETLINE, line, reinterpret_cast<LPARAM>(text.data())));
+        // Visual rows wrap as the shell narrows. Read Rich Edit's logical text
+        // without CRLF expansion so its selection offset still identifies a line.
+        GETTEXTLENGTHEX length{GTL_NUMCHARS | GTL_PRECISE, 1200};
+        const auto characters =
+            SendMessageW(console, EM_GETTEXTLENGTHEX, reinterpret_cast<WPARAM>(&length), 0);
+        std::wstring text(static_cast<size_t>((std::max)(LRESULT{0}, characters)) + 1, L'\0');
+        GETTEXTEX options{static_cast<DWORD>(text.size() * sizeof(wchar_t)), GT_DEFAULT, 1200};
+        const auto copied = SendMessageW(console,
+            EM_GETTEXTEX,
+            reinterpret_cast<WPARAM>(&options),
+            reinterpret_cast<LPARAM>(text.data()));
+        text.resize(static_cast<size_t>((std::max)(LRESULT{0}, copied)));
+        const auto offset =
+            (std::min)(text.size(), static_cast<size_t>((std::max)(0L, selection.cpMin)));
+        const auto previous = offset == 0 ? text.npos : text.find_last_of(L"\r\n", offset - 1);
+        const auto first = previous == text.npos ? 0 : previous + 1;
+        const auto last = text.find_first_of(L"\r\n", offset);
+        const auto line = text.substr(first, last == text.npos ? text.npos : last - first);
         const auto diagnostics =
-            cpplivelab::parse_build_diagnostics(text, active_project_directory);
+            cpplivelab::parse_build_diagnostics(line, active_project_directory);
         if (!diagnostics.empty())
         {
             open_diagnostic(diagnostics.front());
@@ -3695,6 +4366,10 @@ public:
     void command(int control_id)
     {
         if (restart_launch)
+        {
+            return;
+        }
+        if (leave_inline(WM_COMMAND, MAKEWPARAM(control_id, BN_CLICKED)))
         {
             return;
         }
@@ -3713,14 +4388,19 @@ public:
             review_errors();
             return;
         }
-        if (control_id == OpenWelcomeRecent)
+        if (control_id == OpenWelcomeRecent || control_id == ForgetWelcomeRecent)
         {
             const auto selected =
                 SendDlgItemMessageW(window_handle, WelcomeRecent, LB_GETCURSEL, 0, 0);
             if (selected >= 0 && static_cast<size_t>(selected) < welcome_recents.size())
             {
-                const auto& path = welcome_recents[selected];
-                if (fs::is_directory(path))
+                const auto path = welcome_recents[selected];
+                if (control_id == ForgetWelcomeRecent)
+                {
+                    cpplivelab::remember_project(path, true);
+                    reload_welcome_recents();
+                }
+                else if (fs::is_directory(path))
                 {
                     open(path);
                 }
@@ -3741,9 +4421,30 @@ public:
                 find_control(StatusLabel), L"Select or create a project before using this action.");
             return;
         }
-        if (control_id >= NavigationProject && control_id <= NavigationSettings)
+        if (std::find(std::begin(navigation_pages), std::end(navigation_pages), control_id) !=
+            std::end(navigation_pages))
         {
-            show_navigation(control_id);
+            navigate_to(control_id);
+            return;
+        }
+        if (control_id == WorkspaceLibraries)
+        {
+            navigate_to(NavigationLibraries);
+            return;
+        }
+        if (control_id == OptimizeWorkersButton)
+        {
+            optimize_workers(window_handle);
+            return;
+        }
+        if (std::any_of(std::begin(shell_help),
+                std::end(shell_help),
+                [&](const auto& help)
+                {
+                    return help.id == control_id;
+                }))
+        {
+            show_shell_help(control_id);
             return;
         }
         if (control_id == AppearanceMenu)
@@ -3766,6 +4467,7 @@ public:
             copy_project_path();
             return;
         }
+#ifndef EASIERCPP_PUBLIC_GUI
         if (control_id == TestRunnerMenu)
         {
             run_tests_dialog();
@@ -3780,6 +4482,7 @@ public:
             }
             return;
         }
+#endif
         if (control_id == DoctorMenu || control_id == DetailedDoctorMenu)
         {
             std::ostringstream report;
@@ -4089,10 +4792,33 @@ LRESULT CALLBACK window_procedure(HWND window_handle, UINT message, WPARAM wpara
             {
                 PAINTSTRUCT paint{};
                 const auto dc = BeginPaint(window_handle, &paint);
+                application->paint_shell(dc);
                 application->appearance.paint_panels(dc);
                 EndPaint(window_handle, &paint);
                 return 0;
             }
+            case WM_LBUTTONDOWN:
+            case WM_NCLBUTTONDOWN:
+                application->dismiss_shell_help();
+                break;
+            case WM_ACTIVATE:
+                if (LOWORD(wparam) == WA_INACTIVE)
+                {
+                    application->dismiss_shell_help();
+                }
+                break;
+            case WM_PARENTNOTIFY:
+                if (LOWORD(wparam) == WM_LBUTTONDOWN && application->tracked_help)
+                {
+                    const POINT point{
+                        static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+                    if (ChildWindowFromPointEx(window_handle, point, CWP_SKIPINVISIBLE) !=
+                        application->find_control(application->tracked_help))
+                    {
+                        application->dismiss_shell_help();
+                    }
+                }
+                break;
             case WM_CTLCOLORSTATIC:
             case WM_CTLCOLOREDIT:
             case WM_CTLCOLORLISTBOX:
@@ -4102,16 +4828,40 @@ LRESULT CALLBACK window_procedure(HWND window_handle, UINT message, WPARAM wpara
                     break;
                 }
                 const auto child = reinterpret_cast<HWND>(lparam);
+                if (GetDlgCtrlID(child) == ShellBrand || GetDlgCtrlID(child) == ShellLogo)
+                {
+                    const auto dc = reinterpret_cast<HDC>(wparam);
+                    SetTextColor(dc, RGB(238, 246, 245));
+                    SetBkMode(dc, TRANSPARENT);
+                    SetDCBrushColor(dc, RGB(13, 30, 37));
+                    return reinterpret_cast<LRESULT>(GetStockObject(DC_BRUSH));
+                }
                 wchar_t class_name[64]{};
                 GetClassNameW(child, class_name, 64);
                 const bool input =
                     message != WM_CTLCOLORSTATIC || std::wstring_view(class_name) == L"Edit";
-                const auto brush = application->appearance.control_colors(
-                    reinterpret_cast<HDC>(wparam), input, IsWindowEnabled(child) != FALSE);
+                RECT bounds{};
+                GetWindowRect(child, &bounds);
+                POINT center{(bounds.left + bounds.right) / 2, (bounds.top + bounds.bottom) / 2};
+                ScreenToClient(window_handle, &center);
+                const bool panel_label = message == WM_CTLCOLORSTATIC &&
+                                         std::any_of(application->shell_panels.begin(),
+                                             application->shell_panels.end(),
+                                             [&](const RECT& panel)
+                                             {
+                                                 return PtInRect(&panel, center) != FALSE;
+                                             });
+                const auto brush =
+                    application->appearance.control_colors(reinterpret_cast<HDC>(wparam),
+                        input || panel_label,
+                        IsWindowEnabled(child) != FALSE);
                 if (child == application->find_control(StatusLabel))
                 {
                     const auto status = read_control_text(child);
-                    const auto& colors = application->appearance.palette.console;
+                    const auto colors =
+                        cpplivelab::theme_palette(cpplivelab::ThemeChoice::FollowWindows,
+                            application->appearance.palette.dark)
+                            .console;
                     if (status.find(L"Failed") != status.npos || status.starts_with(L"Error"))
                     {
                         SetTextColor(reinterpret_cast<HDC>(wparam), colors.error);
@@ -4205,12 +4955,18 @@ LRESULT CALLBACK window_procedure(HWND window_handle, UINT message, WPARAM wpara
                 }
                 break;
             case WM_CLOSE:
+                if (application->leave_inline(WM_CLOSE))
+                {
+                    return 0;
+                }
                 application->restart_pending = false;
                 application->restart_launch.reset();
+#ifndef EASIERCPP_PUBLIC_GUI
                 if (application->tests_active)
                 {
                     application->test_session.stop();
                 }
+#endif
                 application->watcher.stop();
                 application->auto_build.enable(false);
                 if (application->operation_in_progress || application->replacement_building ||
@@ -4227,6 +4983,7 @@ LRESULT CALLBACK window_procedure(HWND window_handle, UINT message, WPARAM wpara
                 return 0;
             case WM_DESTROY:
                 KillTimer(window_handle, 1);
+                application->destroy_shell_help();
                 PostQuitMessage(0);
                 return 0;
         }
@@ -4310,7 +5067,7 @@ try
     window_class.lpfnWndProc = window_procedure;
     window_class.hInstance = application_instance;
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    window_class.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    window_class.hIcon = application_icon(GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON));
     window_class.hbrBackground = nullptr;
     window_class.lpszClassName = L"CppLiveLabWindow";
     RegisterClassW(&window_class);
@@ -4417,10 +5174,26 @@ try
         initial_show_state =
             restart->state.placement.showCmd == SW_SHOWMAXIMIZED ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
     }
+    const auto icon_dpi = GetDpiForWindow(window_handle);
+    for (const auto [kind, x_metric, y_metric] : {std::array{ICON_SMALL, SM_CXSMICON, SM_CYSMICON},
+             std::array{ICON_BIG, SM_CXICON, SM_CYICON}})
+    {
+        SendMessageW(window_handle,
+            WM_SETICON,
+            kind,
+            reinterpret_cast<LPARAM>(application_icon(GetSystemMetricsForDpi(x_metric, icon_dpi),
+                GetSystemMetricsForDpi(y_metric, icon_dpi))));
+    }
     ShowWindow(window_handle, initial_show_state);
     MSG message{};
     while (GetMessageW(&message, nullptr, 0, 0) > 0)
     {
+        if (message.message == WM_KEYDOWN && message.wParam == VK_ESCAPE &&
+            application.tracked_help)
+        {
+            application.dismiss_shell_help();
+            continue;
+        }
         if (message.message == WM_SYSKEYDOWN &&
             (message.wParam == 'P' || message.wParam == 'B' || message.wParam == 'T' ||
                 message.wParam == 'S' || message.wParam == 'R'))

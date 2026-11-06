@@ -517,6 +517,13 @@ int wmain(int argc, wchar_t** argv)
                         size.cy,
                         SWP_NOACTIVATE | SWP_NOZORDER);
                     audit::check_controls(window, false);
+                    for (const int page : navigation_pages)
+                    {
+                        audit::case_name = std::string(prefix) + "-sidebar-" + std::to_string(page);
+                        app.command(page);
+                        audit::check_controls(window, false);
+                    }
+                    app.command(NavigationWorkspace);
                 }
                 audit::capture(window, audit::case_name);
             }

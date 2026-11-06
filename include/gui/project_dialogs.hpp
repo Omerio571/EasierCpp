@@ -35,6 +35,8 @@ struct FormField
 struct FormOptions
 {
     ThemeChoice theme = ThemeChoice::FollowWindows;
+    HWND inline_host = nullptr;
+    bool confirm_inline_discard = true;
     std::wstring note;
     std::wstring accept_label = L"OK";
     bool expanded = false;
@@ -44,6 +46,7 @@ struct FormOptions
     bool cancel_default = false;
     bool progress_only = false;
     bool disable_invalid_accept = false;
+    bool observe_edits = false;
     std::vector<std::string> libraries;
     std::vector<std::filesystem::path> recents;
     bool recent_list = false;
@@ -95,6 +98,8 @@ private:
     bool manually_sized_ = false;
     int preferred_width_ = 624;
     int preferred_height_ = 0;
+    std::vector<std::wstring> initial_values_;
+    std::vector<std::string> initial_libraries_;
     HWND add(const wchar_t* type, const std::wstring& text, int id, DWORD style = 0);
     void read_fields();
     void refresh_libraries();
@@ -105,5 +110,6 @@ private:
 bool project_form(
     HWND owner, const std::wstring& title, std::vector<FormField>& fields, FormOptions& options);
 bool project_form(HWND owner, const std::wstring& title, std::vector<FormField>& fields);
+bool request_inline_form_close(HWND form);
 bool forward_restart_shortcut(HWND window, const MSG& message);
 } // namespace cpplivelab

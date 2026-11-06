@@ -1,4 +1,4 @@
-# EasierCpp v0.1.2
+# EasierCpp v0.1.3
 
 **Make Your Life Easier**
 
@@ -35,7 +35,14 @@ application process, and supported dependencies.
 - **Program controls:** Build, Run, Stop, Restart, interactive console input/output,
   and launching your editor.
 
-## What's new in v0.1.2
+## What's new in v0.1.3
+
+The UI Overhaul brings the approved sidebar, light and dark desktop palettes, a
+larger Workspace console, keyboard-accessible help, and the original logo rebuilt
+as a vector. The existing native project, library, build and process workflows are
+available from the redesigned shell.
+
+### Performance changes introduced in v0.1.2
 
 Auto Run now returns to the original compilation tree after its first alternate
 update, avoiding a third cold build. Compatible unchanged projects can launch
@@ -126,7 +133,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build.ps1 -TestMod
 
 The build script initializes the developer environment for its own processes.
 See the [development guide](docs/development/ARCHITECTURE_MAP.md) for focused testing
-and the [v0.1.2 release notes](docs/release/RELEASE_NOTES.md) for release behavior.
+and the [release notes](docs/release/RELEASE_NOTES.md) for release behavior.
 
 ## Upgrading and troubleshooting
 

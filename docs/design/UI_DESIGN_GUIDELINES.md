@@ -6,31 +6,35 @@ Read this file together with AGENTS.md and CODING_STYLE.md before editing UI cod
 ## Priorities
 
 No duplicates. Simplicity. Efficiency. Consistency. Preserve approved behavior.
-Adapt illustrations to the actual native Win32 application; do not copy mockups
-rigidly or replace the product with a different framework.
+Use the approved [interactive redesign](../../design/ui-preview/index.html) as the
+visual reference. Keep native Win32 controls and existing workflow handlers.
 
 ## Main workspace and navigation
 
 - Keep frequent actions visible: active project, Build/Run/Stop/Open Editor,
   configuration/target, Auto Run, status, console tabs and program input.
 - Give remaining space to the consoles. Resizing primarily changes their area.
-- Use one themed navigation row: Project and Tools on the left, Settings aligned
-  to the right edge. Its native buttons
-  occupy a roughly 48-logical-pixel band, scaled with DPI.
+- Use a left sidebar with Home, Workspace, Libraries, Project, Tools, and Settings,
+  in that order. Use the native caption for the product name and icon. Keep theme
+  controls in Settings.
 - Keep exactly one Settings entry. Never add a competing title-bar gear.
-- Project owns New/Open/Recent/Project Settings/Manage Libraries/Copy Project Path.
+- Home owns welcome and recent projects. Project owns New/Open/Recent and project
+  configuration. Libraries owns dependency management. Workspace keeps quick
+  access to library management.
 - Build/Run/Stop stay in the workspace; do not restore a redundant Build menu.
-- Tools owns editor launch, summary/detailed diagnostics and Run EasierCpp Tests.
-  Stream real tool/test output into Build & System without clearing Program Console.
+- Tools owns editor launch and summary/detailed diagnostics. Development builds
+  also show Run Tests and Cancel Tests. Stream tool/test output into Build & System
+  without clearing Program Console.
 - Settings owns Appearance, Preferred Editor and global Build Preferences.
 - Never restore permanent folder, appearance or debounce fields to the workspace.
-- Show the project path once, with path ellipsis and Copy Project Path available.
+- Show the project path in Project settings and the recent list where it identifies
+  an entry. Keep the Workspace focused on running the active project.
 - Retired control IDs remain reserved. Do not reuse them for unrelated actions.
 
 ## Shared appearance
 
-- Use `UiTheme`, `theme_palette` and `ProjectFormWindow`; do not create independent
-  dialog palettes or hardcoded copies of user-customized colors.
+- Use `UiTheme`, `theme_palette` and `ProjectFormWindow`. Keep the approved desktop
+  palette in the shared theme for the shell and native workflow forms.
 - Support Dark, Light and Follow Windows, including retained console recoloring.
 - Preserve semantic identity: red errors, green success, blue information, orange
   warnings. Ordinary stdout is neutral. Keep textual severity labels.
@@ -45,7 +49,10 @@ rigidly or replace the product with a different framework.
 ## Forms and interactions
 
 - New application forms go through the shared native form helper. It owns fonts,
-  brushes through UiTheme, control creation, DPI layout, scrolling and modal cleanup.
+  brushes through UiTheme, control creation, DPI layout, scrolling and cleanup.
+  Put routine forms beneath the parent page's heading and section controls.
+  Keep separate dialogs for approvals and system pickers. Confirm discarding
+  unsaved edits when switching sections.
 - Use short labels and friendly display names; preserve stable underlying identifiers.
 - Use native Browse for folders and executables; allow typed paths too.
 - Put infrequent overrides under Advanced Options. Custom editor selection reveals
@@ -125,10 +132,10 @@ selection and scrollbars. Progress modals must have a visible keyboard default,
 monitor-safe placement, and restored owner focus after destruction. Retain pixel,
 long-text, scroll/repaint and production-modal regression tests for these fixes.
 
-## Current product direction: Cpp
+## Product branding
 
-Use Cpp as the displayed name and Make Your Life Easier as the tagline. Preserve
-internal identifiers and customized palettes. Keep Add Library and Manage Libraries
+Use EasierCpp as the displayed name and Make Your Life Easier as the tagline. Use
+the vector master and its native-size exports from `assets/branding`. Keep Add Library and Manage Libraries
 prominent in the workspace beside Build/Run/Stop/program Restart and Auto Run.
 Manager restart is a separate Tools action; Settings remains a single destination.
 Auto Run uses the existing watcher/scheduler and CMake pipeline with isolated

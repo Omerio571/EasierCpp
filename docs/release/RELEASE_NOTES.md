@@ -1,3 +1,24 @@
+# EasierCpp v0.1.3 - UI Overhaul
+
+Unreleased. See the [v0.1.3 candidate notes](notes/v0.1.3.md).
+
+- Navigate Home, Workspace, Libraries, Project, Tools and Settings from one sidebar.
+- Use the expanded Workspace console for program input, build output and diagnostics.
+- Use Settings → Appearance to switch both console and desktop palettes, or follow
+  Windows. The active session and console contents are retained.
+- Hover or focus the information buttons for help with Auto Run, executable targets,
+  restarting a program and console input. Project and preference forms retain their help.
+- The vector reconstruction of the original logo appears in the desktop shell and
+  supplies Windows executable and window icons.
+
+Routine project, library and preference forms open within the main window. Library
+management separates managed, detected and available entries and supports search.
+Operations that need approval retain their review dialogs. Build trees, caches and
+settings use the existing locations and formats. See the
+[UI acceptance guide](../design/V0.1.3_UI_ACCEPTANCE.md).
+
+---
+
 # EasierCpp v0.1.2 — Performance and Reliability Improvements
 
 ## Highlights

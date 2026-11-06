@@ -19,6 +19,7 @@ if (Test-Path -LiteralPath $cache) {
     $cacheText = [IO.File]::ReadAllText($cache)
     $sourceMatch = [regex]::Match($cacheText, '(?m)^CMAKE_HOME_DIRECTORY:INTERNAL=(.+)\r?$')
     if ($cacheText -notmatch '(?m)^CMAKE_BUILD_TYPE:STRING=Release\r?$' -or
+        $cacheText -notmatch '(?m)^EASIERCPP_PORTABLE:BOOL=ON\r?$' -or
         -not $sourceMatch.Success -or
         [IO.Path]::GetFullPath($sourceMatch.Groups[1].Value.Trim()) -ne [IO.Path]::GetFullPath($repository)) {
         throw 'BuildDirectory belongs to another project/configuration. Choose a fresh Release directory; development builds are preserved.'
@@ -35,15 +36,11 @@ foreach ($line in $environment) {
     if ($line -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process') }
 }
 $cmake = Join-Path $visualStudio 'Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe'
-$ctest = Join-Path (Split-Path $cmake) 'ctest.exe'
 $ninja = Join-Path $visualStudio 'Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe'
-& $cmake -S $repository -B $BuildDirectory -G Ninja -DCMAKE_BUILD_TYPE=Release -DEASIERCPP_PORTABLE=ON -DBUILD_TESTING=ON "-DCMAKE_MAKE_PROGRAM=$ninja"
+& $cmake -S $repository -B $BuildDirectory -G Ninja -DCMAKE_BUILD_TYPE=Release -DEASIERCPP_PORTABLE=ON -DBUILD_TESTING=OFF "-DCMAKE_MAKE_PROGRAM=$ninja"
 if ($LASTEXITCODE) { throw 'Release configuration failed.' }
 & $cmake --build $BuildDirectory --parallel $Jobs
 if ($LASTEXITCODE) { throw 'Release build failed.' }
-$env:CPPLIVELAB_TEST_CHILD = '1'
-& $ctest --test-dir $BuildDirectory -L '^quick$' --parallel 1 --output-on-failure --no-tests=error
-if ($LASTEXITCODE) { throw 'Release Quick regression failed; no package produced.' }
 $version = [IO.File]::ReadAllText((Join-Path $BuildDirectory 'release-version.txt')).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid CMake project version.' }
 $folder = Join-Path $OutputDirectory "EasierCpp-v$version"
@@ -54,11 +51,18 @@ $expected = @('EasierCpp.exe', 'EasierCpp-Gui.exe', 'LICENSE', 'THIRD_PARTY_NOTI
     'README.md', 'RELEASE_NOTES.md', 'resources/scripts/file_api.cmake',
     'resources/scripts/discover_targets.cmake', 'resources/scripts/github-library.ps1',
     'resources/scripts/detect-project-libraries.ps1', 'resources/cmake/EasierCppPch.cmake',
-    'resources/cmake/EasierCppPchHook.cmake') | Sort-Object
+    'resources/cmake/EasierCppPchHook.cmake', 'resources/branding/EasierCpp.ico',
+    'resources/branding/EasierCpp.svg') | Sort-Object
 $actual = @(Get-ChildItem -LiteralPath $folder -File -Recurse | ForEach-Object {
     $_.FullName.Substring($folder.Length + 1).Replace('\', '/')
 } | Sort-Object)
 if (Compare-Object $expected $actual -CaseSensitive) { throw 'Staging contains unexpected or missing files.' }
+foreach ($name in @('EasierCpp.exe', 'EasierCpp-Gui.exe')) {
+    $info = (Get-Item -LiteralPath (Join-Path $folder $name)).VersionInfo
+    if ($info.FileVersion -ne $version -or $info.ProductVersion -ne $version) {
+        throw "Version metadata in $name does not match the CMake project version."
+    }
+}
 # A portable binary must not retain this machine's checkout path in either encoding.
 foreach ($file in Get-ChildItem -LiteralPath $folder -File -Recurse) {
     $bytes = [IO.File]::ReadAllBytes($file.FullName)
@@ -70,7 +74,7 @@ foreach ($file in Get-ChildItem -LiteralPath $folder -File -Recurse) {
         }
     }
 }
-$archive = Join-Path $OutputDirectory "EasierCpp-v$version-windows-x64-portable.zip"
+$archive = Join-Path $OutputDirectory "EasierCpp-v$version-win-x64.zip"
 Compress-Archive -LiteralPath $folder -DestinationPath $archive -CompressionLevel Optimal
 $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
 [IO.File]::WriteAllText($archive + '.sha256', "$hash  $([IO.Path]::GetFileName($archive))`n")

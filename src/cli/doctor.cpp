@@ -324,7 +324,7 @@ int run_doctor(std::ostream& out, const Toolchain& toolchain)
     const bool ready = cmake && ninja && compiler;
     out << (ready ? "Build tools found.\n"
                   : "Build tools missing. Install CMake, Ninja and a C++20 compiler.\n");
-    out << "Use scripts/build.ps1 to initialize the build environment automatically.\n"
+    out << "EasierCpp prepares the required developer environment when building a project.\n"
         << "Discovery checks files, not compiler/SDK compatibility; a build verifies usability.\n";
     return ready ? 0 : 1;
 }

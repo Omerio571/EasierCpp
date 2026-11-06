@@ -16,6 +16,7 @@ struct LibraryManagerContext
     std::function<void()> changed;
     std::function<bool()> busy;
     std::function<bool()> restarting;
+    LibraryFormPresenter present_editor;
 };
 
 void manage_libraries_dialog(const LibraryManagerContext& context);

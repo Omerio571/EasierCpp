@@ -16,6 +16,7 @@ namespace
 constexpr int Heading = 1000, Note = 1001, HelpText = 1002, Advanced = 1500;
 constexpr int AddLibrary = 1600, RecentList = 1700, RemoveRecent = 1701;
 constexpr int CustomAction = 1800;
+constexpr UINT RequestInlineClose = WM_APP + 1;
 
 std::wstring text(HWND control)
 {
@@ -112,15 +113,25 @@ ProjectFormWindow::ProjectFormWindow(
     type.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     RegisterClassW(&type);
     dpi = owner ? GetDpiForWindow(owner) : 96;
-    window = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
+    const bool embedded = options.inline_host != nullptr;
+    RECT host{};
+    if (embedded)
+    {
+        GetClientRect(options.inline_host, &host);
+        manually_sized_ = true;
+        preferred_width_ = MulDiv(host.right, 96, dpi);
+        preferred_height_ = MulDiv(host.bottom, 96, dpi);
+    }
+    window = CreateWindowExW(WS_EX_CONTROLPARENT | (embedded ? 0 : WS_EX_DLGMODALFRAME),
         type.lpszClassName,
         title.c_str(),
-        WS_CAPTION | WS_SYSMENU | WS_POPUP | WS_VSCROLL | WS_CLIPCHILDREN | WS_THICKFRAME,
-        -30000,
-        -30000,
-        scale_pixels(640, dpi),
-        scale_pixels(400, dpi),
-        owner,
+        WS_VSCROLL | WS_CLIPCHILDREN |
+            (embedded ? WS_CHILD : WS_CAPTION | WS_SYSMENU | WS_POPUP | WS_THICKFRAME),
+        embedded ? 0 : -30000,
+        embedded ? 0 : -30000,
+        embedded ? host.right : scale_pixels(640, dpi),
+        embedded ? host.bottom : scale_pixels(400, dpi),
+        embedded ? options.inline_host : owner,
         nullptr,
         type.hInstance,
         this);
@@ -263,7 +274,7 @@ ProjectFormWindow::ProjectFormWindow(
         if (!fields[index].help.empty())
         {
             TOOLINFOW tip{};
-            tip.cbSize = sizeof(tip);
+            tip.cbSize = TTTOOLINFOW_V2_SIZE;
             tip.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
             tip.hwnd = window;
             tip.uId =
@@ -274,6 +285,15 @@ ProjectFormWindow::ProjectFormWindow(
     }
     apply_theme();
     layout();
+    if (embedded && options.confirm_inline_discard)
+    {
+        read_fields();
+        for (const auto& field : fields_)
+        {
+            initial_values_.push_back(field.value);
+        }
+        initial_libraries_ = options.libraries;
+    }
 }
 
 ProjectFormWindow::~ProjectFormWindow()
@@ -331,7 +351,7 @@ void ProjectFormWindow::apply_theme()
     {
         DeleteObject(old);
     }
-    appearance.apply(window, options_.theme, dpi);
+    appearance.apply(window, options_.theme, dpi, true);
     SetWindowTheme(tooltip_, L"", nullptr);
     SendMessageW(tooltip_, TTM_SETTIPBKCOLOR, appearance.palette.panel, 0);
     SendMessageW(tooltip_, TTM_SETTIPTEXTCOLOR, appearance.palette.text, 0);
@@ -365,7 +385,7 @@ void ProjectFormWindow::layout()
     };
 
     std::vector<Placement> placements;
-    const int width = (std::max)(520, preferred_width_);
+    const int width = (std::max)(options_.inline_host ? 340 : 520, preferred_width_);
     const int content_width = width - 40;
     int y = 18;
     const auto place = [&](int id, int x, int top, int w, int h, bool visible = true)
@@ -511,8 +531,11 @@ void ProjectFormWindow::layout()
     GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor);
     const int available = (std::max)(
         240, MulDiv(monitor.rcWork.bottom - monitor.rcWork.top, 96, static_cast<int>(dpi)) - 80);
-    viewport_height_ = (std::min)(manually_sized_ ? preferred_height_ : content_height_, available);
-    viewport_height_ = (std::max)(200, viewport_height_);
+    viewport_height_ =
+        options_.inline_host
+            ? preferred_height_
+            : (std::max)(200,
+                  (std::min)(manually_sized_ ? preferred_height_ : content_height_, available));
     scroll_offset_ =
         (std::clamp)(scroll_offset_, 0, (std::max)(0, content_height_ - viewport_height_));
     // Plan first, then move all children without intermediate paints. The old
@@ -543,13 +566,16 @@ void ProjectFormWindow::layout()
     const int top = (std::max)(
         monitor.rcWork.top, (std::min)(previous.top, monitor.rcWork.bottom - outer_height));
     // Test windows remain off-screen; only already visible user forms are clamped.
-    SetWindowPos(window,
-        nullptr,
-        visible ? x : previous.left,
-        visible ? top : previous.top,
-        outer_width,
-        outer_height,
-        SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
+    if (!options_.inline_host)
+    {
+        SetWindowPos(window,
+            nullptr,
+            visible ? x : previous.left,
+            visible ? top : previous.top,
+            outer_width,
+            outer_height,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
+    }
     auto deferred = BeginDeferWindowPos(static_cast<int>(placements.size()));
     for (const auto& item : placements)
     {
@@ -907,7 +933,7 @@ void ProjectFormWindow::command(int id, int notification)
         accepted = true;
         finished = true;
     }
-    else if (notification == CBN_SELCHANGE)
+    else if (notification == CBN_SELCHANGE || notification == EN_CHANGE)
     {
         if (options_.changed)
         {
@@ -916,7 +942,8 @@ void ProjectFormWindow::command(int id, int notification)
             options_.changed(fields_);
             for (size_t index = 0; index < fields_.size(); ++index)
             {
-                if (fields_[index].read_only)
+                if (fields_[index].read_only &&
+                    fields_[index].value != previous_fields[index].value)
                 {
                     SetDlgItemTextW(
                         window, 2000 + static_cast<int>(index), fields_[index].value.c_str());
@@ -983,6 +1010,29 @@ LRESULT CALLBACK ProjectFormWindow::procedure(
         case WM_CLOSE:
             form->command(IDCANCEL);
             return 0;
+        case RequestInlineClose:
+        {
+            bool modified = false;
+            if (form->options_.confirm_inline_discard)
+            {
+                form->read_fields();
+                modified = form->options_.libraries != form->initial_libraries_;
+                for (size_t index = 0; index < form->initial_values_.size(); ++index)
+                {
+                    const auto& field = form->fields_[index];
+                    modified |= !field.read_only && field.value != form->initial_values_[index];
+                }
+            }
+            if (modified && MessageBoxW(GetAncestor(window, GA_ROOT),
+                                L"Discard the unsaved changes in this section?",
+                                L"Unsaved changes",
+                                MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES)
+            {
+                return FALSE;
+            }
+            form->command(IDCANCEL);
+            return TRUE;
+        }
         case WM_VSCROLL:
         {
             SCROLLINFO position{sizeof(position), SIF_TRACKPOS};
@@ -1010,13 +1060,18 @@ LRESULT CALLBACK ProjectFormWindow::procedure(
         case DM_GETDEFID:
             return MAKELONG(form->options_.cancel_default ? IDCANCEL : IDOK, DC_HASDEFID);
         case WM_COMMAND:
+        {
             if (LOWORD(wparam) == RecentList && HIWORD(wparam) == LBN_DBLCLK)
             {
                 form->command(IDOK);
                 return 0;
             }
+            const int field = static_cast<int>(LOWORD(wparam)) - 2000;
+            const bool editable = field >= 0 && static_cast<size_t>(field) < form->fields_.size() &&
+                                  !form->fields_[field].read_only;
             if (HIWORD(wparam) == BN_CLICKED || HIWORD(wparam) == CBN_SELCHANGE ||
-                (HIWORD(wparam) == EN_CHANGE && form->options_.disable_invalid_accept))
+                (HIWORD(wparam) == EN_CHANGE && (form->options_.disable_invalid_accept ||
+                                                    (form->options_.observe_edits && editable))))
             {
                 try
                 {
@@ -1034,6 +1089,7 @@ LRESULT CALLBACK ProjectFormWindow::procedure(
                 }
             }
             return 0;
+        }
         case WM_MEASUREITEM:
             reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight = scale_pixels(
                 reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->CtlType == ODT_LISTBOX ? 58 : 24,
@@ -1139,8 +1195,11 @@ bool project_form(
         (std::min)(parent.left + 30, monitor.rcWork.right - (bounds.right - bounds.left)));
     const int y = (std::max)(monitor.rcWork.top,
         (std::min)(parent.top + 30, monitor.rcWork.bottom - (bounds.bottom - bounds.top)));
-    SetWindowPos(form.window, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-    EnableWindow(owner, FALSE);
+    if (!options.inline_host)
+    {
+        SetWindowPos(form.window, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        EnableWindow(owner, FALSE);
+    }
     ShowWindow(form.window, SW_SHOW);
     SetFocus(options.cancel_default ? GetDlgItem(form.window, IDCANCEL)
                                     : GetNextDlgTabItem(form.window, nullptr, FALSE));
@@ -1169,7 +1228,12 @@ bool project_form(
         {
             continue;
         }
-        if (!IsDialogMessageW(form.window, &message))
+        // Tab traverses the page and its detail panel. Enter and Escape use
+        // the subsection's dialog buttons when focus is inside it.
+        const bool section_key = message.message == WM_KEYDOWN &&
+                                 (message.wParam == VK_RETURN || message.wParam == VK_ESCAPE) &&
+                                 IsChild(form.window, GetFocus());
+        if (!IsDialogMessageW(options.inline_host && !section_key ? owner : form.window, &message))
         {
             TranslateMessage(&message);
             DispatchMessageW(&message);
@@ -1179,7 +1243,10 @@ bool project_form(
             form.ensure_visible(GetFocus());
         }
     }
-    EnableWindow(owner, owner_enabled);
+    if (!options.inline_host)
+    {
+        EnableWindow(owner, owner_enabled);
+    }
     form.close_native_window();
     if (owner_enabled)
     {
@@ -1200,6 +1267,11 @@ bool project_form(HWND owner, const std::wstring& title, std::vector<FormField>&
 {
     FormOptions options;
     return project_form(owner, title, fields, options);
+}
+
+bool request_inline_form_close(HWND form)
+{
+    return SendMessageW(form, RequestInlineClose, 0, 0) != FALSE;
 }
 
 bool forward_restart_shortcut(HWND window, const MSG& message)

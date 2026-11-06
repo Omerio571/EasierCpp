@@ -59,11 +59,24 @@ UiTheme::~UiTheme()
     }
 }
 
-void UiTheme::apply(HWND parent, ThemeChoice choice, UINT dpi)
+void UiTheme::apply(HWND parent, ThemeChoice choice, UINT dpi, bool desktop_shell)
 {
     parent_ = parent;
     dpi_ = dpi;
     palette = theme_palette(choice);
+    if (desktop_shell)
+    {
+        const bool dark = palette.dark;
+        palette.background = dark ? RGB(19, 30, 35) : RGB(243, 246, 246);
+        palette.panel = dark ? RGB(24, 37, 43) : RGB(255, 255, 255);
+        palette.text = dark ? RGB(229, 238, 238) : RGB(21, 39, 46);
+        palette.border = dark ? RGB(42, 59, 67) : RGB(216, 227, 229);
+        palette.button = palette.panel;
+        palette.hover = dark ? RGB(35, 54, 62) : RGB(232, 239, 240);
+        palette.pressed = palette.hover;
+        palette.accent = dark ? RGB(213, 233, 229) : RGB(16, 41, 48);
+        palette.accent_text = dark ? RGB(16, 41, 48) : RGB(255, 255, 255);
+    }
     if (background_)
     {
         DeleteObject(background_);
@@ -83,6 +96,10 @@ void UiTheme::apply(HWND parent, ThemeChoice choice, UINT dpi)
         [](HWND child, LPARAM data) -> BOOL
         {
             auto& theme = *reinterpret_cast<UiTheme*>(data);
+            if (GetParent(child) != theme.parent_)
+            {
+                return TRUE;
+            }
             const auto name = class_name(child);
             if (name == L"Button")
             {
@@ -241,7 +258,10 @@ bool UiTheme::draw_item(const DRAWITEMSTRUCT& item)
         }
         return true;
     }
-    const bool active = active_buttons_.contains(item.hwndItem);
+    const bool active = enabled && active_buttons_.contains(item.hwndItem);
+    const bool sidebar = item.CtlType == ODT_BUTTON &&
+                         (GetWindowLongPtrW(item.hwndItem, GWL_STYLE) & BS_CENTER) == BS_LEFT;
+    const auto sidebar_background = palette.dark ? RGB(20, 33, 39) : RGB(246, 248, 248);
     COLORREF background = palette.button;
     if (item.CtlType == ODT_COMBOBOX)
     {
@@ -259,12 +279,15 @@ bool UiTheme::draw_item(const DRAWITEMSTRUCT& item)
     {
         background = palette.accent;
     }
+    if (sidebar)
+    {
+        background = active || hovered_ == item.hwndItem ? palette.hover : sidebar_background;
+    }
     FillRect(item.hDC, &item.rcItem, background_);
-    rounded_rectangle(item.hDC, item.rcItem, scale_pixels(16, dpi_), background, palette.border);
     SetBkMode(item.hDC, TRANSPARENT);
     SetTextColor(item.hDC,
         !enabled ? palette.disabled
-        : active || (item.CtlType == ODT_COMBOBOX && (item.itemState & ODS_SELECTED))
+        : (active && !sidebar) || (item.CtlType == ODT_COMBOBOX && (item.itemState & ODS_SELECTED))
             ? palette.accent_text
             : palette.text);
     std::wstring caption;
@@ -285,14 +308,30 @@ bool UiTheme::draw_item(const DRAWITEMSTRUCT& item)
         caption.resize(
             GetWindowTextW(item.hwndItem, caption.data(), static_cast<int>(caption.size())));
     }
+    const bool help = item.CtlType == ODT_BUTTON && caption == L"ⓘ";
+    rounded_rectangle(item.hDC,
+        item.rcItem,
+        scale_pixels(16, dpi_),
+        background,
+        sidebar || (help && hovered_ != item.hwndItem) ? background : palette.border);
+    if (sidebar && active)
+    {
+        RECT indicator{item.rcItem.left + scale_pixels(3, dpi_),
+            item.rcItem.top + scale_pixels(7, dpi_),
+            item.rcItem.left + scale_pixels(5, dpi_),
+            item.rcItem.bottom - scale_pixels(7, dpi_)};
+        SetDCBrushColor(item.hDC, palette.dark ? RGB(134, 216, 185) : RGB(33, 109, 88));
+        FillRect(item.hDC, &indicator, static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+    }
     auto rectangle = item.rcItem;
-    InflateRect(&rectangle, -scale_pixels(item.CtlType == ODT_COMBOBOX ? 10 : 8, dpi_), -2);
+    InflateRect(
+        &rectangle, help ? -1 : -scale_pixels(item.CtlType == ODT_COMBOBOX ? 10 : 8, dpi_), -2);
     DrawTextW(item.hDC,
         caption.c_str(),
         -1,
         &rectangle,
-        (item.CtlType == ODT_COMBOBOX ? DT_LEFT : DT_CENTER) | DT_VCENTER | DT_SINGLELINE |
-            DT_END_ELLIPSIS | DT_NOPREFIX);
+        (item.CtlType == ODT_COMBOBOX || sidebar ? DT_LEFT : DT_CENTER) | DT_VCENTER |
+            DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
     if (item.itemState & ODS_FOCUS)
     {
         InflateRect(&rectangle, -2, -2);
