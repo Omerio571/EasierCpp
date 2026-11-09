@@ -1,5 +1,6 @@
-# Search-only exclusions; keep historical evidence on disk and in Git.
+# Search-only exclusions; maintained reports remain searchable and tracked.
 *.log
+Testing/
 docs/migration/LEGACY_REFERENCES.csv
 docs/reports/**/phase*-measurements/
 docs/reports/**/measurements/

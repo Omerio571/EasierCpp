@@ -53,6 +53,11 @@ the relevant failure tail.
 
 ## Verification and handoff
 
+- Use [tests/README.md](tests/README.md) to find existing coverage before adding
+  tests. Keep safety/compatibility regressions, review duplicate or retired cases,
+  and store generated evidence in ignored build directories. Maintained reports
+  remain separate from disposable logs.
+
 - Follow [RELEASE_POLICY.md](docs/release/RELEASE_POLICY.md) when preparing a
   public distribution. Publication requires separate owner approval.
 

@@ -16,8 +16,21 @@ They supplement CODING_STYLE.md and UI_DESIGN_GUIDELINES.md.
   bytes, spaces and punctuation become underscores; a leading digit gets `Project_`.
   The folder/display name is preserved. The executable target stays `app` for compatibility.
 - Declare C and CXX, require C++20 per target, disable extensions and set the VS
-  startup target. Use explicit source lists. Add/remove source entries deliberately;
-  do not recursively glob build/dependency trees or recreate deleted source files.
+  startup target. Standard src/ projects default to sorted automatic discovery of
+  .cpp, .cc, .cxx and .c files using CMake CONFIGURE_DEPENDS. Restrict discovery to
+  src/ and exclude build/dependency directories. Keep the explicit APP_SOURCES list
+  behind EASIERCPP_AUTO_SOURCES=OFF for advanced manual management.
+- Single-file wrappers retain explicit external input paths. Never silently convert
+  imported or customized projects, overwrite existing .gitignore files, or recreate
+  deleted sources. Any future migration requires an opt-in preview and approval.
+- Every new project includes the shared C++/Windows/CMake/Ninja/Visual Studio
+  .gitignore, a named README with independent build and source-management instructions,
+  and src/, include/, assets/. Keep maintained source, assets, shared presets and
+  dependency configuration trackable. Never initialize Git or configure remotes.
+- First builds require no manual CMake edits when the required tools and selected
+  dependencies are available. Preserve library approval, verification, Debug/Release,
+  incremental builds, assets, and Auto Run slot reuse. Add no unnecessary dependencies
+  or configuration files.
 - CMake uses four-space indentation, quoted paths, one command per logical
   operation, multiline source/dependency declarations and meaningful section comments.
 - New managed projects copy assets with `$<TARGET_FILE_DIR:app>` after linking.
@@ -80,3 +93,8 @@ Quick must remain offline. Full includes real downloads and disposable console a
 Raylib 6.2 projects, Debug/Release builds, actual graphical window creation/closure,
 incremental builds, errors/repair and recovery. All regression labels remain enabled.
 Use STAGE5_UNIFIED_MANUAL_TESTS.md for human acceptance. Never test writes on FarmGame.
+Run project_source_discovery for Ninja/Visual Studio additions, mixed C/C++, renames,
+removals, exclusions, assets, manual lists, no-op builds, and managed slot rotation.
+CONFIGURE_DEPENDS has generator-dependent limitations and adds a file-list check to
+each build. Retain conservative freshness checks instead of accepting an unverified
+cached executable. See docs/development/PROJECT_GENERATION.md.

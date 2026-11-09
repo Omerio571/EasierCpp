@@ -85,14 +85,19 @@ void create_project(const fs::path& folder, bool calculator)
             "Destination must be a new or empty folder; existing files are never overwritten.");
     }
     fs::create_directories(root / "src");
+    fs::create_directories(root / "include");
+    fs::create_directories(root / "assets");
     std::vector<std::string> sources{"src/main.cpp"};
     if (calculator)
     {
         sources.push_back("src/calculator.cpp");
     }
     write_text_file(root / "CMakeLists.txt",
-        project_templates::cmake_project(path_support::path_utf8(root.filename()), sources));
-    write_text_file(root / ".gitignore", "/.easiercpp/\n/.cpplivelab/\n/build/\n");
+        project_templates::cmake_project(
+            path_support::path_utf8(root.filename()), sources, false, true, true));
+    write_text_file(root / ".gitignore", project_templates::gitignore);
+    write_text_file(
+        root / "README.md", project_templates::readme(path_support::path_utf8(root.filename())));
 
     if (calculator)
     {

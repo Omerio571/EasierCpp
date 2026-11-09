@@ -133,6 +133,15 @@ void freshness_test(const std::filesystem::path& fixture)
 {
     namespace fs = std::filesystem;
     TestProject project;
+    // Exercise exact Ninja dry-run freshness on a manual-list fixture first.
+    // This test separately adds a CONFIGURE_DEPENDS glob below and rejects
+    // trusting its dry-run result as proof of freshness.
+    const auto cmake_file = project.root / L"CMakeLists.txt";
+    auto cmake = contents(cmake_file);
+    const auto automatic = cmake.find("under src/\" ON)");
+    require(automatic != std::string::npos, "Generated source-management option is missing");
+    cmake.replace(automatic, std::string("under src/\" ON)").size(), "under src/\" OFF)");
+    std::ofstream(cmake_file) << cmake;
     const auto cli = fixture.parent_path() / L"EasierCpp.exe";
     const auto external_header = project.container / L"external.hpp";
     std::ofstream(external_header) << "constexpr double extra = 0;\n";

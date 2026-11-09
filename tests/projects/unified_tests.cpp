@@ -136,6 +136,51 @@ void unit(const fs::path& root)
         "Editor placeholders corrupted argument boundaries");
     const auto project = root / L"Named Project";
     create_managed_project(project, "multi");
+    require(fs::is_directory(project / L"include") && fs::is_directory(project / L"assets") &&
+                !fs::exists(project / L".git") &&
+                read(project / L"README.md").find("# Named Project") == 0,
+        "Generated layout, README name or Git initialization policy is incorrect");
+    wchar_t git_path[32768]{};
+    if (SearchPathW(nullptr, L"git.exe", nullptr, 32768, git_path, nullptr))
+    {
+        const auto check_ignore = [&](const wchar_t* path)
+        {
+            return run_process(git_path,
+                {L"--git-dir=" + (fs::path(CPPLIVELAB_TEST_SOURCE) / L".git").wstring(),
+                    L"--work-tree=" + project.wstring(),
+                    L"-c",
+                    L"core.excludesFile=NUL",
+                    L"check-ignore",
+                    L"--no-index",
+                    L"-q",
+                    path},
+                project);
+        };
+        for (const auto* path : {L"build/debug/app.exe",
+                 L"out/cache.txt",
+                 L".vs/settings.json",
+                 L"CMakeUserPresets.json",
+                 L"src/cache.obj",
+                 L".easiercpp/state"})
+        {
+            require(check_ignore(path) == 0, "Generated .gitignore missed a build/personal file");
+        }
+        for (const auto* path : {L"src/build/worker.cpp",
+                 L"include/Game.hpp",
+                 L"assets/data.txt",
+                 L"CMakeLists.txt",
+                 L"CMakePresets.json",
+                 L"cmake/Dependencies.cmake",
+                 L".gitignore",
+                 L"README.md"})
+        {
+            require(check_ignore(path) == 1, "Generated .gitignore excluded a maintained file");
+        }
+    }
+    else
+    {
+        std::cout << "Git unavailable; check-ignore verification skipped.\n";
+    }
     formatting(project);
     formatting(project, false); // The same assertions must work without this optional tool.
     create_project(root / L"Calculator", true);
@@ -256,6 +301,13 @@ void projects(const fs::path& root)
 {
     const auto project = root / L"Recovery Project";
     create_managed_project(project, "multi");
+    // This fixture verifies the existing no-SDK launch probe for explicit lists.
+    // CONFIGURE_DEPENDS projects conservatively require Ninja's real glob check.
+    auto manual_cmake = read(project / L"CMakeLists.txt");
+    const auto automatic = manual_cmake.find("under src/\" ON)");
+    require(automatic != std::string::npos, "Default automatic source option is missing");
+    manual_cmake.replace(automatic, std::string("under src/\" ON)").size(), "under src/\" OFF)");
+    write(project / L"CMakeLists.txt", manual_cmake);
     const auto original = read(project / "CMakeLists.txt");
     require(
         managed_build(project, L"Debug", {}, true, false) == 0, "Console project build/run failed");

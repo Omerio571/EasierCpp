@@ -307,7 +307,7 @@ void create_managed_project(const std::filesystem::path& destination,
             sources.push_back("src/greeting.cpp");
         }
         const auto cmake = project_templates::cmake_project(
-            path_support::path_utf8(root.filename()), sources, !libraries.empty(), true);
+            path_support::path_utf8(root.filename()), sources, !libraries.empty(), true, true);
         if (!libraries.empty())
         {
             fs::create_directories(staging / L"cmake");
@@ -360,10 +360,7 @@ void create_managed_project(const std::filesystem::path& destination,
             }
         }
         write("CMakeLists.txt", cmake);
-        write("README.md",
-            "# New C++20 project\n\nBuild independently with CMake and Ninja.\n"
-            "Dependencies are generated configuration, not claimed installed until a build "
-            "succeeds.\n");
+        write("README.md", project_templates::readme(path_support::path_utf8(root.filename())));
         // MoveFileEx without REPLACE_EXISTING prevents a racing destination from
         // being overwritten. The staging path and destination share a parent/volume.
         if (!MoveFileExW(staging.c_str(), root.c_str(), 0))

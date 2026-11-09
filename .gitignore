@@ -28,6 +28,11 @@ build.ninja
 .ninja_deps
 .ninja_log
 /CMakeUserPresets.json
+Testing/
+*.log
+VSInheritEnvironments.txt
+*.tmp
+/.cache/
 
 # Compiled outputs and debugging symbols.
 *.obj

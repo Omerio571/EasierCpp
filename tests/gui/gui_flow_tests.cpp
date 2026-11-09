@@ -2015,6 +2015,19 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
     cpplivelab::save_build_workers({1, 0});
     SetEnvironmentVariableW(L"CPPLIVELAB_TEST_RUNTIME", L"owned-runtime-value");
     Project project;
+    // Keep the no-SDK cached-Run regression on an explicitly managed source
+    // list. Later this fixture opts into discovery for source-addition tests.
+    const auto cmake_file = project.root / L"CMakeLists.txt";
+    std::ifstream cmake_input(cmake_file);
+    std::string initial_cmake{std::istreambuf_iterator<char>(cmake_input), {}};
+    cmake_input.close();
+    const auto automatic_source_option = initial_cmake.find("under src/\" ON)");
+    require(automatic_source_option != std::string::npos,
+        "Generated project lacks its automatic source option");
+    auto manual_cmake = initial_cmake;
+    manual_cmake.replace(
+        automatic_source_option, std::string("under src/\" ON)").size(), "under src/\" OFF)");
+    std::ofstream(cmake_file) << manual_cmake;
     const auto pch_recipe = fixtures / L"console-pch.cmake";
     const auto pch_header = project.root / L"stable_pch.hpp";
     const std::string pch_bytes = "#pragma once\n#include <iostream>\n#include <string>\n";
@@ -2365,6 +2378,46 @@ void run(const fs::path& fixtures, const fs::path& snapshots = {})
         },
         "Fixed source did not build and restart automatically",
         90000);
+    const auto discovered_source = project.root / L"src/auto/nested/Added.cpp";
+    fs::create_directories(discovered_source.parent_path());
+    const auto update_sources = [&](const std::function<void()>& edit, const char* failure)
+    {
+        const auto previous = app.session.process_id();
+        edit();
+        host.await(
+            [&]
+            {
+                return app.phase == Application::Phase::Running &&
+                       app.session.process_id() != previous && !app.replacement_building;
+            },
+            failure,
+            90000);
+    };
+    update_sources(
+        [&]
+        {
+            std::ofstream(cmake_file) << "set(EASIERCPP_AUTO_SOURCES ON CACHE BOOL \"\" FORCE)\n"
+                                      << initial_cmake;
+            std::ofstream(discovered_source) << "int discovered_value() { return 42; }\n";
+            std::ofstream(source_path)
+                << original
+                << "\nint discovered_value();\nint discovered_probe = discovered_value();\n";
+        },
+        "Auto Run did not compile and link a newly added nested implementation");
+    const auto renamed_source = discovered_source.parent_path() / L"Renamed.cc";
+    update_sources(
+        [&]
+        {
+            fs::rename(discovered_source, renamed_source);
+        },
+        "Auto Run did not regenerate after renaming an implementation");
+    update_sources(
+        [&]
+        {
+            std::ofstream(source_path) << original;
+            fs::remove(renamed_source);
+        },
+        "Auto Run did not remove a deleted implementation from its reused build tree");
     const auto pch_failure_id = app.session.process_id();
     std::ofstream(pch_header) << pch_bytes << "\n#error EASIERCPP_EXPECTED_PCH_FAILURE\n";
     host.await(

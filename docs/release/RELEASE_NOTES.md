@@ -1,6 +1,14 @@
+# EasierCpp v0.1.4 - Fixes
+
+Unreleased candidate. See the [ready-to-paste fixes notes](notes/v0.1.4.md).
+Includes automatic source discovery, modern generated projects, and test
+infrastructure cleanup following the published v0.1.3 UI Overhaul.
+
+---
+
 # EasierCpp v0.1.3 - UI Overhaul
 
-Unreleased. See the [v0.1.3 candidate notes](notes/v0.1.3.md).
+Published as V0.1.3 on November 6, 2026. See the [v0.1.3 notes](notes/v0.1.3.md).
 
 - Navigate Home, Workspace, Libraries, Project, Tools and Settings from one sidebar.
 - Use the expanded Workspace console for program input, build output and diagnostics.

@@ -28,6 +28,9 @@ For cached launch eligibility and lazy SDK preparation, see
 
 ## Efficient checks
 
+See [the test map](../../tests/README.md) for subsystem coverage, portable
+acceptance and evidence-maintenance rules.
+
 - Example: `rg -n 'symbol' src/projects include/cpplivelab tests/projects`.
 - Example focused test: `scripts/build.ps1 -BuildDirectory build/<task> -TestMode Full -TestFilter '^stage5_pch$' -Jobs 1`.
 - Quick is offline. Full includes network-dependent tests; keep their authorization

@@ -1,4 +1,4 @@
-# EasierCpp v0.1.3
+# EasierCpp v0.1.4
 
 **Make Your Life Easier**
 
@@ -28,6 +28,9 @@ application process, and supported dependencies.
 - **CMake projects:** create C++20 projects or open existing layouts, select executable
   targets, and review compiler output. Existing-project edits require previews and
   approval where applicable.
+  New standard projects discover implementation files under src/ automatically and
+  include a .gitignore and build instructions. An advanced manual source-list
+  option is described in [project generation](docs/development/PROJECT_GENERATION.md).
 - **Build settings:** Debug/Release, configurable parallel workers, optional CMake
   precompiled headers, and installed toolchain discovery.
 - **Two-tree incremental builds:** the original build and one alternate normally
@@ -35,7 +38,13 @@ application process, and supported dependencies.
 - **Program controls:** Build, Run, Stop, Restart, interactive console input/output,
   and launching your editor.
 
-## What's new in v0.1.3
+## What's new in v0.1.4
+
+The fixes update adds automatic source discovery to new standard projects, modern
+project files and documentation, and updated test maintenance. See the
+[fixes release notes](docs/release/notes/v0.1.4.md).
+
+## UI Overhaul in v0.1.3
 
 The UI Overhaul brings the approved sidebar, light and dark desktop palettes, a
 larger Workspace console, keyboard-accessible help, and the original logo rebuilt

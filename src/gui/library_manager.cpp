@@ -273,7 +273,8 @@ std::string executable_target(const LibraryManagerContext& context)
     std::ifstream input(context.project / L"CMakeLists.txt");
     const std::string content{std::istreambuf_iterator<char>(input), {}};
     if (content.find("# CppLiveLab starter: explicit sources;") != content.npos ||
-        content.find("# EasierCpp starter: explicit sources;") != content.npos)
+        content.find("# EasierCpp starter: explicit sources;") != content.npos ||
+        content.find("# EasierCpp starter: sources under src/") != content.npos)
     {
         return "app";
     }

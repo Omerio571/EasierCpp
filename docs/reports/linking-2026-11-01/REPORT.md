@@ -187,7 +187,8 @@ behavior and identifies where a larger representative measurement should focus.
 
 ## Artifacts and verification
 
-CSV files and successful-link diagnostic logs accompany this report. Full normal
+CSV files accompany this report. Successful-link diagnostic logs are optional
+local ignored evidence; the CSVs retain the relevant linker measurements. Full normal
 build logs, generated Ninja/cache copies and audit-only PowerShell helpers are
 retained under `build/link-slots`, `build/measure-link-slots.ps1` and
 `build/verify-incremental-link.ps1`. The disposable source/build fixture was removed

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
     EasierCpp
-    VERSION 0.1.3
+    VERSION 0.1.4
     LANGUAGES CXX
 )
 
@@ -435,6 +435,11 @@ if(BUILD_TESTING)
         NAME stage5_unified_projects
         COMMAND unified_tests projects
     )
+
+    add_executable(source_discovery_tests tests/projects/source_discovery_tests.cpp)
+    target_link_libraries(source_discovery_tests PRIVATE EasierCppCore)
+    add_test(NAME project_source_discovery COMMAND source_discovery_tests)
+    set_tests_properties(project_source_discovery PROPERTIES TIMEOUT 300)
 
     add_test(
         NAME stage5_unified_raylib
