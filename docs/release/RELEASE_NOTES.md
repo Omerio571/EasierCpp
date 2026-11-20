@@ -1,3 +1,9 @@
+# EasierCpp v0.1.5
+
+See the [v0.1.5 release notes](notes/v0.1.5.md).
+
+---
+
 # EasierCpp v0.1.4 - Fixes
 
 Unreleased candidate. See the [ready-to-paste fixes notes](notes/v0.1.4.md).

@@ -193,6 +193,52 @@ void managed_slots(const fs::path& root)
         "Reused slot did not regenerate after a source rename");
     require(managed_build(project, L"Release", {}, true, false) == 0,
         "Release build did not discover new sources");
+
+    const auto caller = project / L"src/main.cpp";
+    const auto implementation = project / L"src/renamed.cpp";
+    const auto header = project / L"include/value.hpp";
+    write(header, "int new_value();\n");
+    write(implementation, "#include \"value.hpp\"\nint new_value() { return 42; }\n");
+    write(caller, "#include \"value.hpp\"\nint main() { return new_value() != 42; }\n");
+    const auto rotate = [&]
+    {
+        const auto next = replacement_build_options(project, L"Debug", {});
+        std::wcout << L"Replacement slot: " << next.recovery_slot << std::endl;
+        require(managed_build(project, L"Debug", next, true, true) == 0,
+            "Replacement failed after source-folder swap");
+        activate_build_slot(project, L"Debug", next);
+        return next.recovery_slot;
+    };
+    rotate();
+    rotate();
+    const auto implementation_time = fs::last_write_time(implementation);
+    const auto header_time = fs::last_write_time(header);
+    fs::rename(project / L"src", root / L"old src");
+    fs::rename(project / L"include", root / L"old include");
+    write(header, "int new_value(int value);\n");
+    write(implementation, "#include \"value.hpp\"\nint new_value(int value) { return value; }\n");
+    fs::last_write_time(implementation, implementation_time);
+    fs::last_write_time(header, header_time);
+    std::wstring previous;
+    std::map<std::wstring, fs::file_time_type> implementation_objects;
+    for (int cycle = 1; cycle <= 4; ++cycle)
+    {
+        const auto value = std::to_string(cycle);
+        write(caller,
+            "#include \"value.hpp\"\nint main() { return new_value(" + value + ") != " + value +
+                "; }\n");
+        const auto current = rotate();
+        require(current != previous, "Replacement stopped alternating build trees");
+        ProjectOptions built;
+        built.recovery_slot = current;
+        const auto object = managed_build_directory(project, L"Debug", built) /
+                            L"CMakeFiles/app.dir/src/renamed.cpp.obj";
+        const auto compiled = fs::last_write_time(object);
+        const auto [entry, first_visit] = implementation_objects.emplace(current, compiled);
+        require(first_visit || entry->second == compiled,
+            "A caller-only edit unnecessarily recompiled the unchanged implementation");
+        previous = current;
+    }
 }
 } // namespace
 

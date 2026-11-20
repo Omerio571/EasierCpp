@@ -1,4 +1,4 @@
-# EasierCpp v0.1.4
+# EasierCpp v0.1.5
 
 **Make Your Life Easier**
 

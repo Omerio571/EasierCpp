@@ -16,6 +16,19 @@ identities remain unchanged. Cache presence is a selection hint: normal worker
 validation and CMake/Ninja checks still decide whether a build is valid. Invalid
 caches report existing recovery guidance instead of being copied or erased.
 
+Managed Ninja builds store a source-content baseline per configuration and tree.
+If a changed file has a timestamp at or before that tree's last completed build,
+Ninja's timestamp check may reuse an object compiled from older contents. The
+manager reconfigures and cleans only the selected tree before building in this
+case. This also establishes a trusted baseline on the first build of an older
+tree that has a Ninja log but no baseline. The CMake tree, downloaded dependency
+sources, and other slots remain in place. The cleaned tree recompiles its outputs,
+including any affected cached dependencies and link state.
+
+Normal saves keep Ninja's incremental path. The check reads project input
+fingerprints and uses the existing per-tree lease. An unsuccessful replacement
+does not activate its tree.
+
 The atomic `.active` pointer now accepts `base` for the original directory alongside
 existing `fresh-*` values. Empty `recovery_slot` still follows the pointer; explicit
 `base` bypasses it. Transient slot overrides are not serialized as project options.

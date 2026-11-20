@@ -112,6 +112,42 @@ std::string read(const fs::path& path)
     return {(std::istreambuf_iterator<char>(input)), {}};
 }
 
+using InputTime = fs::file_time_type::duration::rep;
+
+// Ninja tracks timestamps per tree. Files restored from an archive can have
+// different contents without a newer timestamp than that tree's objects.
+bool needs_input_refresh(const fs::path& project,
+    const fs::path& record,
+    const std::map<fs::path, std::uint64_t>& inputs)
+{
+    std::ifstream stream(record);
+    InputTime completed = 0;
+    if (!(stream >> completed))
+    {
+        return true;
+    }
+    std::map<std::string, std::uint64_t> previous;
+    std::string path;
+    std::uint64_t hash = 0;
+    while (stream >> std::quoted(path) >> hash)
+    {
+        previous.emplace(path, hash);
+    }
+    return std::any_of(inputs.begin(),
+        inputs.end(),
+        [&](const auto& input)
+        {
+            const auto old = previous.find(path_support::path_utf8(input.first));
+            if (old != previous.end() && old->second == input.second)
+            {
+                return false;
+            }
+            return fs::last_write_time(windows_support::extended_path(project / input.first))
+                       .time_since_epoch()
+                       .count() <= completed;
+        });
+}
+
 std::string metadata_hex(const fs::path& path)
 {
     // Bound cache validation work. Larger projects can still use the normal reader.
@@ -888,6 +924,10 @@ int probe_managed_launch(
     BuildFreshness freshness;
     const BuildIdentity identity{project.root, configuration, target->artifact, directory};
     const auto sources = freshness.begin(identity);
+    if (needs_input_refresh(project.root, directory / (configuration + L".inputs"), sources))
+    {
+        return launch_build_required_exit_code;
+    }
     if (!freshness.succeeded(identity, sources))
     {
         return launch_build_required_exit_code;
@@ -1178,8 +1218,12 @@ int managed_build(const fs::path& root,
               << std::flush;
     int result = 0;
     profile.checkpoint("configure_arguments_ms");
+    const auto input_record = directory / (configuration + L".inputs");
+    const auto inputs = ProjectWatcher::source_fingerprints(project.root);
+    const bool refresh_inputs = fs::is_regular_file(directory / L".ninja_log") &&
+                                needs_input_refresh(project.root, input_record, inputs);
     const bool configure_needed =
-        !incremental || !fs::is_regular_file(directory / L"CMakeCache.txt");
+        refresh_inputs || !incremental || !fs::is_regular_file(directory / L"CMakeCache.txt");
     if (configure_needed)
     {
         result = run_process(cmake, configure, project.root, environment);
@@ -1296,6 +1340,12 @@ int managed_build(const fs::path& root,
     const auto selected_name = selected == targets.end() ? std::wstring{} : selected->name;
     std::vector<std::wstring> arguments{
         L"--build", directory.wstring(), L"--config", configuration};
+    if (refresh_inputs)
+    {
+        std::cout
+            << "Refreshing this build tree: input timestamps cannot prove its outputs current.\n";
+        arguments.push_back(L"--clean-first");
+    }
     if (selected != targets.end())
     {
         arguments.insert(arguments.end(), {L"--target", selected->name});
@@ -1349,6 +1399,16 @@ int managed_build(const fs::path& root,
         }
     }
     profile.checkpoint("artifact_after_ms");
+    if (generator == "Ninja" || generator == "Ninja Multi-Config")
+    {
+        std::ostringstream record;
+        record << fs::file_time_type::clock::now().time_since_epoch().count() << '\n';
+        for (const auto& [path, hash] : inputs)
+        {
+            record << std::quoted(path_support::path_utf8(path)) << ' ' << hash << '\n';
+        }
+        write(input_record, record.str());
+    }
     const auto dependency_directory = state_root() / L"d" / key(directory);
     register_build_dependency_caches(project.root,
         directory,
